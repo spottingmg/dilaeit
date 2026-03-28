@@ -65,7 +65,7 @@
 </div>
 
 <div class="search-area">
-    <input type="text" id="inp" placeholder="Suche Station..." oninput="debounceSearch()" autocomplete="off">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
     <div class="time-controls">
         <input type="date" id="dateInput">
         <input type="time" id="timeInput">
@@ -78,7 +78,7 @@
 <div id="results"></div>
 
 <div id="ov_trip" class="ov">
-    <div class="ov-bar"><span id="ov_title" style="font-weight:800">Info</span><span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span></div>
+    <div class="ov-bar"><span id="ov_title" style="font-weight:800">Verlauf</span><span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span></div>
     <div id="trip_content"></div>
 </div>
 
@@ -88,7 +88,9 @@
     let activeId = "";
     let timer;
 
+    // Wechsle Provider basierend auf Linienname
     function getProvider(lineName) {
+        if (!lineName) return API_DB;
         const l = lineName.toLowerCase();
         if (l.includes('bus') || l.includes('str') || l.startsWith('u') || l.startsWith('ne')) return API_VRR;
         return API_DB;
@@ -122,7 +124,7 @@
 
     function getLiveState(planned, actual, delay) {
         if (!actual) return 'prognose';
-        // FETT wenn delay eine Zahl ist (auch 0 oder negativ)
+        // STRENGE LOGIK: Nur fett, wenn delay eine Zahl ist (0, -1, +5 etc.)
         return (typeof delay === 'number') ? 'live-confirmed' : 'prognose';
     }
 
@@ -151,64 +153,86 @@
         loadDeps();
     }
 
-async function loadTrip(tid, line, dest) {
-    saveToArchive(tid, line, dest);
-    document.getElementById('ov_trip').style.display = 'block';
-    const cont = document.getElementById('trip_content');
-    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Laden...</div>";
-    
-    // Wir versuchen erst den logischen Provider, dann den Backup
-    const primaryAPI = getProvider(line);
-    const backupAPI = (primaryAPI === API_VRR) ? API_DB : API_VRR;
-
-    async function fetchTrip(api) {
-        const r = await fetch(`${api}/trips/${encodeURIComponent(tid)}`);
-        if (!r.ok) throw new Error("Nicht gefunden");
-        return await r.json();
+    async function loadDeps() {
+        const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
+        const res = document.getElementById('results');
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>Suche Abfahrten...</div>";
+        try {
+            const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
+            const data = await r.json();
+            res.innerHTML = data.departures.map(d => {
+                const ist = d.when || d.plannedWhen;
+                const soll = d.plannedWhen;
+                const isCanceled = d.cancelled;
+                const ziel = d.direction || "Endstation";
+                const liveClass = getLiveState(soll, ist, d.delay);
+                
+                return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
+                    <div>
+                        <span class="line-id">${d.line.name}</span>
+                        ${d.additional ? '<span style="color:var(--green); font-size:10px; font-weight:800; margin-left:5px;">Zusatz</span>' : ''}
+                        <span class="dest">${isCanceled ? 'Fällt aus: ' : ''}${ziel}</span>
+                    </div>
+                    <div class="time-stack">
+                        <div class="t-row">
+                            <span class="t-soll">${formatT(soll)}</span>
+                            ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}" title="${formatFull(ist)}">${formatT(ist)}</span>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Keine Daten.</div>"; }
     }
 
-    try {
-        let data;
-        try {
-            data = await fetchTrip(primaryAPI);
-        } catch (e) {
-            console.log("Switching to Backup API...");
-            data = await fetchTrip(backupAPI);
+    async function loadTrip(tid, line, dest) {
+        saveToArchive(tid, line, dest);
+        document.getElementById('ov_trip').style.display = 'block';
+        const cont = document.getElementById('trip_content');
+        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf...</div>";
+        
+        const primaryAPI = getProvider(line);
+        const backupAPI = (primaryAPI === API_VRR) ? API_DB : API_VRR;
+
+        async function tryFetch(api) {
+            const r = await fetch(`${api}/trips/${encodeURIComponent(tid)}`);
+            if (!r.ok) throw new Error();
+            return await r.json();
         }
 
-        document.getElementById('ov_title').innerText = line + " -> " + dest;
-        cont.innerHTML = data.trip.stopovers.map(s => {
-            const isCanceled = s.cancelled;
-            const renderTimeRow = (planned, actual, label, delay) => {
-                if (!planned) return '';
-                const liveClass = getLiveState(planned, actual, delay);
-                return `
-                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
-                        <span style="color:var(--sub); font-size: 9px; width: 22px; font-weight:bold;">${label}</span>
-                        <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
-                        ${!isCanceled ? `<span class="${getCol(actual, planned)} ${liveClass}" title="${formatFull(actual || planned)}">${formatT(actual || planned)}</span>` : ''}
-                    </div>`;
-            };
+        try {
+            let data;
+            try { data = await tryFetch(primaryAPI); } 
+            catch(e) { data = await tryFetch(backupAPI); }
 
-            return `
-            <div class="stop-row ${isCanceled?'cancelled':''}">
-                <div class="stop-times">
-                    ${renderTimeRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
-                    ${renderTimeRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
-                </div>
-                <div class="stop-info">
-                    <span style="font-weight:600">${s.stop.name}</span>
-                    ${isCanceled ? '<br><span style="color:var(--red); font-size:11px; font-weight:bold;">Halt entfällt</span>' : ''}
-                </div>
-            </div>`;
-        }).join('');
-    } catch (e) { 
-        cont.innerHTML = `<div style='padding:50px; text-align:center;'>
-            <p>Daten aktuell nicht abrufbar.</p>
-            <small style="color:var(--sub)">Die API meldet Überlastung oder die Trip-ID ist abgelaufen.</small>
-        </div>`; 
+            document.getElementById('ov_title').innerText = line + " -> " + dest;
+            cont.innerHTML = data.trip.stopovers.map(s => {
+                const isCanceled = s.cancelled;
+                const renderTimeRow = (planned, actual, label, delay) => {
+                    if (!planned) return '';
+                    const liveClass = getLiveState(planned, actual, delay);
+                    return `
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
+                            <span style="color:var(--sub); font-size: 9px; width: 22px; font-weight:bold;">${label}</span>
+                            <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
+                            ${!isCanceled ? `<span class="${getCol(actual, planned)} ${liveClass}" title="${formatFull(actual || planned)}">${formatT(actual || planned)}</span>` : ''}
+                        </div>`;
+                };
+
+                return `
+                <div class="stop-row ${isCanceled?'cancelled':''}">
+                    <div class="stop-times">
+                        ${renderTimeRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
+                        ${renderTimeRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
+                    </div>
+                    <div class="stop-info">
+                        <span style="font-weight:600">${s.stop.name}</span>
+                        ${isCanceled ? '<br><span style="color:var(--red); font-size:11px; font-weight:bold;">Halt entfällt</span>' : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf aktuell nicht verfügbar.</div>"; }
     }
-}
+
     function saveToArchive(tid, line, dest) {
         let arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
         arc = arc.filter(x => x.tid !== tid).slice(0, 9);
