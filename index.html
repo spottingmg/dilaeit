@@ -38,8 +38,10 @@
         .stop-dist { font-size: 10px; color: var(--sub); font-weight: 600; }
         .stop-plat { font-size: 11px; color: var(--sub); font-weight: 700; text-align: right; }
 
+        /* Echtzeit-Styling */
         .live-active { font-weight: 800 !important; }
-        .v-red { color: var(--red); } .v-green { color: var(--green); }
+        .v-red { color: var(--red) !important; } 
+        .v-green { color: var(--green) !important; }
         .past-stop { opacity: 0.3; filter: grayscale(1); }
     </style>
 </head>
@@ -166,7 +168,6 @@
         if(!deps.length) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Nichts gefunden.</div>"; return; }
         res.innerHTML = deps.map(d => {
             const isLive = d.prognosisType === 'prognosed' || d.prognosisType === 'actual';
-            // Startseite: Sekunden NUR bei Fett/Live
             const timeStr = isLive ? (d.when || d.plannedWhen).substring(11,19) : (d.plannedWhen || d.when).substring(11,16);
             const diff = isLive ? Math.round((new Date(d.when) - new Date(d.plannedWhen))/60000) : 0;
             return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${d.direction}')">
