@@ -5,8 +5,8 @@
     <title>dilaeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --blue: #0a84ff; }
-        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; --blue: #007aff; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --blue: #0a84ff; --hover: #3a3a3c; }
+        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; --blue: #007aff; --hover: #f2f2f7; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
         
         .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
@@ -17,14 +17,18 @@
         .time-row input { flex: 1; padding: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; }
         .btn-now { background: var(--db-red); color: white; border: none; border-radius: 8px; padding: 0 15px; font-weight: bold; cursor: pointer; }
 
-        /* Dropdown jetzt dynamisch unter der gesamten search-area */
-        #dropdown { position: absolute; left: 20px; right: 20px; top: 100%; background: var(--card); border: 1px solid var(--border); z-index: 10000; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        #dropdown { position: absolute; left: 20px; right: 20px; top: 55px; background: var(--card); border: 1px solid var(--border); z-index: 10001; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.2s; }
+        .dd-item:last-child { border-bottom: none; }
+        .dd-item:hover { background: var(--hover); }
+
         input[type="text"] { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
 
         .archive-section { padding: 0 20px 20px; }
         .archive-title { font-size: 11px; color: var(--sub); font-weight: bold; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
 
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .row:hover { background: var(--hover); }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; }
         
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
@@ -38,13 +42,13 @@
         .stop-times { font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.6; z-index: 2; }
         .time-group { display: flex; gap: 6px; align-items: center; }
         .t-plan { color: var(--sub); width: 40px; }
-        .t-act { min-width: 70px; }
+        .t-act { min-width: 70px; font-weight: 400; } 
         .t-lbl { color: var(--sub); font-size: 9px; width: 18px; text-transform: uppercase; font-weight: bold; }
 
         .stop-name-box { position: relative; padding-left: 25px; z-index: 2; min-width: 0; }
         .stop-name-box::before { content: ""; position: absolute; left: -4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--sub); }
         
-        .v-live { font-weight: 900 !important; }
+        .v-final { font-weight: 900 !important; }
         .v-delay { color: var(--red) !important; }
         .v-ontime { color: var(--green) !important; }
 
@@ -61,10 +65,9 @@
 
 <div class="search-area">
     <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
-    
     <div class="time-row">
-        <input type="date" id="date_inp" onchange="updateTimeSession()">
-        <input type="time" id="time_inp" onchange="updateTimeSession()">
+        <input type="date" id="date_inp" onchange="updateTimeSession(); if(activeId) loadDeps();">
+        <input type="time" id="time_inp" onchange="updateTimeSession(); if(activeId) loadDeps();">
         <button class="btn-now" onclick="setNow()">Jetzt</button>
     </div>
     <div id="dropdown"></div>
@@ -93,7 +96,7 @@
     init();
 
     function init() {
-        setNow(false); 
+        if (!sessionStorage.getItem('lastDate')) setNow(false); 
         initArchive();
         restoreSession();
     }
@@ -103,8 +106,8 @@
         return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: sec ? '2-digit' : undefined });
     }
 
-    function getDelayClass(plan, act) {
-        if (!act) return "v-ontime"; 
+    function getDelayClass(plan, act, hasPrognosis) {
+        if (!hasPrognosis || !act) return ""; 
         const diff = (act - plan) / 1000 / 60;
         return (diff >= 1) ? "v-delay" : "v-ontime";
     }
@@ -126,14 +129,18 @@
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
-        dd.style.display = 'block';
         try {
             const [vrr, db] = await Promise.allSettled([
                 fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json()),
                 fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json())
             ]);
             let combined = [...(vrr.value || []), ...(db.value || [])];
-            dd.innerHTML = combined.map(l => `<div style="padding:12px; border-bottom:1px solid var(--border);" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+            if(combined.length > 0) {
+                dd.style.display = 'block';
+                dd.innerHTML = combined.map(l => `<div class="dd-item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+            } else {
+                dd.style.display = 'none';
+            }
         } catch(e) { console.error(e); }
     }
 
@@ -153,17 +160,23 @@
         const dt = document.getElementById('date_inp').value;
         const tm = document.getElementById('time_inp').value;
         try {
-            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60&when=${dt}T${tm}:00`).then(r => r.json());
+            // results=100 sorgt dafür, dass auch in Randzeiten viele Fahrten geladen werden
+            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=120&results=100&when=${dt}T${tm}:00`).then(r => r.json());
             const deps = data.departures || data || [];
-            res.innerHTML = deps.map(d => renderRow(d)).join('');
+            if(deps.length === 0) {
+                res.innerHTML = "<div style='padding:20px; opacity:0.6;'>Keine Fahrten gefunden.</div>";
+            } else {
+                res.innerHTML = deps.map(d => renderRow(d)).join('');
+            }
         } catch(e) { res.innerHTML = "Fehler beim Laden."; }
     }
 
     function renderRow(d) {
         const plan = new Date(d.plannedWhen || d.when);
         const act = d.when ? new Date(d.when) : plan;
-        const colorClass = getDelayClass(plan, act);
-
+        const hasLive = d.prognosisType === 'prognosed' || d.prognosisType === 'real';
+        const colorClass = getDelayClass(plan, act, hasLive);
+        
         return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${(d.direction || "Ziel unbekannt").replace(/'/g, "\\'")}', '${currentApi}')">
             <div style="flex:1;">
                 <div class="line-id">${d.line.name}</div>
@@ -171,7 +184,7 @@
             </div>
             <div style="text-align:right; font-variant-numeric: tabular-nums;">
                 <div style="font-size:11px; color:var(--sub)">${fTime(plan, false)}</div>
-                <div class="v-live ${colorClass}">${fTime(act, false)}</div>
+                <div class="t-act ${colorClass}">${fTime(act, false)}</div>
             </div>
         </div>`;
     }
@@ -201,11 +214,15 @@
                 const aArr = s.arrival ? new Date(s.arrival) : pArr;
                 const pDep = s.plannedDeparture ? new Date(s.plannedDeparture) : null;
                 const aDep = s.departure ? new Date(s.departure) : pDep;
+                const hasLiveArr = s.arrivalPrognosisType === 'prognosed' || s.arrivalPrognosisType === 'real';
+                const hasLiveDep = s.departurePrognosisType === 'prognosed' || s.departurePrognosisType === 'real';
+                const isFinalArr = s.arrivalPrognosisType === 'real';
+                const isFinalDep = s.departurePrognosisType === 'real';
                 
                 return `<div class="stop-row">
                     <div class="stop-times">
-                        ${pArr ? `<div class="time-group"><span class="t-lbl">an</span><span class="t-plan">${fTime(pArr)}</span><span class="t-act v-live ${getDelayClass(pArr, aArr)}">${fTime(aArr, true)}</span></div>` : ''}
-                        ${pDep ? `<div class="time-group"><span class="t-lbl">ab</span><span class="t-plan">${fTime(pDep)}</span><span class="t-act v-live ${getDelayClass(pDep, aDep)}">${fTime(aDep, true)}</span></div>` : ''}
+                        ${pArr ? `<div class="time-group"><span class="t-lbl">an</span><span class="t-plan">${fTime(pArr)}</span><span class="t-act ${isFinalArr ? 'v-final' : ''} ${getDelayClass(pArr, aArr, hasLiveArr)}">${fTime(aArr, isFinalArr)}</span></div>` : ''}
+                        ${pDep ? `<div class="time-group"><span class="t-lbl">ab</span><span class="t-plan">${fTime(pDep)}</span><span class="t-act ${isFinalDep ? 'v-final' : ''} ${getDelayClass(pDep, aDep, hasLiveDep)}">${fTime(aDep, isFinalDep)}</span></div>` : ''}
                     </div>
                     <div class="stop-name-box">
                         <div class="stop-name ${s.cancelled ? 'cancelled' : ''}">${s.stop.name}</div>
@@ -222,7 +239,7 @@
         let arch = JSON.parse(localStorage.getItem('dilaeit_trip_arch') || '[]');
         arch = arch.filter(i => i.tid !== tid);
         arch.unshift({ tid, line, dest, api, ts: Date.now() });
-        localStorage.setItem('dilaeit_trip_arch', JSON.stringify(arch.slice(0, 5)));
+        localStorage.setItem('dilaeit_trip_arch', JSON.stringify(arch.slice(0, 10)));
         renderArchive();
     }
 
@@ -244,14 +261,12 @@
         const lt = sessionStorage.getItem('lastTime');
         if(ld) document.getElementById('date_inp').value = ld;
         if(lt) document.getElementById('time_inp').value = lt;
-
         const lastStation = sessionStorage.getItem('lastStation');
         if(lastStation) {
             const s = JSON.parse(lastStation);
             activeId = s.id; document.getElementById('inp').value = s.name; currentApi = s.api;
             loadDeps();
         }
-
         const lastTrip = sessionStorage.getItem('currentTrip');
         if(lastTrip) {
             currentTripData = JSON.parse(lastTrip);
