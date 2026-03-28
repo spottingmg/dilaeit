@@ -14,19 +14,22 @@
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
         .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--sub); font-weight: 500; }
 
-        .search-area { padding: 0 20px 10px; display: flex; flex-direction: column; gap: 12px; position: relative; }
+        /* Optimierte Suchzeile für alle Breiten */
+        .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; max-width: 100%; box-sizing: border-box; }
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 15px; outline: none; color: var(--text); font-family: inherit; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
         input:focus { border-color: var(--db-red); }
         
-        .time-row { display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 10px; align-items: center; }
-        .btn-jetzt { padding: 0 15px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--text); height: 46px; transition: opacity 0.2s; }
+        .time-row { display: flex; gap: 10px; width: 100%; align-items: center; }
+        .time-row input[type="date"] { flex: 1.5; }
+        .time-row input[type="time"] { flex: 1; }
+        .btn-jetzt { flex: 0.4; min-width: 70px; height: 46px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--text); transition: opacity 0.2s; }
         .btn-jetzt:active { opacity: 0.7; }
 
         .row { padding: 16px 20px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; min-width: 65px; }
         .dest { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .t-row { font-size: 15px; display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; text-align: right; }
-        .t-soll { color: var(--sub); font-weight: 400; font-size: 13px; }
+        .t-soll { color: var(--sub); font-weight: 400; font-size: 13px; text-decoration: line-through; }
         
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .live-confirmed { font-weight: 900 !important; letter-spacing: -0.2px; } 
@@ -35,14 +38,13 @@
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         
-        .stop-row { padding: 15px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 130px 1fr 50px; gap: 12px; align-items: center; }
+        .stop-row { padding: 15px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 140px 1fr 50px; gap: 12px; align-items: center; }
         .stop-times { font-size: 12px; line-height: 1.6; font-variant-numeric: tabular-nums; }
         .stop-name { font-weight: 600; font-size: 14px; padding-left: 5px; }
         .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; }
 
-        #dropdown { position: absolute; left: 20px; right: 20px; top: 65px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 10px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); max-height: 380px; overflow-y: auto; }
+        #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 10px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); max-height: 380px; overflow-y: auto; }
         .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; color: var(--text); }
-        .item:last-child { border-bottom: none; }
         .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 14px 15px 6px; text-transform: uppercase; letter-spacing: 0.8px; }
     </style>
 </head>
@@ -93,7 +95,7 @@
         if (!actual) return { cls: '', txt: '--:--' };
         const p = new Date(planned), a = new Date(actual);
         
-        // Logik: Fett + Sekunden wenn Sekunden da ODER Status explizit "actual"
+        // Regel: Fett + Sekunden, wenn Signal 'actual' ist oder Sekunden vorliegen
         const hasSeconds = a.getSeconds() !== 0;
         const isReported = hasSeconds || prognosisType === 'actual';
 
@@ -197,10 +199,8 @@
         let hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
         hist = [{tid, line, dest}, ...hist.filter(x => x.tid !== tid)].slice(0, 10);
         localStorage.setItem('trip_hist', JSON.stringify(hist));
-
         document.getElementById('dropdown').style.display = 'none';
         document.getElementById('ov_trip').style.display = 'block';
-        
         await refreshTrip();
         clearInterval(tripTimer);
         tripTimer = setInterval(refreshTrip, 30000);
@@ -210,15 +210,10 @@
         if (!currentTripData) return;
         const { tid, line, dest } = currentTripData;
         const cont = document.getElementById('trip_content');
-        
-        // Immer DB API nutzen, wenn es Düsseldorf/Züge sind für maximale Präzision
         const tripApi = (isTrain(line) || dest.includes("Düsseldorf")) ? API_DB : currentApi;
-        
         const data = await fetchS(`${tripApi}/trips/${encodeURIComponent(tid)}`);
         const trip = data ? (data.trip || data) : null;
-
         if(!trip) { cont.innerHTML = "<div style='padding:20px; text-align:center;'>Fahrtverlauf aktuell nicht verfügbar.</div>"; return; }
-
         document.getElementById('ov_title').innerText = line + " ➔ " + dest;
         cont.innerHTML = (trip.stopovers || []).map(s => {
             const render = (soll, ist, type, lbl) => {
@@ -252,11 +247,7 @@
     }
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
-    function closeOv() { 
-        document.getElementById('ov_trip').style.display = 'none'; 
-        clearInterval(tripTimer);
-        currentTripData = null;
-    }
+    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; clearInterval(tripTimer); currentTripData = null; }
     
     document.addEventListener('click', (e) => { 
         if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) {
