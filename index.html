@@ -14,7 +14,6 @@
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
         .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--sub); font-weight: 500; }
 
-        /* Optimierte Suchzeile für alle Breiten */
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; max-width: 100%; box-sizing: border-box; }
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 15px; outline: none; color: var(--text); font-family: inherit; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
         input:focus { border-color: var(--db-red); }
@@ -23,13 +22,14 @@
         .time-row input[type="date"] { flex: 1.5; }
         .time-row input[type="time"] { flex: 1; }
         .btn-jetzt { flex: 0.4; min-width: 70px; height: 46px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--text); transition: opacity 0.2s; }
-        .btn-jetzt:active { opacity: 0.7; }
 
         .row { padding: 16px 20px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; min-width: 65px; }
         .dest { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .t-row { font-size: 15px; display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; text-align: right; }
-        .t-soll { color: var(--sub); font-weight: 400; font-size: 13px; text-decoration: line-through; }
+        
+        /* FIX: Soll-Zeit wird nicht mehr durchgestrichen */
+        .t-soll { color: var(--sub); font-weight: 400; font-size: 13px; }
         
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .live-confirmed { font-weight: 900 !important; letter-spacing: -0.2px; } 
@@ -95,16 +95,15 @@
         if (!actual) return { cls: '', txt: '--:--' };
         const p = new Date(planned), a = new Date(actual);
         
-        // Regel: Fett + Sekunden, wenn Signal 'actual' ist oder Sekunden vorliegen
-        const hasSeconds = a.getSeconds() !== 0;
-        const isReported = hasSeconds || prognosisType === 'actual';
+        // FIX: Fett-Markierung greift jetzt bei allen Live-Daten (actual oder prognosed)
+        const isLive = (prognosisType === 'actual' || prognosisType === 'prognosed' || a.getSeconds() !== 0);
 
-        const format = isReported 
+        const format = isLive 
             ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} 
             : {hour:'2-digit', minute:'2-digit'};
 
         return { 
-            cls: isReported ? 'live-confirmed' : '', 
+            cls: isLive ? 'live-confirmed' : '', 
             txt: a.toLocaleTimeString('de-DE', format),
             soll: p.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'})
         };
@@ -175,6 +174,7 @@
         const dVal = document.getElementById('date_inp').value, tVal = document.getElementById('time_inp').value;
         let timeParam = (dVal && tVal) ? `&when=${new Date(`${dVal}T${tVal}`).toISOString()}` : "";
         res.innerHTML = "<div style='padding:40px; text-align:center; color:var(--sub)'>Suche Abfahrten...</div>";
+        
         const data = await fetchS(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`);
         if(!data) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Keine Daten.</div>"; return; }
         const deps = Array.isArray(data) ? data : (data.departures || []);
@@ -210,10 +210,14 @@
         if (!currentTripData) return;
         const { tid, line, dest } = currentTripData;
         const cont = document.getElementById('trip_content');
+        
+        // Züge und Düsseldorf-Fahrten immer über DB-API
         const tripApi = (isTrain(line) || dest.includes("Düsseldorf")) ? API_DB : currentApi;
+        
         const data = await fetchS(`${tripApi}/trips/${encodeURIComponent(tid)}`);
         const trip = data ? (data.trip || data) : null;
-        if(!trip) { cont.innerHTML = "<div style='padding:20px; text-align:center;'>Fahrtverlauf aktuell nicht verfügbar.</div>"; return; }
+        if(!trip) { cont.innerHTML = "<div style='padding:20px; text-align:center;'>Verlauf aktuell nicht verfügbar.</div>"; return; }
+        
         document.getElementById('ov_title').innerText = line + " ➔ " + dest;
         cont.innerHTML = (trip.stopovers || []).map(s => {
             const render = (soll, ist, type, lbl) => {
@@ -224,7 +228,7 @@
                     <div style="display:flex; align-items:center; justify-content: space-between; gap:8px; margin-bottom:3px;">
                         <div style="display:flex; gap:6px; align-items:center;">
                             <span style="font-size:9px; color:var(--sub); width:16px; font-weight:800;">${lbl}</span>
-                            <span style="color:var(--sub); text-decoration: line-through; font-size:11px;">${live.soll}</span>
+                            <span class="t-soll" style="font-size:11px;">${live.soll}</span>
                         </div>
                         <span class="${color} ${live.cls}" style="font-size:14px; font-variant-numeric: tabular-nums;">${live.txt}</span>
                     </div>`;
