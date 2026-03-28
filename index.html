@@ -13,6 +13,10 @@
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
         
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 5000; }
+        .time-row { display: flex; gap: 8px; }
+        .time-row input { flex: 1; padding: 10px; font-size: 14px; }
+        .btn-now { background: var(--db-red); color: white; border: none; border-radius: 8px; padding: 0 15px; font-weight: bold; cursor: pointer; }
+
         #dropdown { position: absolute; left: 20px; right: 20px; top: 55px; background: var(--card); border: 1px solid var(--border); z-index: 10000; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
 
@@ -38,10 +42,8 @@
 
         .stop-name-box { position: relative; padding-left: 25px; z-index: 2; min-width: 0; }
         .stop-name-box::before { content: ""; position: absolute; left: -4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--sub); }
-        .v-red { color: var(--red) !important; } .v-green { color: var(--green) !important; }
+        .v-green { color: var(--green) !important; }
         .is-live { font-weight: 900 !important; }
-        .current-stop { background: rgba(197, 0, 20, 0.1); }
-        .current-stop .stop-name-box::before { background: var(--db-red); border-color: var(--db-red); }
     </style>
 </head>
 <body data-theme="dark">
@@ -54,6 +56,12 @@
 <div class="search-area">
     <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
     <div id="dropdown"></div>
+    
+    <div class="time-row">
+        <input type="date" id="date_inp" onchange="updateTimeSession()">
+        <input type="time" id="time_inp" onchange="updateTimeSession()">
+        <button class="btn-now" onclick="setNow()">Jetzt</button>
+    </div>
 </div>
 
 <div id="archive_container" class="archive-section" style="display:none;">
@@ -76,13 +84,27 @@
     const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer, currentApi = API_VRR, tripTimer, currentTripData = null;
 
-    // Beim Start: Archiv und Session wiederherstellen
+    // Initialisierung
+    setNow(false); 
     initArchive();
     restoreSession();
 
     function fTime(date, sec = false) {
         if(!date) return "";
         return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: sec ? '2-digit' : undefined });
+    }
+
+    function setNow(refresh = true) {
+        const now = new Date();
+        document.getElementById('date_inp').value = now.toISOString().split('T')[0];
+        document.getElementById('time_inp').value = now.toTimeString().split(' ')[0].substring(0, 5);
+        updateTimeSession();
+        if(refresh && activeId) loadDeps();
+    }
+
+    function updateTimeSession() {
+        sessionStorage.setItem('lastDate', document.getElementById('date_inp').value);
+        sessionStorage.setItem('lastTime', document.getElementById('time_inp').value);
     }
 
     async function doSearch() {
@@ -103,17 +125,21 @@
         document.getElementById('inp').value = name;
         document.getElementById('dropdown').style.display = 'none';
         currentApi = id.includes('de:') ? API_VRR : API_DB;
-        
-        // Session speichern
         sessionStorage.setItem('lastStation', JSON.stringify({id, name, api: currentApi}));
         loadDeps();
     }
 
     async function loadDeps() {
+        if(!activeId) return;
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px; opacity:0.6;'>Lade Abfahrten...</div>";
+        res.innerHTML = "<div style='padding:20px; opacity:0.6;'>Lade...</div>";
+        
+        const dt = document.getElementById('date_inp').value;
+        const tm = document.getElementById('time_inp').value;
+        const dtParam = `&when=${dt}T${tm}:00`;
+
         try {
-            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60`).then(r => r.json());
+            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60${dtParam}`).then(r => r.json());
             const deps = data.departures || data || [];
             res.innerHTML = deps.map(d => renderRow(d)).join('');
         } catch(e) { res.innerHTML = "Fehler beim Laden."; }
@@ -129,9 +155,9 @@
                 <div class="line-id">${d.line.name}</div>
                 <div style="font-size:14px; font-weight:600;">${direction}</div>
             </div>
-            <div style="text-align:right; font-variant-numeric: tabular-nums;">
+            <div style="text-align:right;">
                 <div style="font-size:11px; color:var(--sub)">${fTime(plan)}</div>
-                <div class="${isLive ? 'v-green' : ''} ${isLive ? 'is-live' : ''}">${fTime(act || plan, isLive)}</div>
+                <div class="${isLive ? 'v-green is-live' : ''}">${fTime(act || plan, isLive)}</div>
             </div>
         </div>`;
     }
@@ -139,10 +165,7 @@
     async function loadTrip(tid, line, dest, apiOrigin) {
         saveToArchive(tid, line, dest, apiOrigin);
         currentTripData = { tid, line, dest, apiOrigin };
-        
-        // Aktuellen Trip in Session merken
         sessionStorage.setItem('currentTrip', JSON.stringify(currentTripData));
-        
         document.getElementById('ov_trip').style.display = 'block';
         refreshTrip();
         clearInterval(tripTimer);
@@ -155,48 +178,34 @@
         try {
             const trip = await fetch(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`).then(r => r.json());
             const stops = trip.stopovers || trip.trip.stopovers;
-            
-            let finalDest = (currentTripData.dest === "Ziel unbekannt" || currentTripData.dest === "Sonderfahrt") ? stops[stops.length-1].stop.name : currentTripData.dest;
-            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${finalDest}`;
-
+            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest}`;
             document.getElementById('trip_content').innerHTML = stops.map(s => {
                 const pArr = s.plannedArrival ? new Date(s.plannedArrival) : null;
                 const aArr = s.arrival ? new Date(s.arrival) : pArr;
-                const pDep = s.plannedDeparture ? new Date(s.plannedDeparture) : null;
-                const aDep = s.departure ? new Date(s.departure) : pDep;
-                const now = new Date();
-                
-                const isPast = aDep ? aDep < now : aArr < now;
-                const isLiveArr = !!s.arrival;
-                const isLiveDep = !!s.departure;
-
-                return `<div class="stop-row ${isPast ? 'past-stop' : ''}">
+                const isLive = !!s.arrival;
+                return `<div class="stop-row">
                     <div class="stop-times">
-                        ${pArr ? `<div class="time-group">
+                        <div class="time-group">
                             <span class="t-lbl">an</span>
                             <span class="t-plan">${fTime(pArr)}</span>
-                            <span class="t-act ${isLiveArr ? 'v-green is-live' : ''}">${fTime(aArr, isLiveArr)}</span>
-                        </div>` : ''}
-                        ${pDep ? `<div class="time-group">
-                            <span class="t-lbl">ab</span>
-                            <span class="t-plan">${fTime(pDep)}</span>
-                            <span class="t-act ${isLiveDep ? 'v-green is-live' : ''}">${fTime(aDep, isLiveDep)}</span>
-                        </div>` : ''}
+                            <span class="t-act ${isLive ? 'v-green is-live' : ''}">${fTime(aArr, isLive)}</span>
+                        </div>
                     </div>
-                    <div class="stop-name-box">
-                        <div class="stop-name">${s.stop.name}</div>
-                        ${s.cancelled ? '<div style="font-size:9px; color:var(--red); font-weight:bold;">HALT ENTFÄLLT</div>' : ''}
-                    </div>
-                    <div class="stop-plat">${s.platform ? 'Gl. ' + s.platform : ''}</div>
+                    <div class="stop-name-box"><div class="stop-name">${s.stop.name}</div></div>
+                    <div class="stop-plat">${s.platform || ''}</div>
                 </div>`;
             }).join('');
-        } catch(e) { console.error("Trip-Fehler:", e); }
+        } catch(e) {}
     }
 
-    // SESSION WIEDERHERSTELLUNG
     function restoreSession() {
         const lastStation = sessionStorage.getItem('lastStation');
         const currentTrip = sessionStorage.getItem('currentTrip');
+        const lDate = sessionStorage.getItem('lastDate');
+        const lTime = sessionStorage.getItem('lastTime');
+
+        if(lDate) document.getElementById('date_inp').value = lDate;
+        if(lTime) document.getElementById('time_inp').value = lTime;
 
         if(lastStation) {
             const s = JSON.parse(lastStation);
@@ -205,11 +214,32 @@
             currentApi = s.api;
             loadDeps();
         }
-
         if(currentTrip) {
             const t = JSON.parse(currentTrip);
             loadTrip(t.tid, t.line, t.dest, t.apiOrigin);
         }
+    }
+
+    function saveToArchive(tid, line, dest, api) {
+        let arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
+        arch = arch.filter(i => i.tid !== tid).unshift({ tid, line, dest, api, ts: Date.now() });
+        localStorage.setItem('dilaeit_arch', JSON.stringify(arch.slice(0, 10)));
+        renderArchive();
+    }
+
+    function initArchive() { renderArchive(); }
+
+    function renderArchive() {
+        const arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
+        const container = document.getElementById('archive_container');
+        if(arch.length === 0) return;
+        container.style.display = 'block';
+        document.getElementById('archive_list').innerHTML = arch.map(i => `
+            <div class="row" style="padding: 10px 0;" onclick="loadTrip('${i.tid}', '${i.line}', '${i.dest}', '${i.api}')">
+                <span style="color:var(--db-red); font-weight:bold; width:50px;">${i.line}</span>
+                <span style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis;">${i.dest}</span>
+            </div>
+        `).join('');
     }
 
     function closeOv() { 
@@ -217,38 +247,6 @@
         clearInterval(tripTimer); 
         sessionStorage.removeItem('currentTrip'); 
     }
-
-    // ARCHIV LOGIK
-    function saveToArchive(tid, line, dest, api) {
-        let arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
-        arch = arch.filter(i => i.tid !== tid);
-        arch.unshift({ tid, line, dest, api, ts: Date.now() });
-        localStorage.setItem('dilaeit_arch', JSON.stringify(arch.slice(0, 10)));
-        renderArchive();
-    }
-
-    function initArchive() {
-        const arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
-        const now = Date.now();
-        const filtered = arch.filter(i => now - i.ts < 48 * 60 * 60 * 1000);
-        localStorage.setItem('dilaeit_arch', JSON.stringify(filtered));
-        renderArchive();
-    }
-
-    function renderArchive() {
-        const arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
-        const container = document.getElementById('archive_container');
-        const list = document.getElementById('archive_list');
-        if(arch.length === 0) { container.style.display = 'none'; return; }
-        container.style.display = 'block';
-        list.innerHTML = arch.map(i => `
-            <div class="row" style="padding: 10px 0; border-bottom: 1px solid var(--border);" onclick="loadTrip('${i.tid}', '${i.line}', '${i.dest}', '${i.api}')">
-                <span style="color:var(--db-red); font-weight:bold; width:50px;">${i.line}</span>
-                <span style="flex:1; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-left:10px;">${i.dest}</span>
-            </div>
-        `).join('');
-    }
-
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function toggleTheme() {
         const b = document.body;
