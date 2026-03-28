@@ -18,11 +18,11 @@
         input:focus { border-color: var(--db-red); }
 
         .time-row { display: flex; gap: 10px; }
-        .time-row input { padding: 10px; font-size: 14px; flex: 1; }
+        .time-row input { padding: 10px; font-size: 14px; flex: 1; min-width: 0; }
         .btn-jetzt { background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 0 15px; font-weight: bold; cursor: pointer; }
 
         #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
-        .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; }
         .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 12px 15px 5px; text-transform: uppercase; background: var(--bg); position: sticky; top: 0; }
 
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
@@ -36,8 +36,10 @@
         .stop-name { font-size: 14px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stop-plat { font-size: 11px; color: var(--sub); font-weight: 700; text-align: right; }
 
+        /* Die Fett-Logik: Nur bei Echtzeit aktiv */
         .live-active { font-weight: 800 !important; }
-        .v-red { color: var(--red); } .v-green { color: var(--green); }
+        .v-red { color: var(--red); } 
+        .v-green { color: var(--green); }
         .past-stop { opacity: 0.3; filter: grayscale(1); }
     </style>
 </head>
@@ -76,6 +78,7 @@
     const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer, currentApi = API_VRR, tripTimer, currentTripData = null;
 
+    // Initialisierung
     setNow(false);
 
     function setNow(refresh = true) {
@@ -88,7 +91,7 @@
     function showHistory(e) {
         if (e) e.stopPropagation();
         const q = document.getElementById('inp').value.trim();
-        if (q.length > 0) return; // Archiv nur zeigen wenn Feld leer
+        if (q.length > 0) return; 
 
         const hist = JSON.parse(localStorage.getItem('stat_hist') || '[]');
         const dd = document.getElementById('dropdown');
@@ -156,8 +159,12 @@
             const isLive = d.prognosisType === 'prognosed' || d.prognosisType === 'actual';
             const timeStr = (d.when || d.plannedWhen).substring(11,16);
             const diff = isLive ? Math.round((new Date(d.when) - new Date(d.plannedWhen))/60000) : 0;
+            
             return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${d.direction}')">
-                <div><div class="line-id">${d.line.name}</div><div style="font-size:14px; font-weight:600;">${d.direction?.split(',')[0]}</div></div>
+                <div>
+                    <div class="line-id">${d.line.name}</div>
+                    <div style="font-size:14px; font-weight:600;">${d.direction?.split(',')[0]}</div>
+                </div>
                 <div style="text-align:right; font-variant-numeric: tabular-nums;">
                     <div style="font-size:12px; color:var(--sub)">${(d.plannedWhen||'').substring(11,16)}</div>
                     <div class="${isLive ? (diff > 0 ? 'v-red' : 'v-green') : ''} ${isLive ? 'live-active' : ''}">${timeStr}</div>
@@ -180,22 +187,29 @@
         const data = await fetchS(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`);
         const stops = data?.trip?.stopovers || data?.stopovers || [];
         document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest.split(',')[0]}`;
+        
         const now = Date.now();
         document.getElementById('trip_content').innerHTML = stops.map(s => {
             const isLiveArr = s.arrivalPrognosisType === 'prognosed' || s.arrivalPrognosisType === 'actual';
             const isLiveDep = s.departurePrognosisType === 'prognosed' || s.departurePrognosisType === 'actual';
             const depTs = new Date(s.departure || s.plannedDeparture || s.arrival || s.plannedArrival).getTime();
             const isPast = now > depTs + 15000;
+
             const formatTime = (planned, actual, isLive, label) => {
                 if(!planned) return "";
                 const time = (isLive ? actual : planned).substring(11,16);
                 const liveTime = isLive ? actual.substring(11,19) : ""; 
                 const diff = isLive ? (new Date(actual) - new Date(planned)) : 0;
+                // Fettlogik & Farben nur bei isLive
                 return `<div><span style="color:var(--sub); width:20px; display:inline-block">${label}</span>
                         <span class="${isLive ? (diff > 0 ? 'v-red' : 'v-green') : ''} ${isLive ? 'live-active' : ''}">${isLive ? liveTime : time}</span></div>`;
             };
+
             return `<div class="stop-row ${isPast ? 'past-stop' : ''}">
-                <div class="stop-times">${formatTime(s.plannedArrival, s.arrival, isLiveArr, 'An')}${formatTime(s.plannedDeparture, s.departure, isLiveDep, 'Ab')}</div>
+                <div class="stop-times">
+                    ${formatTime(s.plannedArrival, s.arrival, isLiveArr, 'An')}
+                    ${formatTime(s.plannedDeparture, s.departure, isLiveDep, 'Ab')}
+                </div>
                 <div class="stop-name">${s.stop.name.split(',')[0]}</div>
                 <div class="stop-plat">${s.platform ? (isNaN(s.platform) ? s.platform : 'Gl. ' + s.platform) : ''}</div>
             </div>`;
@@ -210,6 +224,7 @@
         b.setAttribute('data-theme', next);
         document.getElementById('themeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
     }
+    
     document.addEventListener('click', (e) => {
         if(!e.target.closest('.search-area') && !e.target.closest('.header-right')) {
             document.getElementById('dropdown').style.display = 'none';
