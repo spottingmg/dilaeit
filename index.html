@@ -15,7 +15,8 @@
         .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--sub); font-weight: 500; }
 
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; max-width: 100%; box-sizing: border-box; }
-        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 15px; outline: none; color: var(--text); font-family: inherit; width: 100%; box-sizing: border-box; }
+        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 15px; outline: none; color: var(--text); font-family: inherit; width: 100%; box-sizing: border-box; transition: border-color 0.2s; }
+        input:focus { border-color: var(--db-red); }
         
         .time-row { display: flex; gap: 10px; width: 100%; align-items: center; }
         .time-row input[type="date"] { flex: 1.5; }
@@ -31,14 +32,12 @@
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .live-confirmed { font-weight: 900 !important; } 
         .cancelled { text-decoration: line-through; opacity: 0.3; }
-
-        /* NEU: Abgefahrene Haltestellen */
         .past-stop { opacity: 0.25; filter: grayscale(1); }
 
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         
-        .stop-row { padding: 15px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 140px 1fr 50px; gap: 12px; align-items: center; transition: opacity 0.3s; }
+        .stop-row { padding: 15px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 140px 1fr 50px; gap: 12px; align-items: center; }
         .stop-times { font-size: 12px; line-height: 1.6; font-variant-numeric: tabular-nums; }
         .stop-name { font-weight: 600; font-size: 14px; }
         .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; }
@@ -72,7 +71,7 @@
 
 <div id="ov_trip" class="ov">
     <div class="ov-bar">
-        <span id="ov_title" style="font-weight:800; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Verlauf</span>
+        <span id="ov_title" style="font-weight:800; font-size:14px;">Verlauf</span>
         <span onclick="closeOv()" style="cursor:pointer; font-size:22px; padding:0 10px;">✕</span>
     </div>
     <div id="trip_content"></div>
@@ -131,19 +130,30 @@
 
     async function doSearch() {
         const q = document.getElementById('inp').value.trim();
-        if (q.length < 3) return;
-        let data = await fetchS(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`);
-        let stops = (data?.locations || data || []).filter(l => l.type === 'stop');
-        if (stops.length === 0) {
-            data = await fetchS(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`);
-            stops = (data?.locations || data || []).filter(l => l.type === 'stop');
-            currentApi = API_DB;
-        } else currentApi = API_VRR;
-        
         const dd = document.getElementById('dropdown');
-        if (stops.length > 0) {
-            dd.style.display = 'block'; dd.setAttribute('data-type', 'search');
-            dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+        if (q.length < 3) { dd.style.display = 'none'; return; }
+
+        // Erst VRR versuchen
+        let data = await fetchS(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`);
+        let results = data ? (data.locations || data) : [];
+        currentApi = API_VRR;
+
+        // Wenn VRR leer, DB versuchen
+        if (!results || results.length === 0) {
+            data = await fetchS(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`);
+            results = data ? (data.locations || data) : [];
+            currentApi = API_DB;
+        }
+
+        if (results && results.length > 0) {
+            dd.style.display = 'block';
+            dd.setAttribute('data-type', 'search');
+            // Filtert nach Einträgen mit ID und Name (egal ob Typ stop, station oder null)
+            dd.innerHTML = results.filter(r => r.id && r.name).map(l => 
+                `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name} ${currentApi === API_DB ? '<small style="opacity:0.4">(DB)</small>':''}</div>`
+            ).join('');
+        } else {
+            dd.style.display = 'none';
         }
     }
 
@@ -158,10 +168,11 @@
         const res = document.getElementById('results');
         const dVal = document.getElementById('date_inp').value, tVal = document.getElementById('time_inp').value;
         let when = (dVal && tVal) ? `&when=${new Date(`${dVal}T${tVal}`).toISOString()}` : "";
-        res.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5'>Suche...</div>";
+        res.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5'>Suche Abfahrten...</div>";
         const data = await fetchS(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=120${when}`);
-        if(!data) return;
-        const deps = data.departures || data || [];
+        const deps = data ? (data.departures || data) : [];
+        if(!deps || deps.length === 0) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Keine Abfahrten gefunden.</div>"; return; }
+        
         res.innerHTML = deps.map(d => {
             const live = getLiveState(d.plannedWhen, d.when || d.plannedWhen, d.prognosisType);
             const isLate = new Date(d.when || d.plannedWhen) > new Date(d.plannedWhen);
@@ -201,7 +212,6 @@
         const nowTs = Date.now();
         const stops = trip.stopovers || [];
         
-        // Prüfen ob die gesamte Fahrt bereits beendet ist (letzter Stop + 1 Min)
         const lastStop = stops[stops.length - 1];
         const lastTime = new Date(lastStop?.arrival || lastStop?.plannedArrival || 0).getTime();
         const tripFinished = nowTs > (lastTime + 60000);
@@ -209,9 +219,6 @@
         document.getElementById('trip_content').innerHTML = stops.map((s, idx) => {
             const arr = getLiveState(s.plannedArrival, s.arrival, s.arrivalPrognosisType);
             const dep = getLiveState(s.plannedDeparture, s.departure, s.departurePrognosisType);
-            
-            // Logik: Stop ist "past", wenn Abfahrt vorbei ODER (wenn Endstation) Ankunft vorbei.
-            // Aber nur, wenn die Fahrt insgesamt noch läuft.
             const stopTime = s.departure ? dep.ts : arr.ts;
             const isPast = !tripFinished && stopTime && (nowTs > (stopTime + 20000));
 
