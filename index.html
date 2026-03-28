@@ -79,207 +79,58 @@
 </div>
 
 <script>
+    // 1. GANZ OBEN: Die neuen Helfer & Konfiguration
     const API_DB = "https://v6.db.transport.rest";
     const API_VRR = "https://v6.vrr.transport.rest";
     let activeId = "";
     let timer;
 
-    function toggleTheme() {
-        const b = document.body;
-        const icon = document.getElementById('themeIcon');
-        const isLight = b.getAttribute('data-theme') === 'light';
-        b.setAttribute('data-theme', isLight ? 'dark' : 'light');
-        icon.innerText = isLight ? '☀️' : '🌙';
+    function isTrain(lineName) {
+        if (!lineName) return false;
+        const l = lineName.toUpperCase();
+        return l.startsWith('RE') || l.startsWith('RB') || l.startsWith('S') || l.startsWith('IC') || l.startsWith('ICE');
     }
 
-    function getCol(ist, soll) {
-        if (!ist || !soll) return 'v-green';
-        return (new Date(ist).getTime() > new Date(soll).getTime()) ? 'v-red' : 'v-green';
+    // 2. DIE LOGIK-FUNKTIONEN (Hier deine neue getLiveDisplay einfügen)
+    function getLiveDisplay(planned, actual, delay) {
+        if (!actual) return { class: 'prognose', title: '' };
+        const istTime = new Date(actual).getTime();
+        const sollTime = new Date(planned).getTime();
+        const nun = Date.now();
+        const imFenster = sollTime <= (nun + 7200000);
+        const hatAbweichung = (typeof delay === 'number' && delay !== 0) || (actual !== planned);
+        const istAbgefahren = istTime <= nun;
+        const istWirklichLive = (hatAbweichung) || (imFenster && typeof delay === 'number');
+        const className = (istWirklichLive && istAbgefahren) ? 'live-confirmed' : 'prognose';
+        const title = istAbgefahren ? formatFull(actual) : "";
+        return { class: className, title: title };
     }
 
-    function setNow() {
-        const n = new Date();
-        document.getElementById('dateInput').value = n.toISOString().split('T')[0];
-        document.getElementById('timeInput').value = n.toTimeString().slice(0, 5);
-        if(activeId) loadDeps();
+    // 3. DIE HAUPTFUNKTIONEN (Ersetze deine alten loadDeps und loadTrip durch die neuen)
+    async function loadDeps() {
+        // ... hier den neuen Code für loadDeps einfügen (den du oben gepostet hast)
     }
-    setNow();
-
-    function formatT(iso) { 
-        if (!iso) return '--:--'; 
-        return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); 
-    }
-
-    function formatFull(iso) {
-        if (!iso) return '';
-        return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    }
-
-    // Kernlogik für Fett/Dünn/Sekunden
-function getLiveDisplay(planned, actual, delay) {
-    if (!actual) return { class: 'prognose', title: '' };
-    
-    const istTime = new Date(actual).getTime();
-    const sollTime = new Date(planned).getTime();
-    const nun = Date.now();
-    
-    // 2-Stunden-Regel (120 Min = 7.200.000 ms)
-    const imFenster = sollTime <= (nun + 7200000);
-    const hatAbweichung = (typeof delay === 'number' && delay !== 0) || (actual !== planned);
-    const istAbgefahren = istTime <= nun;
-
-    // Nur fett, wenn innerhalb der 2 Std ODER wenn bereits eine Abweichung vorliegt
-    const istWirklichLive = (hatAbweichung) || (imFenster && typeof delay === 'number');
-    
-    const className = (istWirklichLive && istAbgefahren) ? 'live-confirmed' : 'prognose';
-    // Sekunden-Hover im Archiv oder wenn abgefahren
-    const title = (istAbgefahren || istWirklichLive) ? formatFull(actual) : "";
-
-    return { class: className, title: title };
-}
-
-    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
-
-    async function doSearch() {
-        const q = document.getElementById('inp').value;
-        const dd = document.getElementById('dropdown');
-        if (q.length < 3) { dd.style.display = 'none'; return; }
-        dd.style.display = 'block';
-        try {
-            const r = await fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=5`);
-            const data = await r.json();
-            dd.innerHTML = data.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
-        } catch (e) { dd.innerHTML = "<div style='padding:15px;'>Fehler.</div>"; }
-    }
-
-    function pick(id, name) {
-        activeId = id; document.getElementById('inp').value = name;
-        document.getElementById('dropdown').style.display = 'none';
-        loadDeps();
-    }
-
-   async function loadDeps() {
-    const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
-    const res = document.getElementById('results');
-    res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
-    try {
-        const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
-        const data = await r.json();
-        res.innerHTML = data.departures.map(d => {
-            const ist = d.when || d.plannedWhen;
-            const soll = d.plannedWhen;
-            const isCanceled = d.cancelled;
-            const ziel = d.direction || "Endstation";
-            const live = getLiveDisplay(soll, ist, d.delay);
-            
-            // Bahnsteig rechtsbündig vorbereiten
-            const platform = d.platform ? `<span style="font-size:12px; font-weight:700; color:var(--sub); margin-left:auto; padding-left:10px;">Gleis ${d.platform}</span>` : '';
-            
-            return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
-                <div style="display:flex; flex-direction:column; flex-grow:1;">
-                    <div style="display:flex; align-items:baseline; width:100%;">
-                        <span class="line-id">${d.line.name}</span>
-                        ${platform}
-                    </div>
-                    <span class="dest">${isCanceled ? '<span style="color:var(--red); font-weight:800;">Fällt aus</span>' : ziel}</span>
-                </div>
-                <div class="time-stack" style="margin-left:15px;">
-                    <div class="t-row">
-                        <span class="t-soll">${formatT(soll)}</span>
-                        ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${live.class}" title="${live.title}">${formatT(ist)}</span>` : ''}
-                    </div>
-                </div>
-            </div>`;
-        }).join('');
-    } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden.</div>"; }
-}
 
     async function loadTrip(tid, line, dest) {
-        saveToArchive(tid, line, dest);
-        document.getElementById('ov_trip').style.display = 'block';
-        const cont = document.getElementById('trip_content');
-        document.getElementById('retry_trip').onclick = () => loadTrip(tid, line, dest);
-        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf...</div>";
-        
-        const isBus = line.toLowerCase().includes('bus') || line.startsWith('0') || line.startsWith('SB');
-        const primaryAPI = isBus ? API_VRR : API_DB;
-        const backupAPI = isBus ? API_DB : API_VRR;
-
-        async function tryFetch(api) {
-            const r = await fetch(`${api}/trips/${encodeURIComponent(tid)}`);
-            if (!r.ok) throw new Error();
-            return await r.json();
-        }
-
-        try {
-            let data;
-            try { data = await tryFetch(primaryAPI); } catch(e) { data = await tryFetch(backupAPI); }
-            document.getElementById('ov_title').innerText = line + " -> " + dest;
-
-            const cleanStopovers = data.trip.stopovers.filter((s, index, self) => {
-                const next = self[index + 1];
-                return !(next && s.stop.name === next.stop.name && s.cancelled && !next.cancelled);
-            });
-
-            cont.innerHTML = cleanStopovers.map(s => {
-                const isCanceled = s.cancelled;
-                const renderRow = (planned, actual, label, delay) => {
-                    if (!planned) return '';
-                    const live = getLiveDisplay(planned, actual, delay);
-                    return `
-                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
-                            <span style="color:var(--sub); font-size: 9px; width: 22px; font-weight:bold;">${label}</span>
-                            <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
-                            ${!isCanceled ? `<span class="${getCol(actual, planned)} ${live.class}" title="${live.title}">${formatT(actual || planned)}</span>` : ''}
-                        </div>`;
-                };
-                return `
-                <div class="stop-row ${isCanceled?'cancelled':''}">
-                    <div class="stop-times">
-                        ${renderRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
-                        ${renderRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
-                    </div>
-                    <div class="stop-info"><span style="font-weight:600">${s.stop.name}</span></div>
-                </div>`;
-            }).join('');
-        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf nicht verfügbar.</div>"; }
+        // ... hier den neuen Code für loadTrip einfügen (den du oben gepostet hast)
     }
 
-   function saveToArchive(tid, line, dest, istZeit, sollZeit) {
-    let arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
-    arc = arc.filter(x => x.tid !== tid).slice(0, 14); // Etwas größeres Archiv
-    
-    arc.unshift({
-        tid, 
-        line, 
-        dest, 
-        time: new Date().toLocaleString('de-DE', {hour:'2-digit', minute:'2-digit'}),
-        ist: istZeit,
-        soll: sollZeit
-    });
-    localStorage.setItem('aerror_arc', JSON.stringify(arc));
-}
+    // 4. UNTEN: Alle anderen Funktionen, die du schon hattest (toggleTheme, setNow, etc.)
+    function toggleTheme() { ... }
+    function getCol(ist, soll) { ... }
+    function setNow() { ... }
+    function formatT(iso) { ... }
+    function formatFull(iso) { ... }
+    function debounceSearch() { ... }
+    async function doSearch() { ... }
+    function pick(id, name) { ... }
+    function saveToArchive(tid, line, dest) { ... } // Wichtig: Hier ggf. die Parameter anpassen falls gewünscht
+    function toggleArchive() { ... }
+    function closeOv() { ... }
 
-function toggleArchive() {
-    const v = document.getElementById('archive-view');
-    v.style.display = v.style.display === 'block' ? 'none' : 'block';
-    const arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
-    
-    v.innerHTML = arc.length ? arc.map(a => {
-        const delay = a.ist && a.soll ? Math.round((new Date(a.ist) - new Date(a.soll))/60000) : 0;
-        const delayColor = delay > 0 ? 'var(--red)' : 'var(--green)';
-        return `
-        <div class="item" onclick="loadTrip('${a.tid}','${a.line}','${a.dest}')">
-            <div style="display:flex; justify-content:space-between;">
-                <b>${a.line} -> ${a.dest}</b>
-                <span style="color:${delayColor}; font-weight:800;">${delay > 0 ? '+'+delay : 'pünktlich'}</span>
-            </div>
-            <small style="color:var(--sub)">Abfrage: ${a.time} | Plan: ${formatT(a.soll)}</small>
-        </div>`;
-    }).join('') : "<div style='padding:20px;'>Keine Fahrten im Archiv.</div>";
-}
-
-    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
+    // Initialisierung beim Laden
+    setNow();
 </script>
 </body>
 </html>
+
