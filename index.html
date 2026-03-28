@@ -73,12 +73,13 @@
     function isTrain(l) { return l && /^(RE|RB|S|IC|ICE|TGV|EC|NJ)/i.test(l); }
     function getPlat(l, p) { return p ? (isTrain(l) ? 'Gl. ' : 'Bst. ') + p : ''; }
 
+    // FETT-LOGIK: Sekunden & Fett nur wenn delay vorhanden (Kurs angemeldet)
     function getLiveDisplay(planned, actual, delay) {
         if (!actual) return { class: 'prognose', displayTime: '' };
-        const hasRealtimeEvent = (delay !== null && delay !== undefined);
+        const isConfirmed = (delay !== null && delay !== undefined);
         return { 
-            class: hasRealtimeEvent ? 'live-confirmed' : 'prognose',
-            displayTime: hasRealtimeEvent ? formatFull(actual) : formatT(actual)
+            class: isConfirmed ? 'live-confirmed' : 'prognose',
+            displayTime: isConfirmed ? formatFull(actual) : formatT(actual)
         };
     }
 
@@ -87,12 +88,10 @@
         const secondary = useVRRFirst ? API_DB : API_VRR;
         try {
             let r = await fetch(primary + path);
-            if (!r.ok) throw new Error("Primary failed");
+            if (!r.ok) throw new Error();
             return await r.json();
         } catch (e) {
-            console.warn(`Versuche Fallback für: ${path}`);
             let r = await fetch(secondary + path);
-            if (!r.ok) throw new Error("Secondary failed");
             return await r.json();
         }
     }
@@ -103,16 +102,18 @@
         if (q.length < 3) { dd.style.display = 'none'; return; }
         dd.style.display = 'block';
         try {
-            // Suche mit beiden APIs versuchen
-            const data = await fetchSafety(`/locations?query=${encodeURIComponent(q)}&results=5&fuzzy=true`, true);
+            // Die API liefert manchmal direkt ein Array, manchmal ein Objekt mit .locations
+            const data = await fetchSafety(`/locations?query=${encodeURIComponent(q)}&results=10`, true);
             const stops = Array.isArray(data) ? data : (data.locations || []);
-            dd.innerHTML = stops.filter(l => l.type === 'stop' || l.type === 'station').map(l => 
-                `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`
-            ).join('');
-            if(dd.innerHTML === "") dd.innerHTML = "<div class='item'>Keine Station gefunden.</div>";
+            
+            dd.innerHTML = stops
+                .filter(l => l.type === 'stop' || l.type === 'station')
+                .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`)
+                .join('');
+            
+            if (!dd.innerHTML) dd.innerHTML = "<div class='item'>Nichts gefunden.</div>";
         } catch (e) { 
-            console.error(e);
-            dd.innerHTML = "<div class='item'>Suche fehlgeschlagen.</div>"; 
+            dd.innerHTML = "<div class='item'>Suche aktuell gestört.</div>"; 
         }
     }
 
@@ -125,12 +126,17 @@
 
     async function loadDeps() {
         if(!activeId) return;
-        const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
+        const dateVal = document.getElementById('dateInput').value;
+        const timeVal = document.getElementById('timeInput').value;
+        const dt = new Date(`${dateVal}T${timeVal}`).toISOString();
+        
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>Suche Abfahrten...</div>";
+        
         try {
             const data = await fetchSafety(`/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`, true);
-            const departures = data.departures || [];
+            const departures = data.departures || data;
+            
             res.innerHTML = departures.map(d => {
                 const ist = d.when || d.plannedWhen, soll = d.plannedWhen;
                 const live = getLiveDisplay(soll, ist, d.delay);
@@ -152,7 +158,7 @@
                     </div>
                 </div>`;
             }).join('');
-        } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden der Abfahrten.</div>"; }
+        } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Keine Daten empfangen.</div>"; }
     }
 
     async function loadTrip(tid, line, dest) {
@@ -162,8 +168,10 @@
         cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Live-Verlauf...</div>";
         try {
             const data = await fetchSafety(`/trips/${encodeURIComponent(tid)}`, !isTrain(line));
+            const trip = data.trip || data;
             document.getElementById('ov_title').innerText = line + " -> " + dest;
-            cont.innerHTML = data.trip.stopovers.map(s => {
+            
+            cont.innerHTML = trip.stopovers.map(s => {
                 const renderRow = (soll, ist, delay, lbl) => {
                     if (!soll) return '';
                     const live = getLiveDisplay(soll, ist, delay);
@@ -184,7 +192,7 @@
                     </div>
                 </div>`;
             }).join('');
-        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf derzeit nicht live abrufbar.</div>"; }
+        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf nicht verfügbar.</div>"; }
     }
 
     function toggleTheme() { const b = document.body, i = document.getElementById('themeIcon'), isL = b.getAttribute('data-theme') === 'light'; b.setAttribute('data-theme', isL ? 'dark' : 'light'); i.innerText = isL ? '☀️' : '🌙'; }
