@@ -171,29 +171,38 @@
         } catch(e) { res.innerHTML = "Fehler beim Laden."; }
     }
 
-    function renderRow(d) {
-        const plan = new Date(d.plannedWhen || d.when);
-        const act = d.when ? new Date(d.when) : plan;
-        const hasLive = d.prognosisType === 'prognosed' || d.prognosisType === 'real';
-        const colorClass = getDelayClass(plan, act, hasLive);
-        
-        return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${(d.direction || "Ziel unbekannt").replace(/'/g, "\\'")}', '${currentApi}')">
-            <div style="flex:1;">
-                <div class="line-id">${d.line.name}</div>
-                <div style="font-size:14px; font-weight:600;">${d.direction || "Ziel unbekannt"}</div>
-            </div>
-            <div style="text-align:right; font-variant-numeric: tabular-nums;">
-                <div style="font-size:11px; color:var(--sub)">${fTime(plan, false)}</div>
-                <div class="t-act ${colorClass}">${fTime(act, false)}</div>
-            </div>
-        </div>`;
-    }
+function renderRow(d) {
+    const plan = d.plannedWhen || d.when;
+    const act = d.when || plan;
+    
+    // Sensiblere Echtzeit-Prüfung: 
+    // Wenn 'when' existiert und sich von 'plannedWhen' unterscheidet, haben wir Echtzeit.
+    const hasLive = d.when && d.plannedWhen && d.when !== d.plannedWhen;
+    // Zusätzlich: Manche APIs setzen prognosisType, andere nicht.
+    const isPrognosed = d.prognosisType === 'prognosed' || d.prognosisType === 'real' || hasLive;
+    
+    return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${(d.direction || "Ziel unbekannt").replace(/'/g, "\\'")}', '${currentApi}')">
+        <div style="flex:1;">
+            <div class="line-id">${d.line.name}</div>
+            <div style="font-size:14px; font-weight:600;">${d.direction || "Ziel unbekannt"}</div>
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:11px; color:var(--sub)">${fTime(plan)}</div>
+            <div class="t-act ${getDelayClass(plan, act, isPrognosed)}">${fTime(act)}</div>
+        </div>
+    </div>`;
+}
+async function loadTrip(tid, line, dest, apiOrigin) {
+    if(!tid) return;
+    currentTripData = { tid, line, dest, apiOrigin };
+    
+    // Automatischer API-Wechsel für NRW-Busse
+    // Wenn es ein Bus ist (kein RE/RB/S), erzwinge die VRR API für bessere lokale Daten
+    const isTrain = line.match(/^(ICE|IC|EC|RE|RB|S)/i);
+    const api = isTrain ? API_DB : API_VRR;
 
-    async function loadTrip(tid, line, dest, apiOrigin) {
-        saveToArchive(tid, line, dest, apiOrigin);
-        currentTripData = { tid, line, dest, apiOrigin };
-        sessionStorage.setItem('currentTrip', JSON.stringify(currentTripData));
-        document.getElementById('ov_trip').style.display = 'block';
+    document.getElementById('ov_trip').style.display = 'block';
+    document.getElementById('trip_content').innerHTML = "<div style='padding:20px; opacity:0.6;'>Suche Echtzeit-Verlauf...</div>";
         refreshTrip();
         clearInterval(tripTimer);
         tripTimer = setInterval(refreshTrip, 15000);
