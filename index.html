@@ -13,7 +13,29 @@
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
         .header-right { display: flex; align-items: center; gap: 15px; font-size: 13px; color: var(--sub); font-weight: 600; }
 
-        .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; }
+      .search-area { 
+    padding: 0 20px 20px; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; 
+    position: relative; 
+    z-index: 5000;
+}
+
+#dropdown {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    top: 55px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    z-index: 10000;
+    display: none;
+    border-radius: 10px;
+    max-height: 350px;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+}
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
         input:focus { border-color: var(--db-red); }
 
@@ -21,7 +43,7 @@
         .time-row input { padding: 10px; font-size: 14px; flex: 1; min-width: 0; }
         .btn-jetzt { background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 0 15px; font-weight: bold; cursor: pointer; }
 
-        #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
+    
         .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; }
         
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
@@ -89,25 +111,54 @@
 
     function formatPlat(p) { return p ? (isNaN(p) ? p : 'Gl. ' + p) : ""; }
 
-    async function doSearch() {
+  async function doSearch() {
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
+        
+        dd.innerHTML = '<div class="item" style="color:var(--sub)">Suche läuft...</div>';
         dd.style.display = 'block';
+
         try {
             const [vrr, db] = await Promise.allSettled([
                 fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json()),
                 fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json())
             ]);
-            let combined = [];
-            if (vrr.status === 'fulfilled') combined.push(...(vrr.value.locations || vrr.value || []));
-            if (db.status === 'fulfilled') combined.push(...(db.value.locations || db.value || []));
-            const seen = new Set();
-            dd.innerHTML = combined.filter(l => l.id && !seen.has(l.id) && seen.add(l.id))
-                .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
-        } catch (e) { dd.innerHTML = '<div class="item">Fehler.</div>'; }
-    }
 
+            let combined = [];
+            // VRR Check
+            if (vrr.status === 'fulfilled') {
+                const vData = vrr.value.locations || vrr.value || [];
+                combined.push(...vData);
+            }
+            // DB Check
+            if (db.status === 'fulfilled') {
+                const dData = db.value.locations || db.value || [];
+                combined.push(...dData);
+            }
+
+            const seen = new Set();
+            const filtered = combined.filter(l => {
+                if (!l || !l.name || !l.id) return false;
+                if (seen.has(l.id)) return false;
+                seen.add(l.id);
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                dd.innerHTML = '<div class="item" style="color:var(--sub)">Keine Station gefunden.</div>';
+            } else {
+                dd.innerHTML = filtered.map(l => 
+                    `<div class="item" onclick="pick('${l.id}', '${l.name.replace(/'/g, "\\'")}')">
+                        ${l.name}
+                    </div>`
+                ).join('');
+            }
+        } catch (e) { 
+            console.error(e);
+            dd.innerHTML = '<div class="item">Fehler bei der Suche.</div>'; 
+        }
+    }
     function pick(id, name) {
         activeId = id;
         document.getElementById('inp').value = name;
