@@ -9,27 +9,27 @@
         [data-theme="dark"] { --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; }
         
-        /* Header & Layout */
         .header { background: var(--card); padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
         .header h1 { margin: 0; font-size: 22px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
-        
-        .search-area { padding: 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
-        input { width: 100%; padding: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; outline: none; box-sizing: border-box; color: var(--text); }
-        .time-input { font-size: 13px; padding: 8px; }
+        .header-right { display: flex; align-items: center; gap: 15px; font-size: 14px; color: var(--sub); font-weight: 600; }
 
-        /* Listen & Zeilen */
+        .search-area { padding: 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+        input { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 15px; outline: none; color: var(--text); font-family: inherit; }
+        
+        .time-row { display: flex; gap: 8px; }
+        .time-row input { flex: 1; }
+        .btn-jetzt { padding: 0 15px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 12px; color: var(--text); }
+
         .row { padding: 15px 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; min-width: 65px; }
         .dest { font-size: 14px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .t-row { font-size: 16px; display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; align-items: center; }
         .t-soll { color: var(--sub); font-weight: 400; }
         
-        /* Zustände */
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .live-confirmed { font-weight: 800 !important; } 
         .cancelled { text-decoration: line-through; opacity: 0.5; }
 
-        /* Trip Overlay */
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 115px 1fr 65px; gap: 10px; align-items: center; }
@@ -37,8 +37,7 @@
         .stop-name { font-weight: 600; font-size: 14px; }
         .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; }
 
-        /* Dropdown & Archiv */
-        #dropdown { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-height: 300px; overflow-y: auto; }
+        #dropdown { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-height: 350px; overflow-y: auto; }
         .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
         .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 10px 15px 5px; text-transform: uppercase; }
     </style>
@@ -47,12 +46,19 @@
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 20px;">🌙</span>
+    <div class="header-right">
+        <span onclick="showHistory(true)" style="cursor:pointer">Archiv</span>
+        <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 18px;">🌙</span>
+    </div>
 </div>
 
 <div class="search-area">
     <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" onfocus="showHistory()" autocomplete="off">
-    <input type="datetime-local" id="time_inp" class="time-input">
+    <div class="time-row">
+        <input type="date" id="date_inp">
+        <input type="time" id="time_inp">
+        <button class="btn-jetzt" onclick="setNow()">Jetzt</button>
+    </div>
     <div id="dropdown"></div>
 </div>
 
@@ -71,7 +77,6 @@
     const API_VRR = "https://v6.vrr.transport.rest";
     let activeId = "", timer;
 
-    // Theme beim Start laden
     if (localStorage.getItem('theme') === 'dark') toggleTheme(true);
 
     function cleanN(n) { return n ? n.split(',')[0].trim() : ""; }
@@ -81,12 +86,10 @@
     function getLiveDisplay(actual, isMonitor = false) {
         if (!actual) return { cls: '', txt: '--:--' };
         const d = new Date(actual);
-        const isLive = d.getSeconds() !== 0; // DIE Fett-Logik
-        
+        const isLive = d.getSeconds() !== 0; 
         const timeStr = (isLive && !isMonitor) 
             ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) 
             : d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-
         return { cls: isLive ? 'live-confirmed' : '', txt: timeStr };
     }
 
@@ -101,21 +104,25 @@
         }
     }
 
-    // Archiv Logik
+    function setNow() {
+        document.getElementById('date_inp').value = "";
+        document.getElementById('time_inp').value = "";
+        if(activeId) loadDeps();
+    }
+
     function saveHistory(id, name) {
         let hist = JSON.parse(localStorage.getItem('hist') || '[]');
         hist = hist.filter(x => x.id !== id);
         hist.unshift({id, name});
-        localStorage.setItem('hist', JSON.stringify(hist.slice(0, 5)));
+        localStorage.setItem('hist', JSON.stringify(hist.slice(0, 8)));
     }
 
-    function showHistory() {
+    function showHistory(force = false) {
         const q = document.getElementById('inp').value;
-        if (q.length > 0) return;
+        if (q.length > 0 && !force) return;
         const hist = JSON.parse(localStorage.getItem('hist') || '[]');
-        if (hist.length === 0) return;
-        
         const dd = document.getElementById('dropdown');
+        if (hist.length === 0) return;
         dd.style.display = 'block';
         dd.innerHTML = '<div class="hist-label">Zuletzt gesucht</div>' + 
             hist.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">🕒 ${l.name}</div>`).join('');
@@ -144,10 +151,16 @@
     async function loadDeps() {
         if(!activeId) return;
         const res = document.getElementById('results');
-        const customTime = document.getElementById('time_inp').value;
-        const timeParam = customTime ? `&when=${new Date(customTime).toISOString()}` : "";
+        const dVal = document.getElementById('date_inp').value;
+        const tVal = document.getElementById('time_inp').value;
         
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Suche Abfahrten...</div>";
+        let timeParam = "";
+        if(dVal && tVal) {
+            const dt = new Date(`${dVal}T${tVal}`);
+            timeParam = `&when=${dt.toISOString()}`;
+        }
+        
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade...</div>";
         try {
             const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`, true);
             const deps = data.departures || data;
@@ -166,7 +179,7 @@
                     </div>
                 </div>`;
             }).join('');
-        } catch (e) { res.innerHTML = "Keine Daten gefunden."; }
+        } catch (e) { res.innerHTML = "Fehler beim Laden."; }
     }
 
     async function loadTrip(tid, line, dest) {
@@ -193,13 +206,13 @@
                     <div class="stop-plat">${getPlat(line, s.platform)}</div>
                 </div>`;
             }).join('');
-        } catch (e) { cont.innerHTML = "Kein Verlauf verfügbar."; }
+        } catch (e) { cont.innerHTML = "Verlauf nicht verfügbar."; }
     }
 
     function toggleTheme(init = false) { 
         const body = document.body;
-        const isDark = body.getAttribute('data-theme') === 'dark';
         if (!init) {
+            const isDark = body.getAttribute('data-theme') === 'dark';
             body.setAttribute('data-theme', isDark ? 'light' : 'dark');
             localStorage.setItem('theme', isDark ? 'light' : 'dark');
         } else {
@@ -211,9 +224,9 @@
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     
-    // Schließen des Dropdowns bei Klick außerhalb
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.search-area')) document.getElementById('dropdown').style.display = 'none';
+        if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) 
+            document.getElementById('dropdown').style.display = 'none';
     });
 </script>
 </body>
