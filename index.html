@@ -1,46 +1,174 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>dilaeit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <style>
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
+        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
+        
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; transition: background 0.3s; overflow-x: hidden; }
+        
+        .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
+        .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--sub); font-weight: 500; }
+
+        .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; }
+        input { padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; font-size: 14px; outline: none; color: var(--text); font-family: inherit; width: 100%; box-sizing: border-box; }
+        
+        .time-row { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 8px; align-items: center; }
+        .btn-jetzt { padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 12px; color: var(--text); height: 42px; }
+
+        .row { padding: 15px 20px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .line-id { color: var(--db-red); font-weight: 800; font-size: 17px; min-width: 60px; }
+        .dest { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .t-row { font-size: 15px; display: flex; gap: 8px; justify-content: flex-end; font-variant-numeric: tabular-nums; text-align: right; }
+        .t-soll { color: var(--sub); font-weight: 400; font-size: 13px; }
+        
+        .v-red { color: var(--red); } .v-green { color: var(--green); }
+        .live-confirmed { font-weight: 800 !important; } 
+        .cancelled { text-decoration: line-through; opacity: 0.5; }
+
+        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
+        .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
+        
+        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 110px 1fr 60px; gap: 10px; align-items: center; }
+        .stop-times { font-size: 11px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+        .stop-name { font-weight: 600; font-size: 13px; }
+        .stop-plat { font-size: 10px; font-weight: 800; color: var(--sub); text-align: right; }
+
+        #dropdown { position: absolute; left: 20px; right: 20px; top: 55px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-height: 350px; overflow-y: auto; }
+        .item { padding: 14px 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 14px; color: var(--text); }
+        .item:last-child { border-bottom: none; }
+        .hist-label { font-size: 10px; font-weight: 800; color: var(--sub); padding: 12px 15px 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+    </style>
+</head>
+<body data-theme="dark">
+
+<div class="header">
+    <h1 onclick="location.reload()">dilaeit</h1>
+    <div class="header-right">
+        <span onclick="toggleTripHistory()" style="cursor:pointer">Archiv</span>
+        <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 16px;">☀️</span>
+    </div>
+</div>
+
+<div class="search-area">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
+    <div class="time-row">
+        <input type="date" id="date_inp">
+        <input type="time" id="time_inp">
+        <button class="btn-jetzt" onclick="setNow()">Jetzt</button>
+    </div>
+    <div id="dropdown"></div>
+</div>
+
+<div id="results"></div>
+
+<div id="ov_trip" class="ov">
+    <div class="ov-bar">
+        <span id="ov_title" style="font-weight:800; font-size:14px;">Verlauf</span>
+        <span onclick="closeOv()" style="cursor:pointer; font-size:20px;">✕</span>
+    </div>
+    <div id="trip_content"></div>
+</div>
+
 <script>
     const API_VRR = "https://v6.vrr.transport.rest";
     const API_DB = "https://v6.db.transport.rest";
-    let activeId = "", timer;
-    let currentSourceIsDB = false; // Merkt sich, welche Quelle gerade aktiv ist
+    let activeId = "", timer, currentApi = API_VRR;
 
-    // ... (cleanN, isTrain, getPlat, getLiveState bleiben gleich)
+    // Initialisierung
+    if (localStorage.getItem('theme') === 'light') toggleTheme(false, true);
+    setNow(false);
 
-    async function fetchS(path, useDB = false) {
+    function cleanN(n) { return n ? n.split(',')[0].trim() : ""; }
+    function isTrain(l) { return l && /^(RE|RB|S|IC|ICE|EC)/i.test(l); }
+    function getPlat(l, p) { return p ? (isTrain(l) ? 'Gl. ' : 'Bst. ') + p : ''; }
+
+    function getLiveState(planned, actual, prognosisType) {
+        if (!actual) return { cls: '', txt: '--:--' };
+        const p = new Date(planned), a = new Date(actual);
+        
+        // Regel: Fett + Sekunden bei Signal (Sekunden != 0) ODER Typ "actual"
+        const hasSeconds = a.getSeconds() !== 0;
+        const isReported = hasSeconds || prognosisType === 'actual';
+
+        const format = isReported 
+            ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} 
+            : {hour:'2-digit', minute:'2-digit'};
+
+        return { 
+            cls: isReported ? 'live-confirmed' : '', 
+            txt: a.toLocaleTimeString([], format),
+            soll: p.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+        };
+    }
+
+    async function fetchS(url) {
         try {
-            let r = await fetch((useDB ? API_DB : API_VRR) + path);
-            if (!r.ok && !useDB) { 
-                // Fallback: Wenn VRR fehlschlägt, versuche DB
-                r = await fetch(API_DB + path);
-                currentSourceIsDB = true;
-            }
+            const r = await fetch(url);
+            if (!r.ok) return null;
             return await r.json();
         } catch (e) { return null; }
+    }
+
+    function setNow(refresh = true) {
+        const now = new Date();
+        document.getElementById('date_inp').value = now.toISOString().split('T')[0];
+        document.getElementById('time_inp').value = now.toTimeString().substring(0, 5);
+        if(refresh && activeId) loadDeps();
+    }
+
+    function toggleTripHistory() {
+        const dd = document.getElementById('dropdown');
+        if (dd.style.display === 'block' && dd.getAttribute('data-type') === 'history') {
+            dd.style.display = 'none';
+        } else { showTripHistory(); }
+    }
+
+    function showTripHistory() {
+        const hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
+        const dd = document.getElementById('dropdown');
+        if (hist.length === 0) return;
+        dd.style.display = 'block';
+        dd.setAttribute('data-type', 'history');
+        dd.innerHTML = '<div class="hist-label">Letzte Fahrten</div>' + 
+            hist.map(t => `<div class="item" onclick="loadTrip('${t.tid}', '${t.line}', '${t.dest}')"><b style="color:var(--db-red)">${t.line}</b> ➔ ${t.dest}</div>`).join('');
     }
 
     async function doSearch() {
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
-        
-        // Erst VRR versuchen
-        let data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=10`, false);
-        let stops = Array.isArray(data) ? data : (data?.locations || []);
 
-        // Wenn VRR nichts findet, DB versuchen
+        // Erst VRR, dann DB als Fallback
+        let data = await fetchS(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`);
+        let stops = data ? (Array.isArray(data) ? data : (data.locations || [])) : [];
+
         if (stops.length === 0) {
-            data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=10`, true);
-            stops = Array.isArray(data) ? data : (data?.locations || []);
-            currentSourceIsDB = true;
+            data = await fetchS(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`);
+            stops = data ? (Array.isArray(data) ? data : (data.locations || [])) : [];
+            currentApi = API_DB;
         } else {
-            currentSourceIsDB = false;
+            currentApi = API_VRR;
         }
 
         if (stops.length > 0) {
             dd.style.display = 'block';
             dd.setAttribute('data-type', 'search');
-            dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name} ${currentSourceIsDB ? '<small>(DB)</small>' : ''}</div>`).join('');
+            dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name} ${currentApi === API_DB ? '<small style="opacity:0.5">(DB)</small>' : ''}</div>`).join('');
+        } else {
+            dd.style.display = 'none';
         }
+    }
+
+    function pick(id, name) {
+        activeId = id; 
+        document.getElementById('inp').value = cleanN(name);
+        document.getElementById('dropdown').style.display = 'none';
+        loadDeps();
     }
 
     async function loadDeps() {
@@ -48,21 +176,85 @@
         const res = document.getElementById('results');
         const dVal = document.getElementById('date_inp').value, tVal = document.getElementById('time_inp').value;
         let timeParam = (dVal && tVal) ? `&when=${new Date(`${dVal}T${tVal}`).toISOString()}` : "";
-        res.innerHTML = "<div style='padding:40px; text-align:center; color:var(--sub)'>Lade Monitor...</div>";
         
-        // Nutze die Quelle, die bei der Suche erfolgreich war
-        const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`, currentSourceIsDB);
-        if(!data) { res.innerHTML = "Keine Daten gefunden."; return; }
+        res.innerHTML = "<div style='padding:40px; text-align:center; color:var(--sub)'>Suche Abfahrten...</div>";
+        
+        const data = await fetchS(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`);
+        if(!data) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Keine Daten.</div>"; return; }
         
         const deps = Array.isArray(data) ? data : (data.departures || []);
-        // ... (Rest der Anzeige-Logik bleibt gleich)
+        res.innerHTML = deps.map(d => {
+            const live = getLiveState(d.plannedWhen, d.when || d.plannedWhen, d.prognosisType);
+            const color = (new Date(d.when || d.plannedWhen) > new Date(d.plannedWhen)) ? 'v-red' : 'v-green';
+            return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${cleanN(d.direction)}')">
+                <div style="flex-grow:1; overflow:hidden; padding-right:10px;">
+                    <div class="line-id">${d.line.name} <small style="font-size:9px; color:var(--sub); font-weight:normal;">${getPlat(d.line.name, d.platform)}</small></div>
+                    <div class="dest">${cleanN(d.direction)}</div>
+                </div>
+                <div class="t-row">
+                    <span class="t-soll">${live.soll}</span>
+                    <span class="${color} ${live.cls}">${live.txt}</span>
+                </div>
+            </div>`;
+        }).join('');
     }
 
-    // Beim Verlauf erzwingen wir für Züge weiterhin die DB für die Sekunden-Präzision
     async function loadTrip(tid, line, dest) {
-        // ... (Archiv-Logik)
-        const forceDB = isTrain(line) || currentSourceIsDB;
-        const data = await fetchS(`/trips/${encodeURIComponent(tid)}`, forceDB);
-        // ... (Anzeige-Logik)
+        let hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
+        hist = [{tid, line, dest}, ...hist.filter(x => x.tid !== tid)].slice(0, 10);
+        localStorage.setItem('trip_hist', JSON.stringify(hist));
+
+        document.getElementById('dropdown').style.display = 'none';
+        document.getElementById('ov_trip').style.display = 'block';
+        const cont = document.getElementById('trip_content');
+        cont.innerHTML = "<div style='padding:30px; text-align:center; color:var(--sub)'>Lade Live-Verlauf...</div>";
+
+        // Weiche: Züge IMMER über DB-API für Sekunden
+        const tripApi = isTrain(line) ? API_DB : currentApi;
+        const data = await fetchS(`${tripApi}/trips/${encodeURIComponent(tid)}`);
+        const trip = data ? (data.trip || data) : null;
+
+        if(!trip) { cont.innerHTML = "<div style='padding:20px; text-align:center;'>Fahrtverlauf nicht verfügbar.</div>"; return; }
+
+        document.getElementById('ov_title').innerText = line + " ➔ " + dest;
+        cont.innerHTML = (trip.stopovers || []).map(s => {
+            const render = (soll, ist, type, lbl) => {
+                if (!soll) return '';
+                const live = getLiveState(soll, ist || soll, type);
+                const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
+                return `<div style="margin-bottom:6px;">
+                    <div style="font-size:9px; color:var(--sub); margin-left:22px;">${lbl} ${live.soll}</div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:9px; color:var(--sub); width:14px;">${lbl[0]}</span>
+                        <span class="${color} ${live.cls}" style="font-size:13px;">${live.txt}</span>
+                    </div>
+                </div>`;
+            };
+            return `<div class="stop-row ${s.cancelled?'cancelled':''}">
+                <div class="stop-times">${render(s.plannedArrival, s.arrival, s.arrivalPrognosisType, 'An')}${render(s.plannedDeparture, s.departure, s.departurePrognosisType, 'Ab')}</div>
+                <div class="stop-name">${cleanN(s.stop.name)}</div>
+                <div class="stop-plat">${getPlat(line, s.platform)}</div>
+            </div>`;
+        }).join('');
     }
+
+    function toggleTheme(manual = true, initLight = false) { 
+        const body = document.body;
+        const current = body.getAttribute('data-theme');
+        const next = initLight ? 'light' : (current === 'dark' ? 'light' : 'dark');
+        body.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        document.getElementById('themeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
+    }
+
+    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
+    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
+    
+    document.addEventListener('click', (e) => { 
+        if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) {
+            document.getElementById('dropdown').style.display = 'none';
+        }
+    });
 </script>
+</body>
+</html>
