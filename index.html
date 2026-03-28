@@ -106,91 +106,114 @@
         return { class: className, title: title };
     }
 
-    async function loadDeps() {
-        const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
-        const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten (DB + VRR)...</div>";
+// 1. Suche auf VRR umstellen
+async function doSearch() {
+    const q = document.getElementById('inp').value;
+    const dd = document.getElementById('dropdown');
+    if (q.length < 3) { dd.style.display = 'none'; return; }
+    dd.style.display = 'block';
+    try {
+        // Suche jetzt über VRR, damit die IDs für den Verlauf passen
+        const r = await fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=5`);
+        const data = await r.json();
+        dd.innerHTML = data.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+    } catch (e) { dd.innerHTML = "<div style='padding:15px;'>Suche über VRR fehlgeschlagen.</div>"; }
+}
+
+// 2. Abfahrten auf VRR umstellen (für Busse/NRW)
+async function loadDeps() {
+    const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
+    const res = document.getElementById('results');
+    res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade VRR-Abfahrten...</div>";
+    
+    try {
+        const r = await fetch(`${API_VRR}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
+        const data = await r.json();
         
-        try {
-            const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
-            const data = await r.json();
+        res.innerHTML = data.departures.map(d => {
+            const ist = d.when || d.plannedWhen;
+            const soll = d.plannedWhen;
+            const isCanceled = d.cancelled;
+            const line = d.line.name;
+            const live = getLiveDisplay(soll, ist, d.delay);
             
-            res.innerHTML = data.departures.map(d => {
-                const ist = d.when || d.plannedWhen;
-                const soll = d.plannedWhen;
-                const isCanceled = d.cancelled;
-                const line = d.line.name;
-                const live = getLiveDisplay(soll, ist, d.delay);
-                const plat = d.platform ? `<span style="margin-left:auto; font-weight:800; color:var(--sub); font-size:12px;">${isTrain(line) ? 'Gl.' : 'Busst.'} ${d.platform}</span>` : '';
+            // Bussteig/Gleis rechtsbündig
+            const plat = d.platform ? `<span style="margin-left:auto; font-weight:800; color:var(--sub); font-size:12px;">${isTrain(line) ? 'Gl.' : 'Busst.'} ${d.platform}</span>` : '';
 
-                return `
-                <div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${line}', '${(d.direction||'').replace(/'/g,"")}')">
-                    <div style="display:flex; flex-direction:column; flex-grow:1;">
-                        <div style="display:flex; align-items:baseline; width:100%;">
-                            <span class="line-id">${line}</span>
-                            ${plat}
-                        </div>
-                        <span class="dest">${isCanceled ? '<span style="color:var(--red); font-weight:800;">Fällt aus</span>' : d.direction}</span>
+            return `
+            <div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${line}', '${(d.direction||'').replace(/'/g,"")}')">
+                <div style="display:flex; flex-direction:column; flex-grow:1;">
+                    <div style="display:flex; align-items:baseline; width:100%;">
+                        <span class="line-id">${line}</span>
+                        ${plat}
                     </div>
-                    <div class="time-stack" style="margin-left:15px;">
-                        <div class="t-row">
-                            <span class="t-soll">${formatT(soll)}</span>
-                            ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${live.class}" title="${live.title}">${formatT(ist)}</span>` : ''}
-                        </div>
+                    <span class="dest">${isCanceled ? '<span style="color:var(--red); font-weight:800;">Fällt aus</span>' : d.direction}</span>
+                </div>
+                <div class="time-stack" style="margin-left:15px;">
+                    <div class="t-row">
+                        <span class="t-soll">${formatT(soll)}</span>
+                        ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${live.class}" title="${live.title}">${formatT(ist)}</span>` : ''}
                     </div>
-                </div>`;
-            }).join('');
-        } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden.</div>"; }
-    }
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden der VRR-Daten.</div>"; }
+}
 
-    async function loadTrip(tid, line, dest) {
-        saveToArchive(tid, line, dest);
-        document.getElementById('ov_trip').style.display = 'block';
-        const cont = document.getElementById('trip_content');
-        document.getElementById('retry_trip').onclick = () => loadTrip(tid, line, dest);
-        cont.innerHTML = `<div style='padding:50px; text-align:center;'>Lade ${isTrain(line) ? 'DB' : 'VRR'} Verlauf...</div>`;
+// 3. Verlauf STRENG trennen
+async function loadTrip(tid, line, dest) {
+    saveToArchive(tid, line, dest);
+    document.getElementById('ov_trip').style.display = 'block';
+    const cont = document.getElementById('trip_content');
+    document.getElementById('retry_trip').onclick = () => loadTrip(tid, line, dest);
+    
+    const targetAPI = isTrain(line) ? API_DB : API_VRR;
+    cont.innerHTML = `<div style='padding:50px; text-align:center;'>Lade ${isTrain(line) ? 'DB' : 'VRR'} Verlauf...</div>`;
+
+    try {
+        const r = await fetch(`${targetAPI}/trips/${encodeURIComponent(tid)}`);
+        if (!r.ok) throw new Error();
+        const data = await r.json();
         
-        const targetAPI = isTrain(line) ? API_DB : API_VRR;
+        document.getElementById('ov_title').innerText = line + " -> " + dest;
 
-        try {
-            const r = await fetch(`${targetAPI}/trips/${encodeURIComponent(tid)}`);
-            const data = await r.json();
-            document.getElementById('ov_title').innerText = line + " -> " + dest;
+        cont.innerHTML = data.trip.stopovers.map(s => {
+            const isCanceled = s.cancelled;
+            const reasons = s.remarks ? s.remarks.filter(rem => rem.type === 'delay-cause').map(rem => rem.text).join(', ') : '';
+            const plat = s.departurePlatform || s.arrivalPlatform || s.platform;
+            const platHTML = plat ? `<span style="margin-left:auto; font-weight:800; color:var(--sub); font-size:11px;">${isTrain(line) ? 'Gl.' : 'Busst.'} ${plat}</span>` : '';
 
-            cont.innerHTML = data.trip.stopovers.map(s => {
-                const isCanceled = s.cancelled;
-                const reasons = s.remarks ? s.remarks.filter(rem => rem.type === 'delay-cause').map(rem => rem.text).join(', ') : '';
-                const plat = s.departurePlatform || s.arrivalPlatform || s.platform;
-                const platHTML = plat ? `<span style="margin-left:auto; font-weight:800; color:var(--sub); font-size:11px;">${isTrain(line) ? 'Gl.' : 'Busst.'} ${plat}</span>` : '';
-
-                const renderRow = (planned, actual, label, delay) => {
-                    if (!planned) return '';
-                    const live = getLiveDisplay(planned, actual, delay);
-                    return `
-                        <div style="display:flex; gap:8px; align-items:center; margin-bottom:2px;">
-                            <span style="color:var(--sub); font-size:9px; width:22px; font-weight:bold;">${label}</span>
-                            <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
-                            ${!isCanceled ? `<span class="${getCol(actual, planned)} ${live.class}" title="${live.title}">${formatT(actual || planned)}</span>` : ''}
-                        </div>`;
-                };
-
+            const renderRow = (planned, actual, label, delay) => {
+                if (!planned) return '';
+                const live = getLiveDisplay(planned, actual, delay);
                 return `
-                <div class="stop-row ${isCanceled?'cancelled':''}">
-                    <div class="stop-times">
-                        ${renderRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
-                        ${renderRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
+                    <div style="display:flex; gap:8px; align-items:center; margin-bottom:2px;">
+                        <span style="color:var(--sub); font-size:9px; width:22px; font-weight:bold;">${label}</span>
+                        <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
+                        ${!isCanceled ? `<span class="${getCol(actual, planned)} ${live.class}" title="${live.title}">${formatT(actual || planned)}</span>` : ''}
+                    </div>`;
+            };
+
+            return `
+            <div class="stop-row ${isCanceled?'cancelled':''}">
+                <div class="stop-times">
+                    ${renderRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
+                    ${renderRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
+                </div>
+                <div class="stop-info" style="display:flex; flex-direction:column; flex-grow:1;">
+                    <div style="display:flex; width:100%; align-items:baseline;">
+                        <span style="font-weight:600; font-size:14px;">${s.stop.name}</span>
+                        ${platHTML}
                     </div>
-                    <div class="stop-info" style="display:flex; flex-direction:column; flex-grow:1;">
-                        <div style="display:flex; width:100%; align-items:baseline;">
-                            <span style="font-weight:600; font-size:14px;">${s.stop.name}</span>
-                            ${platHTML}
-                        </div>
-                        ${reasons ? `<span style="color:var(--red); font-size:10px; font-weight:bold; margin-top:2px;">⚠️ ${reasons}</span>` : ''}
-                    </div>
-                </div>`;
-            }).join('');
-        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf nicht abrufbar.</div>"; }
+                    ${reasons ? `<span style="color:var(--red); font-size:10px; font-weight:bold; margin-top:2px;">⚠️ ${reasons}</span>` : ''}
+                    ${isCanceled ? `<span style="color:var(--red); font-size:10px; font-weight:bold;">Halt entfällt</span>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) { 
+        cont.innerHTML = `<div style='padding:50px; text-align:center;'>Verlauf via ${isTrain(line)?'DB':'VRR'} nicht verfügbar.</div>`; 
     }
+}
 
     function toggleTheme() {
         const b = document.body;
@@ -223,17 +246,6 @@
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
 
-    async function doSearch() {
-        const q = document.getElementById('inp').value;
-        const dd = document.getElementById('dropdown');
-        if (q.length < 3) { dd.style.display = 'none'; return; }
-        dd.style.display = 'block';
-        try {
-            const r = await fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=5`);
-            const data = await r.json();
-            dd.innerHTML = data.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
-        } catch (e) { dd.innerHTML = "<div style='padding:15px;'>Fehler.</div>"; }
-    }
 
     function pick(id, name) {
         activeId = id; document.getElementById('inp').value = name;
