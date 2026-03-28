@@ -155,7 +155,7 @@ async function loadTrip(tid, line, dest) {
     saveToArchive(tid, line, dest);
     document.getElementById('ov_trip').style.display = 'block';
     const cont = document.getElementById('trip_content');
-    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Suche Verlauf in NRW-Netz...</div>";
+    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Laden...</div>";
     
     // Wir versuchen erst den logischen Provider, dann den Backup
     const primaryAPI = getProvider(line);
