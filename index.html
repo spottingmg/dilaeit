@@ -17,7 +17,8 @@
         .time-row input { flex: 1; padding: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; }
         .btn-now { background: var(--db-red); color: white; border: none; border-radius: 8px; padding: 0 15px; font-weight: bold; cursor: pointer; }
 
-        #dropdown { position: absolute; left: 20px; right: 20px; top: 55px; background: var(--card); border: 1px solid var(--border); z-index: 10000; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        /* Dropdown jetzt dynamisch unter der gesamten search-area */
+        #dropdown { position: absolute; left: 20px; right: 20px; top: 100%; background: var(--card); border: 1px solid var(--border); z-index: 10000; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
         input[type="text"] { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
 
         .archive-section { padding: 0 20px 20px; }
@@ -60,13 +61,13 @@
 
 <div class="search-area">
     <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
-    <div id="dropdown"></div>
     
     <div class="time-row">
         <input type="date" id="date_inp" onchange="updateTimeSession()">
         <input type="time" id="time_inp" onchange="updateTimeSession()">
         <button class="btn-now" onclick="setNow()">Jetzt</button>
     </div>
+    <div id="dropdown"></div>
 </div>
 
 <div id="archive_container" class="archive-section" style="display:none;">
@@ -89,7 +90,6 @@
     const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer, currentApi = API_VRR, tripTimer, currentTripData = null;
 
-    // Initialisierung
     init();
 
     function init() {
@@ -104,9 +104,9 @@
     }
 
     function getDelayClass(plan, act) {
-        if (!act) return "v-ontime"; // Default grün wenn kein Act-Feld (Planzeit wird genutzt)
+        if (!act) return "v-ontime"; 
         const diff = (act - plan) / 1000 / 60;
-        return (diff >= 1) ? "v-delay" : "v-ontime"; // Rot bei >= 1 Min, sonst immer Grün (auch bei Verfrühung)
+        return (diff >= 1) ? "v-delay" : "v-ontime";
     }
 
     function setNow(refresh = true) {
@@ -161,8 +161,7 @@
 
     function renderRow(d) {
         const plan = new Date(d.plannedWhen || d.when);
-        const act = d.when ? new Date(d.when) : plan; // Nutze Planzeit wenn kein 'when' vorhanden
-        const isLive = !!d.when;
+        const act = d.when ? new Date(d.when) : plan;
         const colorClass = getDelayClass(plan, act);
 
         return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${(d.direction || "Ziel unbekannt").replace(/'/g, "\\'")}', '${currentApi}')">
@@ -241,13 +240,11 @@
     }
 
     function restoreSession() {
-        // Zeit wiederherstellen
         const ld = sessionStorage.getItem('lastDate');
         const lt = sessionStorage.getItem('lastTime');
         if(ld) document.getElementById('date_inp').value = ld;
         if(lt) document.getElementById('time_inp').value = lt;
 
-        // Station wiederherstellen
         const lastStation = sessionStorage.getItem('lastStation');
         if(lastStation) {
             const s = JSON.parse(lastStation);
@@ -255,7 +252,6 @@
             loadDeps();
         }
 
-        // Aktive Fahrt wiederherstellen
         const lastTrip = sessionStorage.getItem('currentTrip');
         if(lastTrip) {
             currentTripData = JSON.parse(lastTrip);
