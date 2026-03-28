@@ -19,12 +19,17 @@
         .line-id { color: var(--db-red); font-weight: 800; font-size: 20px; }
         .dest { font-size: 14px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .t-row { font-size: 17px; display: flex; gap: 8px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
-        .t-soll { color: var(--sub); }
+        .t-soll { color: var(--sub); font-weight: 400; }
         .v-red { color: var(--red); } .v-green { color: var(--green); }
+        
+        /* bahn.expert / VRR Monitor Logik */
+        .live-confirmed { font-weight: 800 !important; } 
+        .prognose { font-weight: 400; opacity: 0.85; }   
+        
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; gap: 15px; }
-        .stop-times { font-size: 12px; width: 100px; flex-shrink: 0; }
+        .stop-times { font-size: 12px; width: 105px; flex-shrink: 0; line-height: 1.3; }
         #dropdown, #archive-view { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
         .cancelled { text-decoration: line-through; opacity: 0.5; }
@@ -67,34 +72,19 @@
     let activeId = "";
     let timer;
 
-    // --- HELPER FUNCTIONS ---
     function cleanN(n) { return n ? n.split(',')[0].trim() : ""; }
-    function isTrain(l) { return l && /^(RE|RB|S|IC|ICE)/i.test(l); }
+    function isTrain(l) { return l && /^(RE|RB|S|IC|ICE|TGV|EC)/i.test(l); }
+    function getPlat(l, p) { return p ? (isTrain(l) ? 'Gl. ' : 'Bst. ') + p : ''; }
 
-    // Die wiederhergestellte strenge Fett/Dünn-Logik
     function getLiveDisplay(planned, actual, delay) {
-        if (!actual) return { class: 'prognose', title: '' };
-        const istTime = new Date(actual).getTime();
-        const sollTime = new Date(planned).getTime();
-        const nun = Date.now();
-        
-        // Regel 1: "Angemeldet" (Im 2-Stunden-Fenster ODER echte Abweichung)
-        const istAngemeldet = (sollTime <= (nun + 7200000)) || (actual !== planned);
-        
-        // Regel 2: Abgefahren (Ist-Zeit liegt in der Vergangenheit)
-        const istAbgefahren = istTime <= nun;
-
-        // Fett nur wenn angemeldet UND bereits abgefahren
-        const istWirklichLive = istAngemeldet && istAbgefahren;
-        
+        if (!actual) return { class: 'prognose', displayTime: '' };
+        const hasRealtimeEvent = (delay !== null && delay !== undefined);
         return { 
-            class: istWirklichLive ? 'live-confirmed' : 'prognose', 
-            // Sekunden-Hover nur im Archiv oder wenn fett
-            title: (istWirklichLive || nun - istTime > 120000) ? formatFull(actual) : "" 
+            class: hasRealtimeEvent ? 'live-confirmed' : 'prognose',
+            displayTime: hasRealtimeEvent ? formatFull(actual) : formatT(actual)
         };
     }
 
-    // Fehlertoleranter API-Abruf (VRR/DB Fallback)
     async function fetchSafety(path, useVRRFirst = true) {
         const primary = useVRRFirst ? API_VRR : API_DB;
         const secondary = useVRRFirst ? API_DB : API_VRR;
@@ -108,16 +98,14 @@
         }
     }
 
-    // --- MAIN FUNCTIONS ---
     async function doSearch() {
         const q = document.getElementById('inp').value;
-        const dd = document.getElementById('dropdown');
-        if (q.length < 3) { dd.style.display = 'none'; return; }
-        dd.style.display = 'block';
+        if (q.length < 3) { document.getElementById('dropdown').style.display = 'none'; return; }
+        document.getElementById('dropdown').style.display = 'block';
         try {
             const data = await fetchSafety(`/locations?query=${encodeURIComponent(q)}&results=5`, true);
-            dd.innerHTML = data.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
-        } catch (e) { dd.innerHTML = "<div class='item'>Suche fehlgeschlagen.</div>"; }
+            document.getElementById('dropdown').innerHTML = data.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+        } catch (e) { document.getElementById('dropdown').innerHTML = "<div class='item'>Suche nicht möglich.</div>"; }
     }
 
     function pick(id, name) {
@@ -128,26 +116,26 @@
     async function loadDeps() {
         const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Daten...</div>";
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
         try {
             const data = await fetchSafety(`/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`, true);
             res.innerHTML = data.departures.map(d => {
                 const ist = d.when || d.plannedWhen, soll = d.plannedWhen;
-                const line = d.line.name;
-                const live = getLiveDisplay(soll, ist, d.delay); // Nutzt die Fett-Logik
+                const live = getLiveDisplay(soll, ist, d.delay);
+                const color = (new Date(ist) > new Date(soll)) ? 'v-red' : 'v-green';
                 
-                return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${line}', '${cleanN(d.direction)}')">
+                return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${cleanN(d.direction)}')">
                     <div style="flex-grow:1; overflow:hidden; margin-right:10px;">
                         <div style="display:flex; align-items:baseline; gap:10px;">
-                            <span class="line-id">${line}</span>
-                            <span style="font-size:11px; color:var(--sub); font-weight:800;">${d.platform ? (isTrain(line)?'Gl.':'Bst.')+' '+d.platform : ''}</span>
+                            <span class="line-id">${d.line.name}</span>
+                            <span style="font-size:11px; color:var(--sub); font-weight:800;">${getPlat(d.line.name, d.platform)}</span>
                         </div>
                         <span class="dest">${d.cancelled ? 'Fällt aus' : cleanN(d.direction)}</span>
                     </div>
                     <div class="time-stack">
                         <div class="t-row">
                             <span class="t-soll">${formatT(soll)}</span>
-                            ${!d.cancelled ? `<span class="${new Date(ist)>new Date(soll)?'v-red':'v-green'} ${live.class}" title="${live.title}">${formatT(ist)}</span>` : ''}
+                            ${!d.cancelled ? `<span class="${color} ${live.class}">${live.displayTime}</span>` : ''}
                         </div>
                     </div>
                 </div>`;
@@ -159,48 +147,38 @@
         saveToArchive(tid, line, dest);
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf...</div>";
+        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Live-Verlauf...</div>";
         try {
-            // Für Züge bevorzugen wir DB, für Busse VRR, aber mit Fallback
             const data = await fetchSafety(`/trips/${encodeURIComponent(tid)}`, !isTrain(line));
-            
             document.getElementById('ov_title').innerText = line + " -> " + dest;
             cont.innerHTML = data.trip.stopovers.map(s => {
-                const arrS = s.plannedArrival, arrI = s.arrival, arrD = s.arrivalDelay;
-                const depS = s.plannedDeparture, depI = s.departure, depD = s.departureDelay;
-                
-                // Korrigierte renderTime Funktion: Nutzt getLiveDisplay für Fett/Dünn
-                const renderTime = (soll, ist, delay, lbl) => {
+                const renderRow = (soll, ist, delay, lbl) => {
                     if (!soll) return '';
                     const live = getLiveDisplay(soll, ist, delay);
                     const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
-                    return `
-                        <div>
-                            <span style="color:var(--sub); width:28px; display:inline-block; font-weight:bold;">${lbl}</span>
-                            <span class="t-soll" style="font-weight:400;">${formatT(soll)}</span>
-                            ${!s.cancelled ? `<span class="${color} ${live.class}" title="${live.title}">${formatT(ist||soll)}</span>` : ''}
-                        </div>`;
+                    return `<div>
+                        <span style="color:var(--sub); width:28px; display:inline-block; font-weight:bold;">${lbl}</span>
+                        <span class="t-soll" style="font-weight:400;">${formatT(soll)}</span>
+                        ${!s.cancelled ? `<span class="${color} ${live.class}">${live.displayTime}</span>` : ''}
+                    </div>`;
                 };
-
                 return `<div class="stop-row ${s.cancelled?'cancelled':''}">
-                    <div class="stop-times">${renderTime(arrS, arrI, arrD, 'An')}${renderTime(depS, depI, depD, 'Ab')}</div>
+                    <div class="stop-times">${renderRow(s.plannedArrival, s.arrival, s.arrivalDelay, 'An')}${renderRow(s.plannedDeparture, s.departure, s.departureDelay, 'Ab')}</div>
                     <div style="flex-grow:1;">
-                        <div style="font-weight:600; font-size:14px; display:flex; justify-content:space-between;">
+                        <div style="font-weight:600; font-size:14px; display:flex; justify-content:space-between; align-items: center;">
                             <span>${cleanN(s.stop.name)}</span>
-                            <span style="font-size:10px; color:var(--sub);">${s.platform ? 'Gl. '+s.platform : ''}</span>
+                            <span style="font-size:11px; color:var(--sub); font-weight:800; margin-left:10px;">${getPlat(line, s.platform)}</span>
                         </div>
-                        ${s.cancelled ? '<span style="color:var(--red); font-size:10px; font-weight:bold;">Halt entfällt</span>':''}
                     </div>
                 </div>`;
             }).join('');
-        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf nicht verfügbar (z.B. Archiv-Leiche).</div>"; }
+        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf derzeit nicht live abrufbar.</div>"; }
     }
 
-    // --- UI & OTHER HELPER ---
     function toggleTheme() { const b = document.body, i = document.getElementById('themeIcon'), isL = b.getAttribute('data-theme') === 'light'; b.setAttribute('data-theme', isL ? 'dark' : 'light'); i.innerText = isL ? '☀️' : '🌙'; }
     function setNow() { const n = new Date(); document.getElementById('dateInput').value = n.toISOString().split('T')[0]; document.getElementById('timeInput').value = n.toTimeString().slice(0, 5); }
     function formatT(iso) { return iso ? new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''; }
-    function formatFull(iso) { return iso ? new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''; }
+    function formatFull(iso) { return iso ? new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : ''; }
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     function saveToArchive(tid, line, dest) { let arc = JSON.parse(localStorage.getItem('arc') || "[]"); arc = arc.filter(x => x.tid !== tid).slice(0, 9); arc.unshift({tid, line, dest, time: new Date().toLocaleString()}); localStorage.setItem('arc', JSON.stringify(arc)); }
