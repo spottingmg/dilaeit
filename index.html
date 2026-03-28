@@ -74,14 +74,27 @@
     function getPlat(l, p) { return p ? (isTrain(l) ? 'Gl. ' : 'Bst. ') + p : ''; }
 
     // FETT-LOGIK: Sekunden & Fett nur wenn delay vorhanden (Kurs angemeldet)
-    function getLiveDisplay(planned, actual, delay) {
-        if (!actual) return { class: 'prognose', displayTime: '' };
-        const isConfirmed = (delay !== null && delay !== undefined);
+function getLiveDisplay(planned, actual, delay) {
+    if (!actual) return { class: 'prognose', displayTime: '' };
+    
+    const d = new Date(actual);
+    const hasSeconds = d.getSeconds() !== 0;
+    const hasDelayInfo = (delay !== null && delay !== undefined);
+    
+    // Wenn Sekunden da sind ODER ein Delay-Flag existiert -> FETT
+    if (hasSeconds || hasDelayInfo) {
         return { 
-            class: isConfirmed ? 'live-confirmed' : 'prognose',
-            displayTime: isConfirmed ? formatFull(actual) : formatT(actual)
+            class: 'live-confirmed', 
+            displayTime: d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) 
         };
     }
+    
+    // Ansonsten: Normal (Dünn)
+    return { 
+        class: 'prognose', 
+        displayTime: d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) 
+    };
+}
 
     async function fetchSafety(path, useVRRFirst = true) {
         const primary = useVRRFirst ? API_VRR : API_DB;
