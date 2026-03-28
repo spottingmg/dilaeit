@@ -33,7 +33,7 @@
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         
-        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 110px 1fr 60px; gap: 10px; align-items: center; }
+        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 115px 1fr 60px; gap: 10px; align-items: center; }
         .stop-times { font-size: 12px; line-height: 1.3; font-variant-numeric: tabular-nums; }
         .stop-name { font-weight: 600; font-size: 14px; }
         .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; }
@@ -75,6 +75,7 @@
 
 <script>
     const API_VRR = "https://v6.vrr.transport.rest";
+    const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer;
 
     if (localStorage.getItem('theme') === 'dark') toggleTheme(true);
@@ -87,12 +88,7 @@
         if (!actual) return { cls: '', txt: '--:--' };
         const p = new Date(planned), a = new Date(actual);
         const isLive = (p.getTime() !== a.getTime()) || (a.getSeconds() !== 0);
-        
-        // Wenn fett, dann mit Sekunden anzeigen
-        const format = isLive 
-            ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} 
-            : {hour:'2-digit', minute:'2-digit'};
-
+        const format = isLive ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} : {hour:'2-digit', minute:'2-digit'};
         return { 
             cls: isLive ? 'live-confirmed' : '', 
             txt: a.toLocaleTimeString([], format),
@@ -100,14 +96,19 @@
         };
     }
 
-    async function fetchS(path) {
-        let r = await fetch(API_VRR + path);
-        return await r.json();
+    async function fetchS(path, useDB = false) {
+        try {
+            let r = await fetch((useDB ? API_DB : API_VRR) + path);
+            return await r.json();
+        } catch (e) { return null; }
     }
 
     function setNow() {
-        document.getElementById('date_inp').value = "";
-        document.getElementById('time_inp').value = "";
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.toTimeString().split(' ')[0].substring(0, 5);
+        document.getElementById('date_inp').value = dateStr;
+        document.getElementById('time_inp').value = timeStr;
         if(activeId) loadDeps();
     }
 
@@ -122,9 +123,7 @@
         const dd = document.getElementById('dropdown');
         if (dd.style.display === 'block' && dd.getAttribute('data-type') === 'history') {
             dd.style.display = 'none';
-        } else {
-            showTripHistory();
-        }
+        } else { showTripHistory(); }
     }
 
     function showTripHistory() {
@@ -144,6 +143,7 @@
         dd.style.display = 'block';
         dd.setAttribute('data-type', 'search');
         const data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=5`);
+        if(!data) return;
         const stops = data.locations || data;
         dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
     }
@@ -161,6 +161,7 @@
         let timeParam = (dVal && tVal) ? `&when=${new Date(`${dVal}T${tVal}`).toISOString()}` : "";
         res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade...</div>";
         const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`);
+        if(!data) { res.innerHTML = "Fehler."; return; }
         const deps = data.departures || data;
         res.innerHTML = deps.map(d => {
             const live = getLiveState(d.plannedWhen, d.when || d.plannedWhen);
@@ -184,7 +185,8 @@
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
         cont.innerHTML = "<div style='padding:30px; text-align:center;'>Lade...</div>";
-        const data = await fetchS(`/trips/${encodeURIComponent(tid)}`);
+        const data = await fetchS(`/trips/${encodeURIComponent(tid)}`, isTrain(line));
+        if(!data) { cont.innerHTML = "Verlauf nicht verfügbar."; return; }
         const trip = data.trip || data;
         document.getElementById('ov_title').innerText = line + " ➔ " + dest;
         cont.innerHTML = trip.stopovers.map(s => {
@@ -192,10 +194,10 @@
                 if (!soll) return '';
                 const live = getLiveState(soll, ist || soll);
                 const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
-                return `<div style="margin-bottom:4px;">
-                    <div style="font-size:10px; color:var(--sub); margin-left:22px;">${lbl} ${live.soll}</div>
+                return `<div style="margin-bottom:6px;">
+                    <div style="font-size:10px; color:var(--sub); margin-left:24px;">${lbl} ${live.soll}</div>
                     <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="font-size:10px; color:var(--sub); width:14px;">${lbl[0]}</span>
+                        <span style="font-size:10px; color:var(--sub); width:16px;">${lbl[0]}</span>
                         <span class="${color} ${live.cls}" style="font-size:14px;">${live.txt}</span>
                     </div>
                 </div>`;
@@ -220,7 +222,10 @@
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
-    document.addEventListener('click', (e) => { if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) document.getElementById('dropdown').style.display = 'none'; });
+    document.addEventListener('click', (e) => { 
+        if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) 
+            document.getElementById('dropdown').style.display = 'none'; 
+    });
 </script>
 </body>
 </html>
