@@ -23,8 +23,7 @@
 
         #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
         .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; }
-        .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 12px 15px 5px; text-transform: uppercase; background: var(--bg); position: sticky; top: 0; }
-
+        
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; }
         
@@ -37,8 +36,10 @@
         .stop-dist { font-size: 10px; color: var(--sub); font-weight: 600; }
         .stop-plat { font-size: 11px; color: var(--sub); font-weight: 700; text-align: right; }
 
+        /* Echtzeit-Fixes */
         .live-active { font-weight: 800 !important; }
-        .v-red { color: var(--red) !important; } .v-green { color: var(--green) !important; }
+        .v-red { color: var(--red) !important; } 
+        .v-green { color: var(--green) !important; }
         .past-stop { opacity: 0.3; filter: grayscale(1); }
     </style>
 </head>
@@ -86,24 +87,7 @@
         if(refresh && activeId) loadDeps();
     }
 
-    function formatPlat(p) {
-        if (!p) return "";
-        return isNaN(p) ? p : 'Gl. ' + p;
-    }
-
-    function showHistory(e) {
-        if (e) e.stopPropagation();
-        const q = document.getElementById('inp').value.trim();
-        if (q.length > 0) return; 
-        const hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
-        const dd = document.getElementById('dropdown');
-        if(!hist.length) { dd.style.display = 'none'; return; }
-        dd.innerHTML = '<div class="hist-label">Letzte Fahrten</div>' + 
-            hist.map(t => `<div class="item" onclick="loadTrip('${t.tid}', '${t.line}', '${t.dest}')">
-                <b style="color:var(--db-red)">${t.line}</b> ➔ ${t.dest.split(',')[0]}
-            </div>`).join('');
-        dd.style.display = 'block';
-    }
+    function formatPlat(p) { return p ? (isNaN(p) ? p : 'Gl. ' + p) : ""; }
 
     async function doSearch() {
         const q = document.getElementById('inp').value.trim();
@@ -111,29 +95,18 @@
         if (q.length < 3) { dd.style.display = 'none'; return; }
         dd.innerHTML = '<div class="item" style="color:var(--sub)">Suche läuft...</div>';
         dd.style.display = 'block';
-        
         try {
-            const [vrrRes, dbRes] = await Promise.allSettled([
+            const [vrr, db] = await Promise.allSettled([
                 fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json()),
                 fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json())
             ]);
-            
             let combined = [];
-            if (vrrRes.status === 'fulfilled' && vrrRes.value) {
-                const locs = Array.isArray(vrrRes.value) ? vrrRes.value : (vrrRes.value.locations || []);
-                combined.push(...locs);
-            }
-            if (dbRes.status === 'fulfilled' && dbRes.value) {
-                const locs = Array.isArray(dbRes.value) ? dbRes.value : (dbRes.value.locations || []);
-                combined.push(...locs);
-            }
-
-            if (combined.length > 0) {
-                const seen = new Set();
-                dd.innerHTML = combined.filter(l => l.id && !seen.has(l.id) && seen.add(l.id))
-                    .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name.replace(',','')}</div>`).join('');
-            } else { dd.innerHTML = '<div class="item">Nichts gefunden.</div>'; }
-        } catch (e) { dd.innerHTML = '<div class="item">Fehler bei der Suche.</div>'; }
+            if (vrr.status === 'fulfilled') combined.push(...(vrr.value.locations || vrr.value || []));
+            if (db.status === 'fulfilled') combined.push(...(db.value.locations || db.value || []));
+            const seen = new Set();
+            dd.innerHTML = combined.filter(l => l.id && !seen.has(l.id) && seen.add(l.id))
+                .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name.replace(',','')}</div>`).join('');
+        } catch (e) { dd.innerHTML = '<div class="item">Fehler.</div>'; }
     }
 
     function pick(id, name) {
@@ -153,11 +126,10 @@
         try {
             const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60${when}`).then(r => r.json());
             const deps = data.departures || data || [];
-            if(!deps.length) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Keine Abfahrten gefunden.</div>"; return; }
             res.innerHTML = deps.map(d => {
                 const isLive = d.prognosisType === 'prognosed' || d.prognosisType === 'actual';
                 const timeStr = isLive ? (d.when || d.plannedWhen).substring(11,19) : (d.plannedWhen || d.when).substring(11,16);
-                const diff = isLive ? Math.round((new Date(d.when) - new Date(d.plannedWhen))/60000) : 0;
+                const diff = isLive ? (new Date(d.when) - new Date(d.plannedWhen))/60000 : 0;
                 return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${d.direction}')">
                     <div>
                         <div class="line-id">${d.line.name}</div>
@@ -170,15 +142,12 @@
                     </div>
                 </div>`;
             }).join('');
-        } catch(e) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Fehler beim Laden.</div>"; }
+        } catch(e) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Fehler.</div>"; }
     }
 
     async function loadTrip(tid, line, dest) {
         currentTripData = { tid, line, dest };
         document.getElementById('ov_trip').style.display = 'block';
-        let hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
-        hist = [{tid, line, dest}, ...hist.filter(x => x.tid !== tid)].slice(0, 15);
-        localStorage.setItem('trip_hist', JSON.stringify(hist));
         navigator.geolocation.getCurrentPosition(pos => { userPos = pos.coords; refreshTrip(); }, () => { refreshTrip(); });
         refreshTrip();
         clearInterval(tripTimer);
@@ -194,26 +163,31 @@
             document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest.split(',')[0]}`;
             const now = Date.now();
             document.getElementById('trip_content').innerHTML = stops.map(s => {
-                const isLiveArr = s.arrivalPrognosisType === 'prognosed' || s.arrivalPrognosisType === 'actual';
-                const isLiveDep = s.departurePrognosisType === 'prognosed' || s.departurePrognosisType === 'actual';
-                const depTs = new Date(s.departure || s.plannedDeparture || s.arrival || s.plannedArrival).getTime();
-                const isPast = now > depTs + 15000;
-                let distHtml = (userPos && s.stop.location) ? `<div class="stop-dist">${calcDist(userPos.latitude, userPos.longitude, s.stop.location.latitude, s.stop.location.longitude)} entfernt</div>` : "";
+                const isLiveArr = !!(s.arrival || s.prognosedArrival);
+                const isLiveDep = !!(s.departure || s.prognosedDeparture);
+                const planArr = s.plannedArrival || s.arrival;
+                const planDep = s.plannedDeparture || s.departure;
+                const actArr = s.arrival || s.prognosedArrival || planArr;
+                const actDep = s.departure || s.prognosedDeparture || planDep;
                 
+                const depTs = new Date(actDep || actArr).getTime();
+                const isPast = now > depTs + 15000;
+
                 const formatT = (p, a, live, lbl) => {
                     if(!p) return "";
-                    const diff = live ? (new Date(a) - new Date(p)) : 0;
+                    const diff = (new Date(a) - new Date(p)) / 60000;
+                    const timeDisp = live ? a.substring(11,19) : p.substring(11,16);
                     return `<div><span style="color:var(--sub); width:18px; display:inline-block">${lbl}</span>
-                            <span class="${live ? (diff > 0 ? 'v-red' : 'v-green') : ''} ${live ? 'live-active' : ''}">${live ? a.substring(11,19) : p.substring(11,16)}</span></div>`;
+                            <span class="${live ? (diff > 0.5 ? 'v-red' : 'v-green') : ''} ${live ? 'live-active' : ''}">${timeDisp}</span></div>`;
                 };
 
                 return `<div class="stop-row ${isPast ? 'past-stop' : ''}">
-                    <div class="stop-times">${formatT(s.plannedArrival, s.arrival, isLiveArr, 'An')}${formatT(s.plannedDeparture, s.departure, isLiveDep, 'Ab')}</div>
-                    <div class="stop-name-box"><div class="stop-name">${s.stop.name.split(',')[0]}</div>${distHtml}</div>
+                    <div class="stop-times">${formatT(planArr, actArr, isLiveArr, 'An')}${formatT(planDep, actDep, isLiveDep, 'Ab')}</div>
+                    <div class="stop-name">${s.stop.name.split(',')[0]}</div>
                     <div class="stop-plat">${formatPlat(s.platform)}</div>
                 </div>`;
             }).join('');
-        } catch(e) {}
+        } catch(e) { console.error(e); }
     }
 
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; clearInterval(tripTimer); }
@@ -223,6 +197,14 @@
         const next = b.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         b.setAttribute('data-theme', next);
         document.getElementById('themeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
+    }
+    function calcDist(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2-lat1) * Math.PI / 180;
+        const dLon = (lon2-lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+        const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return d > 1 ? d.toFixed(1) + ' km' : Math.round(d*1000) + ' m';
     }
 </script>
 </body>
