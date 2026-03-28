@@ -14,38 +14,29 @@
             --border: #3a3a3c; --green: #32d74b; --red: #ff453a;
         }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; transition: background 0.3s; }
-        
         .header { background: var(--card); padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
         .header h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -1px; color: var(--db-red); text-transform: lowercase; }
-        .theme-toggle { cursor: pointer; font-size: 20px; margin-right: 15px; }
-
         .search-area { padding: 20px; background: var(--card); border-bottom: 1px solid var(--border); }
         input[type="text"] { width: 100%; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; outline: none; box-sizing: border-box; color: var(--text); }
         .time-controls { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 12px; }
         .time-controls input { padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: var(--bg); color: var(--text); }
         .now-btn { padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 10px; font-weight: 700; color: var(--text); text-transform: lowercase; }
-
         .row { padding: 15px 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .cancelled { text-decoration: line-through; opacity: 0.5; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 22px; }
         .dest { font-size: 14px; font-weight: 600; display: block; }
-        
         .time-stack { text-align: right; font-variant-numeric: tabular-nums; }
         .t-row { font-size: 18px; display: flex; gap: 10px; justify-content: flex-end; }
         .t-soll { color: var(--sub); font-weight: 400; }
-        
-        .live-confirmed { font-weight: 800; cursor: help; }
+        .live-confirmed { font-weight: 800; }
         .prognose { font-weight: 400; }
-        
         .v-red { color: var(--red) !important; }
         .v-green { color: var(--green) !important; }
-
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 15px; }
         .stop-times { font-size: 13px; display: flex; flex-direction: column; width: 115px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
         .stop-info { flex-grow: 1; padding-top: 2px; }
-        
         #dropdown, #archive-view { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
     </style>
@@ -93,13 +84,6 @@
     let activeId = "";
     let timer;
 
-    function getProvider(lineName) {
-        if (!lineName) return API_DB;
-        const l = lineName.toLowerCase();
-        if (l.includes('bus') || l.includes('str') || l.startsWith('u') || l.startsWith('ne')) return API_VRR;
-        return API_DB;
-    }
-    
     function toggleTheme() {
         const b = document.body;
         const icon = document.getElementById('themeIcon');
@@ -107,12 +91,12 @@
         b.setAttribute('data-theme', isLight ? 'dark' : 'light');
         icon.innerText = isLight ? '☀️' : '🌙';
     }
-function getCol(ist, soll) {
-    if (!ist || !soll) return 'v-green';
-    const diff = new Date(ist).getTime() - new Date(soll).getTime();
-    // Wenn Verspätung > 0, dann Rot, sonst immer Grün
-    return (diff > 0) ? 'v-red' : 'v-green';
-}
+
+    function getCol(ist, soll) {
+        if (!ist || !soll) return 'v-green';
+        return (new Date(ist).getTime() > new Date(soll).getTime()) ? 'v-red' : 'v-green';
+    }
+
     function setNow() {
         const n = new Date();
         document.getElementById('dateInput').value = n.toISOString().split('T')[0];
@@ -128,23 +112,27 @@ function getCol(ist, soll) {
 
     function formatFull(iso) {
         if (!iso) return '';
-        const d = new Date(iso);
-        return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' ' + 
-               d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
-    function getLiveState(planned, actual, delay) {
-        if (!actual) return 'prognose';
-        const ist = new Date(actual).getTime();
+    // Kernlogik für Fett/Dünn/Sekunden
+    function getLiveDisplay(planned, actual, delay) {
+        if (!actual) return { class: 'prognose', title: '' };
+        
+        const istTime = new Date(actual).getTime();
         const nun = Date.now();
-        const hatSignal = (typeof delay === 'number');
-        const istNah = ist <= (nun + 300000); 
-        return (hatSignal && istNah) ? 'live-confirmed' : 'prognose';
-    }
+        const hatSignal = (typeof delay === 'number' || actual !== planned);
+        
+        // Regel 1: Fett (live-confirmed) nur wenn abgefahren oder fällig
+        const istAbgefahren = istTime <= nun;
+        
+        // Regel 2: Sekunden-Hover nur wenn abgefahren
+        const title = istAbgefahren ? formatFull(actual) : "";
 
-    function getCol(ist, soll) {
-        if (!ist || !soll) return 'v-green';
-        return (new Date(ist).getTime() > new Date(soll).getTime()) ? 'v-red' : 'v-green';
+        // Klasse bestimmen: Fett nur wenn echtes Signal UND bereits abgefahren/jetzt fällig
+        const className = (hatSignal && istAbgefahren) ? 'live-confirmed' : 'prognose';
+        
+        return { class: className, title: title };
     }
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
@@ -167,101 +155,87 @@ function getCol(ist, soll) {
         loadDeps();
     }
 
-async function loadDeps() {
-    const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
-    const res = document.getElementById('results');
-    res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
-    try {
-        const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
-        const data = await r.json();
-        res.innerHTML = data.departures.map(d => {
-            const ist = d.when || d.plannedWhen;
-            const soll = d.plannedWhen;
-            const isCanceled = d.cancelled;
-            const ziel = d.direction || "Endstation";
-            const liveClass = getLiveState(soll, ist, d.delay);
-            
-            return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
-                <div>
-                    <span class="line-id">${d.line.name}</span>
-                    <span class="dest">${isCanceled ? '<span style="color:var(--red); font-weight:800;">Fällt aus</span>' : ziel}</span>
-                </div>
-                <div class="time-stack">
-                    <div class="t-row">
-                        <span class="t-soll">${formatT(soll)}</span>
-                        ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}" title="${formatFull(ist)}">${formatT(ist)}</span>` : ''}
+    async function loadDeps() {
+        const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
+        const res = document.getElementById('results');
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
+        try {
+            const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
+            const data = await r.json();
+            res.innerHTML = data.departures.map(d => {
+                const ist = d.when || d.plannedWhen;
+                const soll = d.plannedWhen;
+                const isCanceled = d.cancelled;
+                const ziel = d.direction || "Endstation";
+                const live = getLiveDisplay(soll, ist, d.delay);
+                
+                return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
+                    <div>
+                        <span class="line-id">${d.line.name}</span>
+                        <span class="dest">${isCanceled ? '<span style="color:var(--red); font-weight:800;">Fällt aus</span>' : ziel}</span>
                     </div>
-                </div>
-            </div>`;
-        }).join('');
-    } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden.</div>"; }
-}
-
-async function loadTrip(tid, line, dest) {
-    saveToArchive(tid, line, dest);
-    document.getElementById('ov_trip').style.display = 'block';
-    const cont = document.getElementById('trip_content');
-    
-    document.getElementById('retry_trip').onclick = () => loadTrip(tid, line, dest);
-    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf ...</div>";
-    
-    // Logik: Bus/U-Bahn -> Erst VRR, dann DB. Zug -> Erst DB, dann VRR.
-    const isBus = line.toLowerCase().includes('bus') || line.startsWith('0') || line.startsWith('SB');
-    const primaryAPI = isBus ? API_VRR : API_DB;
-    const backupAPI = isBus ? API_DB : API_VRR;
-
-    async function tryFetch(api) {
-        const r = await fetch(`${api}/trips/${encodeURIComponent(tid)}`);
-        if (!r.ok) throw new Error();
-        return await r.json();
+                    <div class="time-stack">
+                        <div class="t-row">
+                            <span class="t-soll">${formatT(soll)}</span>
+                            ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${live.class}" title="${live.title}">${formatT(ist)}</span>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden.</div>"; }
     }
 
-    try {
-        let data;
-        try { 
-            data = await tryFetch(primaryAPI); 
-        } catch(e) { 
-            console.log("Switching to Backup API...");
-            data = await tryFetch(backupAPI); 
+    async function loadTrip(tid, line, dest) {
+        saveToArchive(tid, line, dest);
+        document.getElementById('ov_trip').style.display = 'block';
+        const cont = document.getElementById('trip_content');
+        document.getElementById('retry_trip').onclick = () => loadTrip(tid, line, dest);
+        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf...</div>";
+        
+        const isBus = line.toLowerCase().includes('bus') || line.startsWith('0') || line.startsWith('SB');
+        const primaryAPI = isBus ? API_VRR : API_DB;
+        const backupAPI = isBus ? API_DB : API_VRR;
+
+        async function tryFetch(api) {
+            const r = await fetch(`${api}/trips/${encodeURIComponent(tid)}`);
+            if (!r.ok) throw new Error();
+            return await r.json();
         }
 
-        document.getElementById('ov_title').innerText = line + " -> " + dest;
+        try {
+            let data;
+            try { data = await tryFetch(primaryAPI); } catch(e) { data = await tryFetch(backupAPI); }
+            document.getElementById('ov_title').innerText = line + " -> " + dest;
 
-        // Filter für doppelte Halte (aus deinem vorherigen SB1-Beispiel)
-        const cleanStopovers = data.trip.stopovers.filter((s, index, self) => {
-            const next = self[index + 1];
-            return !(next && s.stop.name === next.stop.name && s.cancelled && !next.cancelled);
-        });
+            const cleanStopovers = data.trip.stopovers.filter((s, index, self) => {
+                const next = self[index + 1];
+                return !(next && s.stop.name === next.stop.name && s.cancelled && !next.cancelled);
+            });
 
-        cont.innerHTML = cleanStopovers.map(s => {
-            const isCanceled = s.cancelled;
-            const renderTimeRow = (planned, actual, label, delay) => {
-                if (!planned) return '';
-                const liveClass = getLiveState(planned, actual, delay);
+            cont.innerHTML = cleanStopovers.map(s => {
+                const isCanceled = s.cancelled;
+                const renderRow = (planned, actual, label, delay) => {
+                    if (!planned) return '';
+                    const live = getLiveDisplay(planned, actual, delay);
+                    return `
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
+                            <span style="color:var(--sub); font-size: 9px; width: 22px; font-weight:bold;">${label}</span>
+                            <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
+                            ${!isCanceled ? `<span class="${getCol(actual, planned)} ${live.class}" title="${live.title}">${formatT(actual || planned)}</span>` : ''}
+                        </div>`;
+                };
                 return `
-                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
-                        <span style="color:var(--sub); font-size: 9px; width: 22px; font-weight:bold;">${label}</span>
-                        <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
-                        ${!isCanceled ? `<span class="${getCol(actual, planned)} ${liveClass}" title="${formatFull(actual || planned)}">${formatT(actual || planned)}</span>` : ''}
-                    </div>`;
-            };
-
-            return `
-            <div class="stop-row ${isCanceled?'cancelled':''}">
-                <div class="stop-times">
-                    ${renderTimeRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
-                    ${renderTimeRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
-                </div>
-                <div class="stop-info">
-                    <span style="font-weight:600">${s.stop.name}</span>
-                    ${isCanceled ? '<br><span style="color:var(--red); font-size:11px; font-weight:bold;">Halt entfällt</span>' : ''}
-                </div>
-            </div>`;
-        }).join('');
-    } catch (e) { 
-        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf aktuell nicht verfügbar (API-Error).</div>"; 
+                <div class="stop-row ${isCanceled?'cancelled':''}">
+                    <div class="stop-times">
+                        ${renderRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
+                        ${renderRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
+                    </div>
+                    <div class="stop-info"><span style="font-weight:600">${s.stop.name}</span></div>
+                </div>`;
+            }).join('');
+        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf nicht verfügbar.</div>"; }
     }
-}
+
     function saveToArchive(tid, line, dest) {
         let arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
         arc = arc.filter(x => x.tid !== tid).slice(0, 9);
@@ -275,7 +249,6 @@ async function loadTrip(tid, line, dest) {
         const arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
         v.innerHTML = arc.length ? arc.map(a => `<div class="item" onclick="loadTrip('${a.tid}','${a.line}','${a.dest}')"><b>${a.line}</b> -> ${a.dest}<br><small>${a.time}</small></div>`).join('') : "<div style='padding:20px;'>Leer.</div>";
     }
-
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
 </script>
 </body>
