@@ -22,7 +22,7 @@
 
         .row { padding: 15px 20px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 17px; min-width: 60px; }
-        .dest { font-size: 14px; font-weight: 600; }
+        .dest { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .t-row { font-size: 15px; display: flex; gap: 8px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
         .t-soll { color: var(--sub); font-weight: 400; font-size: 13px; }
         
@@ -40,7 +40,6 @@
 
         #dropdown { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 300px; overflow-y: auto; }
         .item { padding: 12px 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 14px; color: var(--text); }
-        .item:last-child { border-bottom: none; }
         .hist-label { font-size: 10px; font-weight: 800; color: var(--sub); padding: 10px 15px 5px; text-transform: uppercase; }
     </style>
 </head>
@@ -85,13 +84,23 @@
     function isTrain(l) { return l && /^(RE|RB|S|IC|ICE|EC)/i.test(l); }
     function getPlat(l, p) { return p ? (isTrain(l) ? 'Gl. ' : 'Bst. ') + p : ''; }
 
-    function getLiveState(planned, actual) {
+    function getLiveState(planned, actual, prognosisType) {
         if (!actual) return { cls: '', txt: '--:--' };
         const p = new Date(planned), a = new Date(actual);
-        const isLive = (p.getTime() !== a.getTime()) || (a.getSeconds() !== 0);
-        const format = isLive ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} : {hour:'2-digit', minute:'2-digit'};
+        
+        // Echte Sekunden oder Typ "actual" = Gemeldet (FETT)
+        const hasSeconds = a.getSeconds() !== 0;
+        const isReported = hasSeconds || prognosisType === 'actual';
+
+        // Prognosen (nur Zeitänderung ohne Live-Signal) = DÜNN
+        const isBold = isReported;
+
+        const format = isBold 
+            ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} 
+            : {hour:'2-digit', minute:'2-digit'};
+
         return { 
-            cls: isLive ? 'live-confirmed' : '', 
+            cls: isBold ? 'live-confirmed' : '', 
             txt: a.toLocaleTimeString([], format),
             soll: p.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
         };
@@ -100,7 +109,6 @@
     async function fetchS(path, useDB = false) {
         try {
             let r = await fetch((useDB ? API_DB : API_VRR) + path);
-            if (!r.ok) return null;
             return await r.json();
         } catch (e) { return null; }
     }
@@ -133,28 +141,18 @@
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
-        
         const data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=10`);
         if(!data) return;
-
-        // Korrektur: API kann Array oder Objekt mit locations-Property sein
         const stops = Array.isArray(data) ? data : (data.locations || []);
-        
         if (stops.length > 0) {
             dd.style.display = 'block';
             dd.setAttribute('data-type', 'search');
-            dd.innerHTML = stops
-                .filter(l => l.type === 'stop' || l.id)
-                .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`)
-                .join('');
-        } else {
-            dd.style.display = 'none';
+            dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
         }
     }
 
     function pick(id, name) {
-        activeId = id; 
-        document.getElementById('inp').value = cleanN(name);
+        activeId = id; document.getElementById('inp').value = cleanN(name);
         document.getElementById('dropdown').style.display = 'none';
         loadDeps();
     }
@@ -164,14 +162,12 @@
         const res = document.getElementById('results');
         const dVal = document.getElementById('date_inp').value, tVal = document.getElementById('time_inp').value;
         let timeParam = (dVal && tVal) ? `&when=${new Date(`${dVal}T${tVal}`).toISOString()}` : "";
-        res.innerHTML = "<div style='padding:40px; text-align:center; font-size:13px; color:var(--sub)'>Lade Monitor...</div>";
-        
+        res.innerHTML = "<div style='padding:40px; text-align:center; color:var(--sub)'>Lade Monitor...</div>";
         const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`);
-        if(!data) { res.innerHTML = ""; return; }
-        
+        if(!data) return;
         const deps = Array.isArray(data) ? data : (data.departures || []);
         res.innerHTML = deps.map(d => {
-            const live = getLiveState(d.plannedWhen, d.when || d.plannedWhen);
+            const live = getLiveState(d.plannedWhen, d.when || d.plannedWhen, d.prognosisType);
             const color = (new Date(d.when || d.plannedWhen) > new Date(d.plannedWhen)) ? 'v-red' : 'v-green';
             return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${cleanN(d.direction)}')">
                 <div style="flex-grow:1; overflow:hidden;">
@@ -190,21 +186,17 @@
         let hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
         hist = [{tid, line, dest}, ...hist.filter(x => x.tid !== tid)].slice(0, 10);
         localStorage.setItem('trip_hist', JSON.stringify(hist));
-        
         document.getElementById('dropdown').style.display = 'none';
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
         cont.innerHTML = "<div style='padding:30px; text-align:center; color:var(--sub)'>Lade Verlauf...</div>";
-        
         const data = await fetchS(`/trips/${encodeURIComponent(tid)}`, isTrain(line));
-        if(!data) { cont.innerHTML = "<div style='padding:20px;'>Verlauf aktuell nicht verfügbar.</div>"; return; }
-        
         const trip = data.trip || data;
         document.getElementById('ov_title').innerText = line + " ➔ " + dest;
         cont.innerHTML = (trip.stopovers || []).map(s => {
-            const render = (soll, ist, lbl) => {
+            const render = (soll, ist, type, lbl) => {
                 if (!soll) return '';
-                const live = getLiveState(soll, ist || soll);
+                const live = getLiveState(soll, ist || soll, type);
                 const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
                 return `<div style="margin-bottom:6px;">
                     <div style="font-size:9px; color:var(--sub); margin-left:22px;">${lbl} ${live.soll}</div>
@@ -215,7 +207,7 @@
                 </div>`;
             };
             return `<div class="stop-row ${s.cancelled?'cancelled':''}">
-                <div class="stop-times">${render(s.plannedArrival, s.arrival, 'An')}${render(s.plannedDeparture, s.departure, 'Ab')}</div>
+                <div class="stop-times">${render(s.plannedArrival, s.arrival, s.arrivalPrognosisType, 'An')}${render(s.plannedDeparture, s.departure, s.departurePrognosisType, 'Ab')}</div>
                 <div class="stop-name">${cleanN(s.stop.name)}</div>
                 <div class="stop-plat">${getPlat(line, s.platform)}</div>
             </div>`;
@@ -233,10 +225,7 @@
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
-    document.addEventListener('click', (e) => { 
-        if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) 
-            document.getElementById('dropdown').style.display = 'none'; 
-    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) document.getElementById('dropdown').style.display = 'none'; });
 </script>
 </body>
 </html>
