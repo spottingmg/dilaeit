@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
     <meta charset="UTF-8">
     <title>dilaeit</title>
@@ -34,7 +34,8 @@
         .t-row { font-size: 18px; display: flex; gap: 10px; justify-content: flex-end; }
         .t-soll { color: var(--sub); font-weight: 400; }
         
-        .live-confirmed { font-weight: 800; }
+        /* Echtzeit-Styling */
+        .live-confirmed { font-weight: 800; cursor: help; }
         .prognose { font-weight: 400; }
         
         .v-red { color: var(--red) !important; }
@@ -82,9 +83,16 @@
 </div>
 
 <script>
-    const API = "https://v6.db.transport.rest";
+    const API_DB = "https://v6.db.transport.rest";
+    const API_VRR = "https://v6.vrr.transport.rest";
     let activeId = "";
     let timer;
+
+    function getProvider(lineName) {
+        const l = lineName.toLowerCase();
+        if (l.includes('bus') || l.includes('str') || l.startsWith('u') || l.startsWith('ne')) return API_VRR;
+        return API_DB;
+    }
 
     function toggleTheme() {
         const b = document.body;
@@ -107,14 +115,15 @@
         return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); 
     }
 
+    function formatFull(iso) {
+        if (!iso) return '';
+        return new Date(iso).toLocaleString('de-DE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    }
+
     function getLiveState(planned, actual, delay) {
         if (!actual) return 'prognose';
-        const ist = new Date(actual).getTime();
-        const nun = Date.now();
-        const hatLive = (delay !== null && delay !== undefined);
-        // Falls mehr als 10 Min in Zukunft ohne Live-Daten -> Prognose (dünn)
-        if (ist > nun + 600000 && !hatLive) return 'prognose';
-        return 'live-confirmed';
+        // FETT wenn delay eine Zahl ist (auch 0 oder negativ)
+        return (typeof delay === 'number') ? 'live-confirmed' : 'prognose';
     }
 
     function getCol(ist, soll) {
@@ -130,7 +139,7 @@
         if (q.length < 3) { dd.style.display = 'none'; return; }
         dd.style.display = 'block';
         try {
-            const r = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=5`);
+            const r = await fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=5`);
             const data = await r.json();
             dd.innerHTML = data.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
         } catch (e) { dd.innerHTML = "<div style='padding:15px;'>Fehler.</div>"; }
@@ -147,13 +156,13 @@
         const res = document.getElementById('results');
         res.innerHTML = "<div style='padding:40px; text-align:center;'>Suche...</div>";
         try {
-            const r = await fetch(`${API}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
+            const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
             const data = await r.json();
             res.innerHTML = data.departures.map(d => {
                 const ist = d.when || d.plannedWhen;
                 const soll = d.plannedWhen;
                 const isCanceled = d.cancelled;
-                const ziel = d.direction || (d.destination ? d.destination.name : "Endstation");
+                const ziel = d.direction || "Endstation";
                 const liveClass = getLiveState(soll, ist, d.delay);
                 
                 return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
@@ -165,7 +174,7 @@
                     <div class="time-stack">
                         <div class="t-row">
                             <span class="t-soll">${formatT(soll)}</span>
-                            ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}">${formatT(ist)}</span>` : ''}
+                            ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}" title="${formatFull(ist)}">${formatT(ist)}</span>` : ''}
                         </div>
                     </div>
                 </div>`;
@@ -178,8 +187,10 @@
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
         cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf...</div>";
+        
+        const currentAPI = getProvider(line);
         try {
-            const r = await fetch(`${API}/trips/${encodeURIComponent(tid)}`);
+            const r = await fetch(`${currentAPI}/trips/${encodeURIComponent(tid)}`);
             const data = await r.json();
             document.getElementById('ov_title').innerText = line + " -> " + dest;
             
@@ -193,7 +204,7 @@
                         <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
                             <span style="color:var(--sub); font-size: 9px; width: 22px; font-weight:bold;">${label}</span>
                             <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
-                            ${!isCanceled ? `<span class="${getCol(actual, planned)} ${liveClass}">${formatT(actual || planned)}</span>` : ''}
+                            ${!isCanceled ? `<span class="${getCol(actual, planned)} ${liveClass}" title="${formatFull(actual || planned)}">${formatT(actual || planned)}</span>` : ''}
                         </div>`;
                 };
 
