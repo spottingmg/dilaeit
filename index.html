@@ -167,35 +167,35 @@ function getCol(ist, soll) {
         loadDeps();
     }
 
-    async function loadDeps() {
-        const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
-        const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
-        try {
-            const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
-            const data = await r.json();
-            res.innerHTML = data.departures.map(d => {
-                const ist = d.when || d.plannedWhen;
-                const soll = d.plannedWhen;
-                const isCanceled = d.cancelled;
-                const ziel = d.direction || "Endstation";
-                const liveClass = getLiveState(soll, ist, d.delay);
-                
-                return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
-                    <div>
-                        <span class="line-id">${d.line.name}</span>
-                        <span class="dest">${isCanceled ? 'Fällt aus ' : ''}</span>
+async function loadDeps() {
+    const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
+    const res = document.getElementById('results');
+    res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
+    try {
+        const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
+        const data = await r.json();
+        res.innerHTML = data.departures.map(d => {
+            const ist = d.when || d.plannedWhen;
+            const soll = d.plannedWhen;
+            const isCanceled = d.cancelled;
+            const ziel = d.direction || "Endstation";
+            const liveClass = getLiveState(soll, ist, d.delay);
+            
+            return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
+                <div>
+                    <span class="line-id">${d.line.name}</span>
+                    <span class="dest">${isCanceled ? '<span style="color:var(--red); font-weight:800;">Fällt aus</span>' : ziel}</span>
+                </div>
+                <div class="time-stack">
+                    <div class="t-row">
+                        <span class="t-soll">${formatT(soll)}</span>
+                        ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}" title="${formatFull(ist)}">${formatT(ist)}</span>` : ''}
                     </div>
-                    <div class="time-stack">
-                        <div class="t-row">
-                            <span class="t-soll">${formatT(soll)}</span>
-                            ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}" title="${formatFull(ist)}">${formatT(ist)}</span>` : ''}
-                        </div>
-                    </div>
-                </div>`;
-            }).join('');
-        } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden.</div>"; }
-    }
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Fehler beim Laden.</div>"; }
+}
 
 async function loadTrip(tid, line, dest) {
     saveToArchive(tid, line, dest);
