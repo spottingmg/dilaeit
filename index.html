@@ -116,24 +116,27 @@
     }
 
     // Kernlogik für Fett/Dünn/Sekunden
-    function getLiveDisplay(planned, actual, delay) {
-        if (!actual) return { class: 'prognose', title: '' };
-        
-        const istTime = new Date(actual).getTime();
-        const nun = Date.now();
-        const hatSignal = (typeof delay === 'number' || actual !== planned);
-        
-        // Regel 1: Fett (live-confirmed) nur wenn abgefahren oder fällig
-        const istAbgefahren = istTime <= nun;
-        
-        // Regel 2: Sekunden-Hover nur wenn abgefahren
-        const title = istAbgefahren ? formatFull(actual) : "";
+function getLiveDisplay(planned, actual, delay) {
+    if (!actual) return { class: 'prognose', title: '' };
+    
+    const istTime = new Date(actual).getTime();
+    const sollTime = new Date(planned).getTime();
+    const nun = Date.now();
+    
+    // 2-Stunden-Regel (120 Min = 7.200.000 ms)
+    const imFenster = sollTime <= (nun + 7200000);
+    const hatAbweichung = (typeof delay === 'number' && delay !== 0) || (actual !== planned);
+    const istAbgefahren = istTime <= nun;
 
-        // Klasse bestimmen: Fett nur wenn echtes Signal UND bereits abgefahren/jetzt fällig
-        const className = (hatSignal && istAbgefahren) ? 'live-confirmed' : 'prognose';
-        
-        return { class: className, title: title };
-    }
+    // Nur fett, wenn innerhalb der 2 Std ODER wenn bereits eine Abweichung vorliegt
+    const istWirklichLive = (hatAbweichung) || (imFenster && typeof delay === 'number');
+    
+    const className = (istWirklichLive && istAbgefahren) ? 'live-confirmed' : 'prognose';
+    // Sekunden-Hover im Archiv oder wenn abgefahren
+    const title = (istAbgefahren || istWirklichLive) ? formatFull(actual) : "";
+
+    return { class: className, title: title };
+}
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
 
@@ -242,19 +245,40 @@
         } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf nicht verfügbar.</div>"; }
     }
 
-    function saveToArchive(tid, line, dest) {
-        let arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
-        arc = arc.filter(x => x.tid !== tid).slice(0, 9);
-        arc.unshift({tid, line, dest, time: new Date().toLocaleString()});
-        localStorage.setItem('aerror_arc', JSON.stringify(arc));
-    }
+   function saveToArchive(tid, line, dest, istZeit, sollZeit) {
+    let arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
+    arc = arc.filter(x => x.tid !== tid).slice(0, 14); // Etwas größeres Archiv
+    
+    arc.unshift({
+        tid, 
+        line, 
+        dest, 
+        time: new Date().toLocaleString('de-DE', {hour:'2-digit', minute:'2-digit'}),
+        ist: istZeit,
+        soll: sollZeit
+    });
+    localStorage.setItem('aerror_arc', JSON.stringify(arc));
+}
 
-    function toggleArchive() {
-        const v = document.getElementById('archive-view');
-        v.style.display = v.style.display === 'block' ? 'none' : 'block';
-        const arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
-        v.innerHTML = arc.length ? arc.map(a => `<div class="item" onclick="loadTrip('${a.tid}','${a.line}','${a.dest}')"><b>${a.line}</b> -> ${a.dest}<br><small>${a.time}</small></div>`).join('') : "<div style='padding:20px;'>Leer.</div>";
-    }
+function toggleArchive() {
+    const v = document.getElementById('archive-view');
+    v.style.display = v.style.display === 'block' ? 'none' : 'block';
+    const arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
+    
+    v.innerHTML = arc.length ? arc.map(a => {
+        const delay = a.ist && a.soll ? Math.round((new Date(a.ist) - new Date(a.soll))/60000) : 0;
+        const delayColor = delay > 0 ? 'var(--red)' : 'var(--green)';
+        return `
+        <div class="item" onclick="loadTrip('${a.tid}','${a.line}','${a.dest}')">
+            <div style="display:flex; justify-content:space-between;">
+                <b>${a.line} -> ${a.dest}</b>
+                <span style="color:${delayColor}; font-weight:800;">${delay > 0 ? '+'+delay : 'pünktlich'}</span>
+            </div>
+            <small style="color:var(--sub)">Abfrage: ${a.time} | Plan: ${formatT(a.soll)}</small>
+        </div>`;
+    }).join('') : "<div style='padding:20px;'>Keine Fahrten im Archiv.</div>";
+}
+
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
 </script>
 </body>
