@@ -184,7 +184,7 @@ function getCol(ist, soll) {
                 return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
                     <div>
                         <span class="line-id">${d.line.name}</span>
-                        <span class="dest">${isCanceled ? 'Fällt aus: ' : ''}${ziel}</span>
+                        <span class="dest">${isCanceled ? 'Fällt aus ' : ''}</span>
                     </div>
                     <div class="time-stack">
                         <div class="t-row">
@@ -202,13 +202,13 @@ async function loadTrip(tid, line, dest) {
     document.getElementById('ov_trip').style.display = 'block';
     const cont = document.getElementById('trip_content');
     
-    // Refresh-Button Logik
     document.getElementById('retry_trip').onclick = () => loadTrip(tid, line, dest);
-
-    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf...</div>";
+    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf (VRR-Priorität)...</div>";
     
-    const primaryAPI = getProvider(line);
-    const backupAPI = (primaryAPI === API_VRR) ? API_DB : API_VRR;
+    // Logik: Bus/U-Bahn -> Erst VRR, dann DB. Zug -> Erst DB, dann VRR.
+    const isBus = line.toLowerCase().includes('bus') || line.startsWith('0') || line.startsWith('SB');
+    const primaryAPI = isBus ? API_VRR : API_DB;
+    const backupAPI = isBus ? API_DB : API_VRR;
 
     async function tryFetch(api) {
         const r = await fetch(`${api}/trips/${encodeURIComponent(tid)}`);
@@ -218,18 +218,19 @@ async function loadTrip(tid, line, dest) {
 
     try {
         let data;
-        try { data = await tryFetch(primaryAPI); } 
-        catch(e) { data = await tryFetch(backupAPI); }
+        try { 
+            data = await tryFetch(primaryAPI); 
+        } catch(e) { 
+            console.log("Switching to Backup API...");
+            data = await tryFetch(backupAPI); 
+        }
 
         document.getElementById('ov_title').innerText = line + " -> " + dest;
 
-        // Filter: Entfernt doppelte Halte, wenn einer davon gecancelt ist (Typisch VRR-Bus)
+        // Filter für doppelte Halte (aus deinem vorherigen SB1-Beispiel)
         const cleanStopovers = data.trip.stopovers.filter((s, index, self) => {
             const next = self[index + 1];
-            if (next && s.stop.name === next.stop.name && s.cancelled && !next.cancelled) {
-                return false; // Überspringe den doppelten "entfällt" Eintrag
-            }
-            return true;
+            return !(next && s.stop.name === next.stop.name && s.cancelled && !next.cancelled);
         });
 
         cont.innerHTML = cleanStopovers.map(s => {
@@ -258,10 +259,9 @@ async function loadTrip(tid, line, dest) {
             </div>`;
         }).join('');
     } catch (e) { 
-        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf aktuell nicht verfügbar.</div>"; 
+        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf aktuell nicht verfügbar (API-Error).</div>"; 
     }
 }
-
     function saveToArchive(tid, line, dest) {
         let arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
         arc = arc.filter(x => x.tid !== tid).slice(0, 9);
