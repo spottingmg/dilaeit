@@ -5,8 +5,8 @@
     <title>dilaeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
-        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --blue: #0a84ff; }
+        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; --blue: #007aff; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
         
         .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
@@ -14,11 +14,11 @@
         
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 5000; }
         .time-row { display: flex; gap: 8px; }
-        .time-row input { flex: 1; padding: 10px; font-size: 14px; }
+        .time-row input { flex: 1; padding: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; }
         .btn-now { background: var(--db-red); color: white; border: none; border-radius: 8px; padding: 0 15px; font-weight: bold; cursor: pointer; }
 
-        #dropdown { position: absolute; left: 20px; right: 20px; top: 55px; background: var(--card); border: 1px solid var(--border); z-index: 10000; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
-        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
+        #dropdown { position: absolute; left: 20px; right: 20px; top: 55px; background: var(--card); border: 1px solid var(--border); z-index: 10000; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        input[type="text"] { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
 
         .archive-section { padding: 0 20px 20px; }
         .archive-title { font-size: 11px; color: var(--sub); font-weight: bold; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -27,9 +27,9 @@
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; }
         
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); align-items: center; }
+        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); align-items: center; z-index: 10; }
         
-        .stop-row { padding: 12px 20px; position: relative; display: grid; grid-template-columns: 155px 1fr 65px; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+        .stop-row { padding: 12px 20px; position: relative; display: grid; grid-template-columns: 155px 1fr 45px; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
         .stop-row::before { content: ""; position: absolute; left: 172px; top: 0; bottom: 0; width: 2px; background: var(--border); z-index: 1; }
         .stop-row:first-child::before { top: 50%; }
         .stop-row:last-child::before { bottom: 50%; }
@@ -42,15 +42,20 @@
 
         .stop-name-box { position: relative; padding-left: 25px; z-index: 2; min-width: 0; }
         .stop-name-box::before { content: ""; position: absolute; left: -4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--sub); }
-        .v-green { color: var(--green) !important; }
-        .is-live { font-weight: 900 !important; }
+        
+        .v-live { font-weight: 900 !important; }
+        .v-delay { color: var(--red) !important; }
+        .v-ontime { color: var(--green) !important; }
+
+        .cancelled { text-decoration: line-through; opacity: 0.5; }
+        .additional-halt { color: var(--blue); font-size: 9px; font-weight: bold; }
     </style>
 </head>
 <body data-theme="dark">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer;">☀️</span>
+    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 20px;">🌙</span>
 </div>
 
 <div class="search-area">
@@ -65,7 +70,7 @@
 </div>
 
 <div id="archive_container" class="archive-section" style="display:none;">
-    <div class="archive-title">Zuletzt angesehen (48h)</div>
+    <div class="archive-title">Letzte Fahrten</div>
     <div id="archive_list"></div>
 </div>
 
@@ -85,13 +90,23 @@
     let activeId = "", timer, currentApi = API_VRR, tripTimer, currentTripData = null;
 
     // Initialisierung
-    setNow(false); 
-    initArchive();
-    restoreSession();
+    init();
+
+    function init() {
+        setNow(false); 
+        initArchive();
+        restoreSession();
+    }
 
     function fTime(date, sec = false) {
         if(!date) return "";
         return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: sec ? '2-digit' : undefined });
+    }
+
+    function getDelayClass(plan, act) {
+        if (!act) return "v-ontime"; // Default grün wenn kein Act-Feld (Planzeit wird genutzt)
+        const diff = (act - plan) / 1000 / 60;
+        return (diff >= 1) ? "v-delay" : "v-ontime"; // Rot bei >= 1 Min, sonst immer Grün (auch bei Verfrühung)
     }
 
     function setNow(refresh = true) {
@@ -112,12 +127,14 @@
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
         dd.style.display = 'block';
-        const [vrr, db] = await Promise.allSettled([
-            fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json()),
-            fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json())
-        ]);
-        let combined = [...(vrr.value || []), ...(db.value || [])];
-        dd.innerHTML = combined.map(l => `<div style="padding:12px; border-bottom:1px solid var(--border);" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+        try {
+            const [vrr, db] = await Promise.allSettled([
+                fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json()),
+                fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json())
+            ]);
+            let combined = [...(vrr.value || []), ...(db.value || [])];
+            dd.innerHTML = combined.map(l => `<div style="padding:12px; border-bottom:1px solid var(--border);" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+        } catch(e) { console.error(e); }
     }
 
     function pick(id, name) {
@@ -133,13 +150,10 @@
         if(!activeId) return;
         const res = document.getElementById('results');
         res.innerHTML = "<div style='padding:20px; opacity:0.6;'>Lade...</div>";
-        
         const dt = document.getElementById('date_inp').value;
         const tm = document.getElementById('time_inp').value;
-        const dtParam = `&when=${dt}T${tm}:00`;
-
         try {
-            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60${dtParam}`).then(r => r.json());
+            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60&when=${dt}T${tm}:00`).then(r => r.json());
             const deps = data.departures || data || [];
             res.innerHTML = deps.map(d => renderRow(d)).join('');
         } catch(e) { res.innerHTML = "Fehler beim Laden."; }
@@ -147,17 +161,18 @@
 
     function renderRow(d) {
         const plan = new Date(d.plannedWhen || d.when);
-        const act = d.when ? new Date(d.when) : null;
+        const act = d.when ? new Date(d.when) : plan; // Nutze Planzeit wenn kein 'when' vorhanden
         const isLive = !!d.when;
-        const direction = (!d.direction || d.direction === "null") ? "Ziel unbekannt" : d.direction;
-        return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${direction}', '${currentApi}')">
+        const colorClass = getDelayClass(plan, act);
+
+        return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${(d.direction || "Ziel unbekannt").replace(/'/g, "\\'")}', '${currentApi}')">
             <div style="flex:1;">
                 <div class="line-id">${d.line.name}</div>
-                <div style="font-size:14px; font-weight:600;">${direction}</div>
+                <div style="font-size:14px; font-weight:600;">${d.direction || "Ziel unbekannt"}</div>
             </div>
-            <div style="text-align:right;">
-                <div style="font-size:11px; color:var(--sub)">${fTime(plan)}</div>
-                <div class="${isLive ? 'v-green is-live' : ''}">${fTime(act || plan, isLive)}</div>
+            <div style="text-align:right; font-variant-numeric: tabular-nums;">
+                <div style="font-size:11px; color:var(--sub)">${fTime(plan, false)}</div>
+                <div class="v-live ${colorClass}">${fTime(act, false)}</div>
             </div>
         </div>`;
     }
@@ -177,81 +192,89 @@
         const api = (currentTripData.line.match(/^(RE|RB|S|ICE|IC)/i)) ? API_DB : currentTripData.apiOrigin;
         try {
             const trip = await fetch(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`).then(r => r.json());
-            const stops = trip.stopovers || trip.trip.stopovers;
-            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest}`;
+            const stops = (trip.stopovers || (trip.trip && trip.trip.stopovers)) || [];
+            
+            let finalDest = (currentTripData.dest === "Ziel unbekannt") ? stops[stops.length-1]?.stop.name : currentTripData.dest;
+            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${finalDest || '...'}`;
+
             document.getElementById('trip_content').innerHTML = stops.map(s => {
                 const pArr = s.plannedArrival ? new Date(s.plannedArrival) : null;
                 const aArr = s.arrival ? new Date(s.arrival) : pArr;
-                const isLive = !!s.arrival;
+                const pDep = s.plannedDeparture ? new Date(s.plannedDeparture) : null;
+                const aDep = s.departure ? new Date(s.departure) : pDep;
+                
                 return `<div class="stop-row">
                     <div class="stop-times">
-                        <div class="time-group">
-                            <span class="t-lbl">an</span>
-                            <span class="t-plan">${fTime(pArr)}</span>
-                            <span class="t-act ${isLive ? 'v-green is-live' : ''}">${fTime(aArr, isLive)}</span>
-                        </div>
+                        ${pArr ? `<div class="time-group"><span class="t-lbl">an</span><span class="t-plan">${fTime(pArr)}</span><span class="t-act v-live ${getDelayClass(pArr, aArr)}">${fTime(aArr, true)}</span></div>` : ''}
+                        ${pDep ? `<div class="time-group"><span class="t-lbl">ab</span><span class="t-plan">${fTime(pDep)}</span><span class="t-act v-live ${getDelayClass(pDep, aDep)}">${fTime(aDep, true)}</span></div>` : ''}
                     </div>
-                    <div class="stop-name-box"><div class="stop-name">${s.stop.name}</div></div>
-                    <div class="stop-plat">${s.platform || ''}</div>
+                    <div class="stop-name-box">
+                        <div class="stop-name ${s.cancelled ? 'cancelled' : ''}">${s.stop.name}</div>
+                        ${s.cancelled ? '<div style="font-size:9px; color:var(--red); font-weight:bold;">HALT ENTFÄLLT</div>' : ''}
+                        ${s.additional ? '<div class="additional-halt">ZUSATZHALT</div>' : ''}
+                    </div>
+                    <div class="stop-plat" style="font-size:10px; color:var(--sub)">${s.platform ? 'Gl.' + s.platform : ''}</div>
                 </div>`;
             }).join('');
-        } catch(e) {}
-    }
-
-    function restoreSession() {
-        const lastStation = sessionStorage.getItem('lastStation');
-        const currentTrip = sessionStorage.getItem('currentTrip');
-        const lDate = sessionStorage.getItem('lastDate');
-        const lTime = sessionStorage.getItem('lastTime');
-
-        if(lDate) document.getElementById('date_inp').value = lDate;
-        if(lTime) document.getElementById('time_inp').value = lTime;
-
-        if(lastStation) {
-            const s = JSON.parse(lastStation);
-            activeId = s.id;
-            document.getElementById('inp').value = s.name;
-            currentApi = s.api;
-            loadDeps();
-        }
-        if(currentTrip) {
-            const t = JSON.parse(currentTrip);
-            loadTrip(t.tid, t.line, t.dest, t.apiOrigin);
-        }
+        } catch(e) { console.error(e); }
     }
 
     function saveToArchive(tid, line, dest, api) {
-        let arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
-        arch = arch.filter(i => i.tid !== tid).unshift({ tid, line, dest, api, ts: Date.now() });
-        localStorage.setItem('dilaeit_arch', JSON.stringify(arch.slice(0, 10)));
+        let arch = JSON.parse(localStorage.getItem('dilaeit_trip_arch') || '[]');
+        arch = arch.filter(i => i.tid !== tid);
+        arch.unshift({ tid, line, dest, api, ts: Date.now() });
+        localStorage.setItem('dilaeit_trip_arch', JSON.stringify(arch.slice(0, 5)));
         renderArchive();
     }
 
-    function initArchive() { renderArchive(); }
-
     function renderArchive() {
-        const arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
+        const arch = JSON.parse(localStorage.getItem('dilaeit_trip_arch') || '[]');
         const container = document.getElementById('archive_container');
-        if(arch.length === 0) return;
+        if(arch.length === 0) { container.style.display = 'none'; return; }
         container.style.display = 'block';
         document.getElementById('archive_list').innerHTML = arch.map(i => `
-            <div class="row" style="padding: 10px 0;" onclick="loadTrip('${i.tid}', '${i.line}', '${i.dest}', '${i.api}')">
+            <div class="row" style="padding: 10px 0; border-bottom: 1px solid var(--border);" onclick="loadTrip('${i.tid}', '${i.line}', '${i.dest.replace(/'/g, "\\'")}', '${i.api}')">
                 <span style="color:var(--db-red); font-weight:bold; width:50px;">${i.line}</span>
-                <span style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis;">${i.dest}</span>
+                <span style="flex:1; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-left:10px;">${i.dest}</span>
             </div>
         `).join('');
     }
 
-    function closeOv() { 
-        document.getElementById('ov_trip').style.display = 'none'; 
-        clearInterval(tripTimer); 
-        sessionStorage.removeItem('currentTrip'); 
+    function restoreSession() {
+        // Zeit wiederherstellen
+        const ld = sessionStorage.getItem('lastDate');
+        const lt = sessionStorage.getItem('lastTime');
+        if(ld) document.getElementById('date_inp').value = ld;
+        if(lt) document.getElementById('time_inp').value = lt;
+
+        // Station wiederherstellen
+        const lastStation = sessionStorage.getItem('lastStation');
+        if(lastStation) {
+            const s = JSON.parse(lastStation);
+            activeId = s.id; document.getElementById('inp').value = s.name; currentApi = s.api;
+            loadDeps();
+        }
+
+        // Aktive Fahrt wiederherstellen
+        const lastTrip = sessionStorage.getItem('currentTrip');
+        if(lastTrip) {
+            currentTripData = JSON.parse(lastTrip);
+            document.getElementById('ov_trip').style.display = 'block';
+            refreshTrip();
+            tripTimer = setInterval(refreshTrip, 15000);
+        }
     }
+
+    function initArchive() { renderArchive(); }
+    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; clearInterval(tripTimer); sessionStorage.removeItem('currentTrip'); currentTripData = null; }
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
+    
     function toggleTheme() {
         const b = document.body;
-        const next = b.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-        b.setAttribute('data-theme', next);
+        const icon = document.getElementById('themeIcon');
+        const isDark = b.getAttribute('data-theme') === 'dark';
+        b.setAttribute('data-theme', isDark ? 'light' : 'dark');
+        icon.innerText = isDark ? '☀️' : '🌙';
     }
 </script>
 </body>
