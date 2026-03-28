@@ -8,24 +8,34 @@
         :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
         [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
+        
         .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
         .header-right { display: flex; align-items: center; gap: 15px; font-size: 13px; color: var(--sub); font-weight: 600; }
+
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; }
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
         input:focus { border-color: var(--db-red); }
+
+        .time-row { display: flex; gap: 10px; }
+        .time-row input { padding: 10px; font-size: 14px; flex: 1; }
+        .btn-jetzt { background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 0 15px; font-weight: bold; cursor: pointer; }
+
         #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
-        .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; }
-        .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 12px 15px 5px; text-transform: uppercase; }
+        .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 12px 15px 5px; text-transform: uppercase; background: var(--bg); position: sticky; top: 0; }
+
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; }
+        
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); align-items: center; }
+        
         .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 85px 1fr 65px; align-items: center; gap: 10px; }
         .stop-times { font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1.4; }
         .stop-name { font-size: 14px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stop-plat { font-size: 11px; color: var(--sub); font-weight: 700; text-align: right; }
-        /* Fett-Logik nur bei Echtzeit */
+
         .live-active { font-weight: 800 !important; }
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .past-stop { opacity: 0.3; filter: grayscale(1); }
@@ -36,13 +46,18 @@
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
     <div class="header-right">
-        <span onclick="showHistory()" style="cursor:pointer">Archiv</span>
+        <span onclick="showHistory(event)" style="cursor:pointer; padding: 5px;">Archiv</span>
         <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 16px;">☀️</span>
     </div>
 </div>
 
 <div class="search-area">
-    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" onclick="showHistory(event)" autocomplete="off">
+    <div class="time-row">
+        <input type="date" id="date_inp">
+        <input type="time" id="time_inp">
+        <button class="btn-jetzt" onclick="setNow()">Jetzt</button>
+    </div>
     <div id="dropdown"></div>
 </div>
 
@@ -61,7 +76,20 @@
     const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer, currentApi = API_VRR, tripTimer, currentTripData = null;
 
-    function showHistory() {
+    setNow(false);
+
+    function setNow(refresh = true) {
+        const now = new Date();
+        document.getElementById('date_inp').value = now.toISOString().split('T')[0];
+        document.getElementById('time_inp').value = now.toTimeString().substring(0, 5);
+        if(refresh && activeId) loadDeps();
+    }
+
+    function showHistory(e) {
+        if (e) e.stopPropagation();
+        const q = document.getElementById('inp').value.trim();
+        if (q.length > 0) return; // Archiv nur zeigen wenn Feld leer
+
         const hist = JSON.parse(localStorage.getItem('stat_hist') || '[]');
         const dd = document.getElementById('dropdown');
         if(!hist.length) return;
@@ -71,45 +99,31 @@
     }
 
     async function fetchS(url) {
-        try {
-            const r = await fetch(url);
-            if (!r.ok) return null;
-            return await r.json();
-        } catch (e) { return null; }
+        try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch (e) { return null; }
     }
 
     async function doSearch() {
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
-        if (q.length < 3) { dd.style.display = 'none'; return; }
+        if (q.length < 3) { if(q.length === 0) showHistory(); else dd.style.display = 'none'; return; }
 
         dd.innerHTML = '<div class="item" style="color:var(--sub)">Suche...</div>';
         dd.style.display = 'block';
 
         const results = [];
         try {
-            // Parallelsuche in beiden APIs für maximale Abdeckung
             const res = await Promise.allSettled([
                 fetchS(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`),
                 fetchS(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`)
             ]);
-            res.forEach(r => {
-                if(r.status === 'fulfilled' && r.value) {
-                    const data = r.value.locations || r.value;
-                    if(Array.isArray(data)) results.push(...data);
-                }
-            });
+            res.forEach(r => { if(r.status === 'fulfilled' && r.value) { const d = r.value.locations || r.value; if(Array.isArray(d)) results.push(...d); } });
         } catch(e) {}
 
         if (results.length > 0) {
             const seen = new Set();
-            dd.innerHTML = results
-                .filter(r => r.id && !seen.has(r.id) && (seen.add(r.id)))
-                .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name.replace(',','')}</div>`)
-                .join('');
-        } else {
-            dd.innerHTML = '<div class="item">Keine Ergebnisse</div>';
-        }
+            dd.innerHTML = results.filter(r => r.id && !seen.has(r.id) && (seen.add(r.id)))
+                .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name.replace(',','')}</div>`).join('');
+        } else { dd.innerHTML = '<div class="item">Keine Ergebnisse</div>'; }
     }
 
     function pick(id, name) {
@@ -128,22 +142,22 @@
 
     async function loadDeps() {
         const res = document.getElementById('results');
+        const d = document.getElementById('date_inp').value;
+        const t = document.getElementById('time_inp').value;
+        const when = d && t ? `&when=${new Date(`${d}T${t}`).toISOString()}` : "";
+
         res.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5'>Lade Abfahrten...</div>";
-        const data = await fetchS(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60`);
+        const data = await fetchS(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60${when}`);
         const deps = data?.departures || data || [];
 
-        if(!deps || deps.length === 0) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Nichts gefunden.</div>"; return; }
+        if(!deps.length) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Nichts gefunden.</div>"; return; }
 
         res.innerHTML = deps.map(d => {
             const isLive = d.prognosisType === 'prognosed' || d.prognosisType === 'actual';
             const timeStr = (d.when || d.plannedWhen).substring(11,16);
             const diff = isLive ? Math.round((new Date(d.when) - new Date(d.plannedWhen))/60000) : 0;
-            
             return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${d.direction}')">
-                <div>
-                    <div class="line-id">${d.line.name}</div>
-                    <div style="font-size:14px; font-weight:600;">${d.direction?.split(',')[0]}</div>
-                </div>
+                <div><div class="line-id">${d.line.name}</div><div style="font-size:14px; font-weight:600;">${d.direction?.split(',')[0]}</div></div>
                 <div style="text-align:right; font-variant-numeric: tabular-nums;">
                     <div style="font-size:12px; color:var(--sub)">${(d.plannedWhen||'').substring(11,16)}</div>
                     <div class="${isLive ? (diff > 0 ? 'v-red' : 'v-green') : ''} ${isLive ? 'live-active' : ''}">${timeStr}</div>
@@ -165,31 +179,23 @@
         const api = (currentTripData.line.match(/^(RE|RB|S|ICE|IC)/i)) ? API_DB : currentApi;
         const data = await fetchS(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`);
         const stops = data?.trip?.stopovers || data?.stopovers || [];
-        
         document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest.split(',')[0]}`;
         const now = Date.now();
-
         document.getElementById('trip_content').innerHTML = stops.map(s => {
             const isLiveArr = s.arrivalPrognosisType === 'prognosed' || s.arrivalPrognosisType === 'actual';
             const isLiveDep = s.departurePrognosisType === 'prognosed' || s.departurePrognosisType === 'actual';
             const depTs = new Date(s.departure || s.plannedDeparture || s.arrival || s.plannedArrival).getTime();
             const isPast = now > depTs + 15000;
-
             const formatTime = (planned, actual, isLive, label) => {
                 if(!planned) return "";
                 const time = (isLive ? actual : planned).substring(11,16);
                 const liveTime = isLive ? actual.substring(11,19) : ""; 
                 const diff = isLive ? (new Date(actual) - new Date(planned)) : 0;
-                // Farbe und Fettung nur bei Echtzeit (isLive)
                 return `<div><span style="color:var(--sub); width:20px; display:inline-block">${label}</span>
                         <span class="${isLive ? (diff > 0 ? 'v-red' : 'v-green') : ''} ${isLive ? 'live-active' : ''}">${isLive ? liveTime : time}</span></div>`;
             };
-
             return `<div class="stop-row ${isPast ? 'past-stop' : ''}">
-                <div class="stop-times">
-                    ${formatTime(s.plannedArrival, s.arrival, isLiveArr, 'An')}
-                    ${formatTime(s.plannedDeparture, s.departure, isLiveDep, 'Ab')}
-                </div>
+                <div class="stop-times">${formatTime(s.plannedArrival, s.arrival, isLiveArr, 'An')}${formatTime(s.plannedDeparture, s.departure, isLiveDep, 'Ab')}</div>
                 <div class="stop-name">${s.stop.name.split(',')[0]}</div>
                 <div class="stop-plat">${s.platform ? (isNaN(s.platform) ? s.platform : 'Gl. ' + s.platform) : ''}</div>
             </div>`;
@@ -204,7 +210,6 @@
         b.setAttribute('data-theme', next);
         document.getElementById('themeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
     }
-
     document.addEventListener('click', (e) => {
         if(!e.target.closest('.search-area') && !e.target.closest('.header-right')) {
             document.getElementById('dropdown').style.display = 'none';
