@@ -25,6 +25,7 @@
         .stop-times { font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1.4; }
         .stop-name { font-size: 14px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stop-plat { font-size: 11px; color: var(--sub); font-weight: 700; text-align: right; }
+        /* Fett-Logik nur bei Echtzeit */
         .live-active { font-weight: 800 !important; }
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .past-stop { opacity: 0.3; filter: grayscale(1); }
@@ -60,7 +61,6 @@
     const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer, currentApi = API_VRR, tripTimer, currentTripData = null;
 
-    // Archiv anzeigen
     function showHistory() {
         const hist = JSON.parse(localStorage.getItem('stat_hist') || '[]');
         const dd = document.getElementById('dropdown');
@@ -73,7 +73,8 @@
     async function fetchS(url) {
         try {
             const r = await fetch(url);
-            return r.ok ? await r.json() : null;
+            if (!r.ok) return null;
+            return await r.json();
         } catch (e) { return null; }
     }
 
@@ -85,12 +86,12 @@
         dd.innerHTML = '<div class="item" style="color:var(--sub)">Suche...</div>';
         dd.style.display = 'block';
 
-        // Suche in beiden APIs, ignoriere Fehler einzelner APIs
         const results = [];
         try {
+            // Parallelsuche in beiden APIs für maximale Abdeckung
             const res = await Promise.allSettled([
-                fetchS(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=8`),
-                fetchS(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=8`)
+                fetchS(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`),
+                fetchS(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`)
             ]);
             res.forEach(r => {
                 if(r.status === 'fulfilled' && r.value) {
@@ -117,7 +118,6 @@
         document.getElementById('inp').value = cleanName;
         document.getElementById('dropdown').style.display = 'none';
         
-        // In Historie speichern
         let hist = JSON.parse(localStorage.getItem('stat_hist') || '[]');
         hist = [{id, name: cleanName}, ...hist.filter(x => x.id !== id)].slice(0, 10);
         localStorage.setItem('stat_hist', JSON.stringify(hist));
@@ -132,7 +132,7 @@
         const data = await fetchS(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60`);
         const deps = data?.departures || data || [];
 
-        if(!deps.length) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Keine Abfahrten.</div>"; return; }
+        if(!deps || deps.length === 0) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Nichts gefunden.</div>"; return; }
 
         res.innerHTML = deps.map(d => {
             const isLive = d.prognosisType === 'prognosed' || d.prognosisType === 'actual';
@@ -178,8 +178,9 @@
             const formatTime = (planned, actual, isLive, label) => {
                 if(!planned) return "";
                 const time = (isLive ? actual : planned).substring(11,16);
-                const liveTime = isLive ? actual.substring(11,19) : ""; // Mit Sekunden falls Live
+                const liveTime = isLive ? actual.substring(11,19) : ""; 
                 const diff = isLive ? (new Date(actual) - new Date(planned)) : 0;
+                // Farbe und Fettung nur bei Echtzeit (isLive)
                 return `<div><span style="color:var(--sub); width:20px; display:inline-block">${label}</span>
                         <span class="${isLive ? (diff > 0 ? 'v-red' : 'v-green') : ''} ${isLive ? 'live-active' : ''}">${isLive ? liveTime : time}</span></div>`;
             };
@@ -204,7 +205,6 @@
         document.getElementById('themeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
     }
 
-    // Dropdown schließen bei Klick außerhalb
     document.addEventListener('click', (e) => {
         if(!e.target.closest('.search-area') && !e.target.closest('.header-right')) {
             document.getElementById('dropdown').style.display = 'none';
