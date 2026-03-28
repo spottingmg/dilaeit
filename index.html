@@ -162,85 +162,53 @@
         loadDeps();
     }
 
-    async function loadDeps() {
-        const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
-        const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade...</div>";
-        try {
-            const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
-            const data = await r.json();
-            res.innerHTML = data.departures.map(d => {
-                const ist = d.when || d.plannedWhen;
-                const soll = d.plannedWhen;
-                const isCanceled = d.cancelled;
-                const ziel = d.direction || "Endstation";
-                const liveClass = getLiveState(soll, ist, d.delay);
-                
-                return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
-                    <div>
-                        <span class="line-id">${d.line.name}</span>
-                        <span class="dest">${isCanceled ? 'Fällt aus: ' : ''}${ziel}</span>
-                    </div>
-                    <div class="time-stack">
-                        <div class="t-row">
-                            <span class="t-soll">${formatT(soll)}</span>
-                            ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}" title="${formatFull(ist)}">${formatT(ist)}</span>` : ''}
-                        </div>
-                    </div>
-                </div>`;
-            }).join('');
-        } catch (e) { res.innerHTML = "<div style='padding:40px; text-align:center;'>Keine Daten.</div>"; }
-    }
+  // ... (deine Konstanten bleiben gleich)
 
-    async function loadTrip(tid, line, dest) {
-        saveToArchive(tid, line, dest);
-        document.getElementById('ov_trip').style.display = 'block';
-        const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Suche Verlauf...</div>";
+async function loadDeps() {
+    if (!activeId) return;
+    const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
+    const res = document.getElementById('results');
+    res.innerHTML = "<div style='padding:40px; text-align:center;'>Verbindung wird aufgebaut...</div>";
+    
+    try {
+        const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
         
-        const primaryAPI = getProvider(line);
-        const backupAPI = (primaryAPI === API_VRR) ? API_DB : API_VRR;
+        if (!r.ok) throw new Error("API_LIMIT"); // Falls die DB-API blockt
 
-        async function tryFetch(api) {
-            const r = await fetch(`${api}/trips/${encodeURIComponent(tid)}`);
-            if (!r.ok) throw new Error();
-            return await r.json();
+        const data = await r.json();
+        if (!data.departures || data.departures.length === 0) {
+            res.innerHTML = "<div style='padding:40px; text-align:center;'>Keine Fahrten gefunden.</div>";
+            return;
         }
 
-        try {
-            let data;
-            try { data = await tryFetch(primaryAPI); } 
-            catch(e) { data = await tryFetch(backupAPI); }
-
-            document.getElementById('ov_title').innerText = line + " -> " + dest;
-            cont.innerHTML = data.trip.stopovers.map(s => {
-                const isCanceled = s.cancelled;
-                const renderTimeRow = (planned, actual, label, delay) => {
-                    if (!planned) return '';
-                    const liveClass = getLiveState(planned, actual, delay);
-                    return `
-                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 2px;">
-                            <span style="color:var(--sub); font-size: 9px; width: 22px; font-weight:bold;">${label}</span>
-                            <span style="color:var(--sub); font-weight:400;">${formatT(planned)}</span>
-                            ${!isCanceled ? `<span class="${getCol(actual, planned)} ${liveClass}" title="${formatFull(actual || planned)}">${formatT(actual || planned)}</span>` : ''}
-                        </div>`;
-                };
-
-                return `
-                <div class="stop-row ${isCanceled?'cancelled':''}">
-                    <div class="stop-times">
-                        ${renderTimeRow(s.plannedArrival, s.arrival, 'Arr', s.arrivalDelay)}
-                        ${renderTimeRow(s.plannedDeparture, s.departure, 'Dep', s.departureDelay)}
+        res.innerHTML = data.departures.map(d => {
+            const ist = d.when || d.plannedWhen;
+            const soll = d.plannedWhen;
+            const isCanceled = d.cancelled;
+            const ziel = d.direction || "Endstation";
+            const liveClass = getLiveState(soll, ist, d.delay);
+            
+            return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
+                <div>
+                    <span class="line-id">${d.line.name}</span>
+                    <span class="dest">${isCanceled ? 'Fällt aus: ' : ''}${ziel}</span>
+                </div>
+                <div class="time-stack">
+                    <div class="t-row">
+                        <span class="t-soll">${formatT(soll)}</span>
+                        ${!isCanceled ? `<span class="t-ist ${getCol(ist, soll)} ${liveClass}" title="${formatFull(ist)}">${formatT(ist)}</span>` : ''}
                     </div>
-                    <div class="stop-info">
-                        <span style="font-weight:600">${s.stop.name}</span>
-                        ${isCanceled ? '<br><span style="color:var(--red); font-size:11px; font-weight:bold;">Halt entfällt</span>' : ''}
-                    </div>
-                </div>`;
-            }).join('');
-        } catch (e) { cont.innerHTML = "<div style='padding:50px; text-align:center;'>Verlauf aktuell nicht verfügbar.</div>"; }
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) { 
+        res.innerHTML = `
+            <div style='padding:40px; text-align:center;'>
+                <p>⚠️ API aktuell überlastet</p>
+                <button onclick="loadDeps()" style="padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer;">Erneut versuchen</button>
+            </div>`; 
     }
-
+}
     function saveToArchive(tid, line, dest) {
         let arc = JSON.parse(localStorage.getItem('aerror_arc') || "[]");
         arc = arc.filter(x => x.tid !== tid).slice(0, 9);
