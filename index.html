@@ -8,43 +8,51 @@
         :root { --db-red: #c50014; --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --green: #008f39; --red: #ff3b30; --border: #d2d2d7; }
         [data-theme="dark"] { --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+        
+        /* Header & Layout */
         .header { background: var(--card); padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
         .header h1 { margin: 0; font-size: 22px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
-        .search-area { padding: 20px; background: var(--card); border-bottom: 1px solid var(--border); }
-        input[type="text"] { width: 100%; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; outline: none; box-sizing: border-box; color: var(--text); }
+        
+        .search-area { padding: 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+        input { width: 100%; padding: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; outline: none; box-sizing: border-box; color: var(--text); }
+        .time-input { font-size: 13px; padding: 8px; }
+
+        /* Listen & Zeilen */
         .row { padding: 15px 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; min-width: 65px; }
         .dest { font-size: 14px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .t-row { font-size: 16px; display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; align-items: center; }
         .t-soll { color: var(--sub); font-weight: 400; }
+        
+        /* Zustände */
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .live-confirmed { font-weight: 800 !important; } 
-        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
-        
-        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 110px 1fr 60px; gap: 10px; align-items: center; }
-        .stop-times { font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums; }
-        .stop-name { font-weight: 600; font-size: 14px; }
-        .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; white-space: nowrap; }
-        
-        #dropdown { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
         .cancelled { text-decoration: line-through; opacity: 0.5; }
 
-        /* Test-Button Style */
-        .test-controls { padding: 10px 20px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; gap: 10px; }
-        .test-btn { background: var(--db-red); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer; }
+        /* Trip Overlay */
+        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
+        .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
+        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 115px 1fr 65px; gap: 10px; align-items: center; }
+        .stop-times { font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+        .stop-name { font-weight: 600; font-size: 14px; }
+        .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; }
+
+        /* Dropdown & Archiv */
+        #dropdown { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-height: 300px; overflow-y: auto; }
+        .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 10px 15px 5px; text-transform: uppercase; }
     </style>
 </head>
 <body data-theme="light">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer;">🌙</span>
+    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 20px;">🌙</span>
 </div>
 
 <div class="search-area">
-    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" onfocus="showHistory()" autocomplete="off">
+    <input type="datetime-local" id="time_inp" class="time-input">
     <div id="dropdown"></div>
 </div>
 
@@ -55,10 +63,6 @@
         <span id="ov_title" style="font-weight:800">Verlauf</span>
         <span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span>
     </div>
-    <div class="test-controls">
-        <button class="test-btn" onclick="addTestRow(false)">Test: Dünn (:00)</button>
-        <button class="test-btn" onclick="addTestRow(true)">Test: Fett (:15)</button>
-    </div>
     <div id="trip_content"></div>
 </div>
 
@@ -67,39 +71,23 @@
     const API_VRR = "https://v6.vrr.transport.rest";
     let activeId = "", timer;
 
+    // Theme beim Start laden
+    if (localStorage.getItem('theme') === 'dark') toggleTheme(true);
+
     function cleanN(n) { return n ? n.split(',')[0].trim() : ""; }
     function isTrain(l) { return l && /^(RE|RB|S|IC|ICE|EC)/i.test(l); }
     function getPlat(l, p) { return p ? (isTrain(l) ? 'Gl. ' : 'Bst. ') + p : ''; }
 
-    function getLiveDisplay(planned, actual, isMonitor = false) {
+    function getLiveDisplay(actual, isMonitor = false) {
         if (!actual) return { cls: '', txt: '--:--' };
         const d = new Date(actual);
-        const isLive = d.getSeconds() !== 0; 
+        const isLive = d.getSeconds() !== 0; // DIE Fett-Logik
         
-        const timeStr = isLive && !isMonitor 
+        const timeStr = (isLive && !isMonitor) 
             ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) 
             : d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
         return { cls: isLive ? 'live-confirmed' : '', txt: timeStr };
-    }
-
-    // TEST FUNKTION
-    function addTestRow(isLive) {
-        const cont = document.getElementById('trip_content');
-        const mockTime = isLive ? "2026-03-28T19:30:15" : "2026-03-28T19:30:00";
-        const live = getLiveDisplay(null, mockTime, false);
-        const html = `
-            <div class="stop-row" style="background: rgba(0,0,0,0.03)">
-                <div class="stop-times">
-                    <div style="display:flex; gap:8px;">
-                        <span style="color:var(--sub); width:20px;">Ab</span>
-                        <span class="v-green ${live.cls}">${live.txt}</span>
-                    </div>
-                </div>
-                <div class="stop-name">Simulierter Test (${isLive ? 'Live' : 'Soll'})</div>
-                <div class="stop-plat">Bst. T1</div>
-            </div>`;
-        cont.insertAdjacentHTML('afterbegin', html);
     }
 
     async function fetchS(path, vrr = true) {
@@ -113,6 +101,26 @@
         }
     }
 
+    // Archiv Logik
+    function saveHistory(id, name) {
+        let hist = JSON.parse(localStorage.getItem('hist') || '[]');
+        hist = hist.filter(x => x.id !== id);
+        hist.unshift({id, name});
+        localStorage.setItem('hist', JSON.stringify(hist.slice(0, 5)));
+    }
+
+    function showHistory() {
+        const q = document.getElementById('inp').value;
+        if (q.length > 0) return;
+        const hist = JSON.parse(localStorage.getItem('hist') || '[]');
+        if (hist.length === 0) return;
+        
+        const dd = document.getElementById('dropdown');
+        dd.style.display = 'block';
+        dd.innerHTML = '<div class="hist-label">Zuletzt gesucht</div>' + 
+            hist.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">🕒 ${l.name}</div>`).join('');
+    }
+
     async function doSearch() {
         const q = document.getElementById('inp').value;
         const dd = document.getElementById('dropdown');
@@ -122,24 +130,30 @@
             const data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=5`, true);
             const stops = Array.isArray(data) ? data : (data.locations || []);
             dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
-        } catch (e) { dd.innerHTML = "<div class='item'>Fehler</div>"; }
+        } catch (e) { dd.innerHTML = "Fehler"; }
     }
 
     function pick(id, name) {
-        activeId = id; document.getElementById('inp').value = cleanN(name);
-        document.getElementById('dropdown').style.display = 'none'; loadDeps();
+        activeId = id; 
+        document.getElementById('inp').value = cleanN(name);
+        document.getElementById('dropdown').style.display = 'none';
+        saveHistory(id, cleanN(name));
+        loadDeps();
     }
 
     async function loadDeps() {
         if(!activeId) return;
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Abfahrten...</div>";
+        const customTime = document.getElementById('time_inp').value;
+        const timeParam = customTime ? `&when=${new Date(customTime).toISOString()}` : "";
+        
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>Suche Abfahrten...</div>";
         try {
-            const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120`, true);
+            const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`, true);
             const deps = data.departures || data;
             res.innerHTML = deps.map(d => {
                 const soll = d.plannedWhen, ist = d.when || soll;
-                const live = getLiveDisplay(soll, ist, true); 
+                const live = getLiveDisplay(ist, true); 
                 const color = (new Date(ist) > new Date(soll)) ? 'v-red' : 'v-green';
                 return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${cleanN(d.direction)}')">
                     <div style="flex-grow:1; overflow:hidden;">
@@ -152,21 +166,21 @@
                     </div>
                 </div>`;
             }).join('');
-        } catch (e) { res.innerHTML = "Fehler"; }
+        } catch (e) { res.innerHTML = "Keine Daten gefunden."; }
     }
 
     async function loadTrip(tid, line, dest) {
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "";
+        cont.innerHTML = "<div style='padding:30px; text-align:center;'>Lade Verlauf...</div>";
         try {
             const data = await fetchS(`/trips/${encodeURIComponent(tid)}`, !isTrain(line));
             const trip = data.trip || data;
-            document.getElementById('ov_title').innerText = line + " -> " + dest;
+            document.getElementById('ov_title').innerText = line + " ➔ " + dest;
             cont.innerHTML = trip.stopovers.map(s => {
                 const render = (soll, ist, lbl) => {
                     if (!soll) return '<div></div>';
-                    const live = getLiveDisplay(soll, ist, false); 
+                    const live = getLiveDisplay(ist || soll, false); 
                     const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
                     return `<div style="display:flex; gap:8px;">
                         <span style="color:var(--sub); width:20px;">${lbl}</span>
@@ -179,12 +193,28 @@
                     <div class="stop-plat">${getPlat(line, s.platform)}</div>
                 </div>`;
             }).join('');
-        } catch (e) { cont.innerHTML = "Kein Verlauf"; }
+        } catch (e) { cont.innerHTML = "Kein Verlauf verfügbar."; }
     }
 
-    function toggleTheme() { document.body.setAttribute('data-theme', document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light'); }
+    function toggleTheme(init = false) { 
+        const body = document.body;
+        const isDark = body.getAttribute('data-theme') === 'dark';
+        if (!init) {
+            body.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            localStorage.setItem('theme', isDark ? 'light' : 'dark');
+        } else {
+            body.setAttribute('data-theme', 'dark');
+        }
+        document.getElementById('themeIcon').innerText = body.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
+    }
+
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
+    
+    // Schließen des Dropdowns bei Klick außerhalb
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-area')) document.getElementById('dropdown').style.display = 'none';
+    });
 </script>
 </body>
 </html>
