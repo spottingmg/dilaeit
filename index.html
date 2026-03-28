@@ -45,7 +45,6 @@
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 15px; }
         .stop-times { font-size: 13px; display: flex; flex-direction: column; width: 115px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-        .stop-info { flex-grow: 1; padding-top: 2px; }
         
         #dropdown, #archive-view { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
@@ -92,7 +91,9 @@
     function getProvider(lineName) {
         if (!lineName) return API_DB;
         const l = lineName.toLowerCase();
+        // ÖPNV in ganz NRW nutzt den VRR-Provider
         if (l.includes('bus') || l.includes('str') || l.startsWith('u') || l.startsWith('ne')) return API_VRR;
+        // Schienenverkehr nutzt immer die DB
         return API_DB;
     }
 
@@ -117,15 +118,23 @@
         return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); 
     }
 
+    // Für bahn.expert Sekunden-Hover
     function formatFull(iso) {
         if (!iso) return '';
-        return new Date(iso).toLocaleString('de-DE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        const d = new Date(iso);
+        return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' ' + 
+               d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
+    // Verschärfte Fett-Logik: Nur wenn Signal da UND Zeitnah (max 5 Min Zukunft)
     function getLiveState(planned, actual, delay) {
         if (!actual) return 'prognose';
-        // STRENGE LOGIK: Nur fett, wenn delay eine Zahl ist (0, -1, +5 etc.)
-        return (typeof delay === 'number') ? 'live-confirmed' : 'prognose';
+        const ist = new Date(actual).getTime();
+        const nun = Date.now();
+        const hatSignal = (typeof delay === 'number');
+        const istNahOderVergangenheit = ist <= (nun + 300000); 
+
+        return (hatSignal && istNahOderVergangenheit) ? 'live-confirmed' : 'prognose';
     }
 
     function getCol(ist, soll) {
@@ -156,7 +165,7 @@
     async function loadDeps() {
         const dt = new Date(`${document.getElementById('dateInput').value}T${document.getElementById('timeInput').value}`).toISOString();
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Suche Abfahrten...</div>";
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade...</div>";
         try {
             const r = await fetch(`${API_DB}/stops/${encodeURIComponent(activeId)}/departures?when=${dt}&duration=120`);
             const data = await r.json();
@@ -170,7 +179,6 @@
                 return `<div class="row ${isCanceled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${ziel.replace(/'/g,"")}')">
                     <div>
                         <span class="line-id">${d.line.name}</span>
-                        ${d.additional ? '<span style="color:var(--green); font-size:10px; font-weight:800; margin-left:5px;">Zusatz</span>' : ''}
                         <span class="dest">${isCanceled ? 'Fällt aus: ' : ''}${ziel}</span>
                     </div>
                     <div class="time-stack">
@@ -188,7 +196,7 @@
         saveToArchive(tid, line, dest);
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf...</div>";
+        cont.innerHTML = "<div style='padding:50px; text-align:center;'>Suche Verlauf...</div>";
         
         const primaryAPI = getProvider(line);
         const backupAPI = (primaryAPI === API_VRR) ? API_DB : API_VRR;
