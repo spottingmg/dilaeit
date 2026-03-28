@@ -35,7 +35,10 @@
         .stop-name { font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
         .stop-dist { font-size: 10px; color: var(--sub); font-weight: 600; }
         .stop-plat { font-size: 11px; color: var(--sub); font-weight: 700; text-align: right; }
-
+        .is-live { font-weight: 800 !important; }
+        .v-red { color: var(--red) !important; } 
+        .v-green { color: var(--green) !important; }
+        .current-stop { border-left: 3px solid var(--db-red); background: rgba(197, 0, 20, 0.05); }
         /* Echtzeit-Fixes */
         .live-active { font-weight: 800 !important; }
         .v-red { color: var(--red) !important; } 
@@ -117,32 +120,95 @@
         loadDeps();
     }
 
-    async function loadDeps() {
+   async function loadDeps() {
         const res = document.getElementById('results');
-        const d = document.getElementById('date_inp').value;
-        const t = document.getElementById('time_inp').value;
-        const when = d && t ? `&when=${new Date(`${d}T${t}`).toISOString()}` : "";
-        res.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5'>Lade Abfahrten...</div>";
+        res.innerHTML = "<div style='padding:40px; text-align:center;'>...</div>";
         try {
-            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60${when}`).then(r => r.json());
+            const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60`).then(r => r.json());
             const deps = data.departures || data || [];
             res.innerHTML = deps.map(d => {
-                const isLive = d.prognosisType === 'prognosed' || d.prognosisType === 'actual';
-                const timeStr = isLive ? (d.when || d.plannedWhen).substring(11,19) : (d.plannedWhen || d.when).substring(11,16);
-                const diff = isLive ? (new Date(d.when) - new Date(d.plannedWhen))/60000 : 0;
+                const plan = new Date(d.plannedWhen || d.when);
+                const act = d.when ? new Date(d.when) : null; // null bedeutet: Keine Echtzeit
+                const isLive = !!act;
+                
+                let timeColor = '';
+                if (isLive) {
+                    const diff = (act - plan) / 60000;
+                    timeColor = diff > 0.5 ? 'v-red' : 'v-green';
+                }
+                
+                const displayTime = isLive ? act : plan;
+
                 return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${d.direction}')">
                     <div>
                         <div class="line-id">${d.line.name}</div>
-                        <div style="font-size:14px; font-weight:600;">${d.direction?.split(',')[0]}</div>
-                        <div style="font-size:11px; color:var(--sub); font-weight:bold">${formatPlat(d.platform)}</div>
+                        <div style="font-size:14px; font-weight:600">${d.direction?.split(',')[0]}</div>
                     </div>
                     <div style="text-align:right; font-variant-numeric: tabular-nums;">
-                        <div style="font-size:12px; color:var(--sub)">${(d.plannedWhen||'').substring(11,16)}</div>
-                        <div class="${isLive ? (diff > 0 ? 'v-red' : 'v-green') : ''} ${isLive ? 'live-active' : ''}">${timeStr}</div>
+                        <div style="font-size:12px; color:var(--sub)">${isLive ? plan.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</div>
+                        <div class="${timeColor} ${isLive ? 'is-live' : ''}">${displayTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second: isLive ? '2-digit' : undefined})}</div>
                     </div>
                 </div>`;
             }).join('');
-        } catch(e) { res.innerHTML = "<div style='padding:20px; text-align:center;'>Fehler.</div>"; }
+        } catch(e) { res.innerHTML = "Fehler."; }
+    }
+
+    async function refreshTrip() {
+        if(!currentTripData) return;
+        const api = (currentTripData.line.match(/^(RE|RB|S|ICE|IC)/i)) ? API_DB : currentApi;
+        try {
+            const data = await fetch(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`).then(r => r.json());
+            const trip = data.trip || data;
+            const stops = trip.stopovers || [];
+            
+            // WICHTIG: Fahrzeug-Echtzeit-Position vom Server (nicht User-Standort)
+            const vPos = trip.prognosedLocation || trip.location; 
+            
+            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest}`;
+            const now = Date.now();
+
+            document.getElementById('trip_content').innerHTML = stops.map((s, idx) => {
+                const pArr = s.plannedArrival ? new Date(s.plannedArrival) : null;
+                const aArr = s.arrival ? new Date(s.arrival) : pArr;
+                const pDep = s.plannedDeparture ? new Date(s.plannedDeparture) : null;
+                const aDep = s.departure ? new Date(s.departure) : pDep;
+
+                // Echtzeit vorhanden?
+                const liveArr = !!s.arrival;
+                const liveDep = !!s.departure;
+
+                // Logik für "Halt erreicht" (Fett)
+                // Wir nehmen Ankunft für den Status "Ist da"
+                const hasArrived = aArr && (now > aArr.getTime());
+                const hasDeparted = aDep && (now > aDep.getTime());
+                
+                const isPast = hasDeparted;
+                const isCurrent = hasArrived && !hasDeparted;
+
+                // Fahrzeug-Entfernung zum NÄCHSTEN Halt (nur wenn vPos existiert)
+                let distHtml = "";
+                if (vPos && s.stop.location && !hasArrived) {
+                    const d = calcDist(vPos.latitude, vPos.longitude, s.stop.location.latitude, s.stop.location.longitude);
+                    distHtml = `<div class="stop-dist">🛰️ Fahrzeug ist ${d} entfernt</div>`;
+                }
+
+                const formatT = (p, a, live, lbl) => {
+                    if(!p) return "";
+                    const diff = (a - p) / 60000;
+                    return `<div><span style="color:var(--sub); width:18px; display:inline-block">${lbl}</span>
+                            <span class="${live ? (diff > 0.5 ? 'v-red' : 'v-green') : ''} ${live ? 'is-live' : ''}">${a.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second: live ? '2-digit' : undefined})}</span></div>`;
+                };
+
+                return `<div class="stop-row ${isPast ? 'past-stop' : ''} ${isCurrent ? 'current-stop' : ''}">
+                    <div class="stop-times">${formatT(pArr, aArr, liveArr, 'An')}${formatT(pDep, aDep, liveDep, 'Ab')}</div>
+                    <div class="stop-name-box">
+                        <div class="stop-name" style="${(isCurrent || hasArrived) ? 'font-weight:800' : 'font-weight:400'}">${s.stop.name.split(',')[0]}</div>
+                        ${distHtml}
+                    </div>
+                    <div class="stop-plat">${formatPlat(s.platform)}</div>
+                </div>`;
+            }).join('');
+        } catch(e) {}
     }
 
     async function loadTrip(tid, line, dest) {
@@ -153,42 +219,21 @@
         clearInterval(tripTimer);
         tripTimer = setInterval(refreshTrip, 30000);
     }
-
-    async function refreshTrip() {
-        if(!currentTripData) return;
-        const api = (currentTripData.line.match(/^(RE|RB|S|ICE|IC)/i)) ? API_DB : currentApi;
-        try {
-            const data = await fetch(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`).then(r => r.json());
-            const stops = data.trip?.stopovers || data.stopovers || [];
-            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest.split(',')[0]}`;
-            const now = Date.now();
-            document.getElementById('trip_content').innerHTML = stops.map(s => {
-                const isLiveArr = !!(s.arrival || s.prognosedArrival);
-                const isLiveDep = !!(s.departure || s.prognosedDeparture);
-                const planArr = s.plannedArrival || s.arrival;
-                const planDep = s.plannedDeparture || s.departure;
-                const actArr = s.arrival || s.prognosedArrival || planArr;
-                const actDep = s.departure || s.prognosedDeparture || planDep;
-                
-                const depTs = new Date(actDep || actArr).getTime();
-                const isPast = now > depTs + 15000;
-
-                const formatT = (p, a, live, lbl) => {
-                    if(!p) return "";
-                    const diff = (new Date(a) - new Date(p)) / 60000;
-                    const timeDisp = live ? a.substring(11,19) : p.substring(11,16);
-                    return `<div><span style="color:var(--sub); width:18px; display:inline-block">${lbl}</span>
-                            <span class="${live ? (diff > 0.5 ? 'v-red' : 'v-green') : ''} ${live ? 'live-active' : ''}">${timeDisp}</span></div>`;
-                };
-
-                return `<div class="stop-row ${isPast ? 'past-stop' : ''}">
-                    <div class="stop-times">${formatT(planArr, actArr, isLiveArr, 'An')}${formatT(planDep, actDep, isLiveDep, 'Ab')}</div>
-                    <div class="stop-name">${s.stop.name.split(',')[0]}</div>
-                    <div class="stop-plat">${formatPlat(s.platform)}</div>
-                </div>`;
-            }).join('');
-        } catch(e) { console.error(e); }
+function showHistory(e) {
+        console.log("Verlauf wird geladen...");
+        // Hier könntest du später die History-Logik einbauen
     }
+
+    async function loadTrip(tid, line, dest) {
+        currentTripData = { tid, line, dest };
+        document.getElementById('ov_trip').style.display = 'block';
+        // Sofort laden
+        refreshTrip(); 
+        // Intervall starten
+        clearInterval(tripTimer);
+        tripTimer = setInterval(refreshTrip, 30000);
+    }
+   
 
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; clearInterval(tripTimer); }
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
