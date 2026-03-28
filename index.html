@@ -203,7 +203,7 @@ async function loadTrip(tid, line, dest) {
     const cont = document.getElementById('trip_content');
     
     document.getElementById('retry_trip').onclick = () => loadTrip(tid, line, dest);
-    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf (VRR-Priorität)...</div>";
+    cont.innerHTML = "<div style='padding:50px; text-align:center;'>Lade Verlauf ...</div>";
     
     // Logik: Bus/U-Bahn -> Erst VRR, dann DB. Zug -> Erst DB, dann VRR.
     const isBus = line.toLowerCase().includes('bus') || line.startsWith('0') || line.startsWith('SB');
