@@ -11,16 +11,13 @@
         
         .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
-        .header-right { display: flex; align-items: center; gap: 15px; font-size: 13px; color: var(--sub); font-weight: 600; }
-
+        
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 5000; }
         #dropdown { position: absolute; left: 20px; right: 20px; top: 55px; background: var(--card); border: 1px solid var(--border); z-index: 10000; display: none; border-radius: 10px; max-height: 350px; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 16px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; }
-        input:focus { border-color: var(--db-red); }
 
-        .time-row { display: flex; gap: 10px; }
-        .time-row input { padding: 10px; font-size: 14px; flex: 1; min-width: 0; }
-        .btn-jetzt { background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 0 15px; font-weight: bold; cursor: pointer; }
+        .archive-section { padding: 0 20px 20px; }
+        .archive-title { font-size: 11px; color: var(--sub); font-weight: bold; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
 
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; }
@@ -28,52 +25,40 @@
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); align-items: center; }
         
-        /* Fahrtverlauf Layout */
-        .stop-row { padding: 12px 20px; position: relative; display: grid; grid-template-columns: 140px 1fr 65px; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
-        .stop-row::before { content: ""; position: absolute; left: 155px; top: 0; bottom: 0; width: 2px; background: var(--border); z-index: 1; }
+        .stop-row { padding: 12px 20px; position: relative; display: grid; grid-template-columns: 155px 1fr 65px; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+        .stop-row::before { content: ""; position: absolute; left: 172px; top: 0; bottom: 0; width: 2px; background: var(--border); z-index: 1; }
         .stop-row:first-child::before { top: 50%; }
         .stop-row:last-child::before { bottom: 50%; }
 
-        .stop-times { font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1.5; z-index: 2; }
-        .time-group { display: flex; gap: 8px; align-items: center; }
-        .t-plan { color: var(--sub); width: 35px; }
-        .t-act { font-weight: 700; min-width: 60px; }
-        .t-lbl { color: var(--sub); font-size: 9px; width: 15px; text-transform: uppercase; }
+        .stop-times { font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.6; z-index: 2; }
+        .time-group { display: flex; gap: 6px; align-items: center; }
+        .t-plan { color: var(--sub); width: 40px; }
+        .t-act { min-width: 70px; }
+        .t-lbl { color: var(--sub); font-size: 9px; width: 18px; text-transform: uppercase; font-weight: bold; }
 
-        .stop-name-box { position: relative; padding-left: 25px; z-index: 2; }
+        .stop-name-box { position: relative; padding-left: 25px; z-index: 2; min-width: 0; }
         .stop-name-box::before { content: ""; position: absolute; left: -4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--sub); }
-        
-        .stop-name { font-size: 14px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .stop-dist { font-size: 10px; color: var(--sub); font-weight: 600; }
-        .stop-plat { font-size: 11px; color: var(--sub); font-weight: 700; text-align: right; }
-
-        .v-red { color: var(--red) !important; } 
-        .v-green { color: var(--green) !important; }
+        .v-red { color: var(--red) !important; } .v-green { color: var(--green) !important; }
         .is-live { font-weight: 900 !important; }
-        
         .current-stop { background: rgba(197, 0, 20, 0.1); }
-        .current-stop .stop-name-box::before { background: var(--db-red); border-color: var(--db-red); box-shadow: 0 0 8px var(--db-red); }
-        .past-stop { opacity: 0.6; }
+        .current-stop .stop-name-box::before { background: var(--db-red); border-color: var(--db-red); }
     </style>
 </head>
 <body data-theme="dark">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <div class="header-right">
-        <span onclick="showHistory(event)" style="cursor:pointer; padding: 5px;">Archiv</span>
-        <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 16px;">☀️</span>
-    </div>
+    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer;">☀️</span>
 </div>
 
 <div class="search-area">
     <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
-    <div class="time-row">
-        <input type="date" id="date_inp">
-        <input type="time" id="time_inp">
-        <button class="btn-jetzt" onclick="setNow()">Jetzt</button>
-    </div>
     <div id="dropdown"></div>
+</div>
+
+<div id="archive_container" class="archive-section" style="display:none;">
+    <div class="archive-title">Zuletzt angesehen (48h)</div>
+    <div id="archive_list"></div>
 </div>
 
 <div id="results"></div>
@@ -81,7 +66,7 @@
 <div id="ov_trip" class="ov">
     <div class="ov-bar">
         <span id="ov_title" style="font-weight:800; font-size: 14px;"></span>
-        <span onclick="closeOv()" style="cursor:pointer; font-size:24px; padding:0 10px;">✕</span>
+        <span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span>
     </div>
     <div id="trip_content"></div>
 </div>
@@ -91,35 +76,26 @@
     const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer, currentApi = API_VRR, tripTimer, currentTripData = null;
 
-    setNow(false);
+    // Beim Start: Archiv und Session wiederherstellen
+    initArchive();
+    restoreSession();
 
-    function setNow(refresh = true) {
-        const now = new Date();
-        document.getElementById('date_inp').value = now.toISOString().split('T')[0];
-        document.getElementById('time_inp').value = now.toTimeString().substring(0, 5);
-        if(refresh && activeId) loadDeps();
+    function fTime(date, sec = false) {
+        if(!date) return "";
+        return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: sec ? '2-digit' : undefined });
     }
-
-    function formatPlat(p) { return p ? (isNaN(p) ? p : 'Gl. ' + p) : ""; }
 
     async function doSearch() {
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
-        dd.innerHTML = '<div class="item" style="color:var(--sub)">Suche...</div>';
         dd.style.display = 'block';
-        try {
-            const [vrr, db] = await Promise.allSettled([
-                fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json()),
-                fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json())
-            ]);
-            let combined = [];
-            if (vrr.status === 'fulfilled') combined.push(...(vrr.value.locations || vrr.value || []));
-            if (db.status === 'fulfilled') combined.push(...(db.value.locations || db.value || []));
-            const seen = new Set();
-            const filtered = combined.filter(l => l.id && l.name && !seen.has(l.id) && seen.add(l.id));
-            dd.innerHTML = filtered.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name.replace(/'/g, "\\'")}')">${l.name}</div>`).join('');
-        } catch (e) { dd.innerHTML = 'Fehler.'; }
+        const [vrr, db] = await Promise.allSettled([
+            fetch(`${API_VRR}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json()),
+            fetch(`${API_DB}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json())
+        ]);
+        let combined = [...(vrr.value || []), ...(db.value || [])];
+        dd.innerHTML = combined.map(l => `<div style="padding:12px; border-bottom:1px solid var(--border);" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
     }
 
     function pick(id, name) {
@@ -127,114 +103,158 @@
         document.getElementById('inp').value = name;
         document.getElementById('dropdown').style.display = 'none';
         currentApi = id.includes('de:') ? API_VRR : API_DB;
+        
+        // Session speichern
+        sessionStorage.setItem('lastStation', JSON.stringify({id, name, api: currentApi}));
         loadDeps();
     }
 
     async function loadDeps() {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>...</div>";
+        res.innerHTML = "<div style='padding:20px; opacity:0.6;'>Lade Abfahrten...</div>";
         try {
             const data = await fetch(`${currentApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60`).then(r => r.json());
             const deps = data.departures || data || [];
-            res.innerHTML = deps.map(d => {
-                const plan = new Date(d.plannedWhen || d.when);
-                const act = d.when ? new Date(d.when) : null;
-                const isLive = !!act;
-                const timeColor = isLive ? ((act - plan) / 60000 > 0.5 ? 'v-red' : 'v-green') : '';
-                return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${d.direction}')">
-                    <div style="flex:1; min-width:0; padding-right:10px;">
-                        <div class="line-id">${d.line.name}</div>
-                        <div style="font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${d.direction}</div>
-                    </div>
-                    <div style="text-align:right; font-variant-numeric: tabular-nums;">
-                        <div style="font-size:12px; color:var(--sub)">${isLive ? plan.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</div>
-                        <div class="${timeColor} ${isLive ? 'is-live' : ''}">${(act||plan).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-                    </div>
-                </div>`;
-            }).join('');
-        } catch(e) { res.innerHTML = "Fehler."; }
+            res.innerHTML = deps.map(d => renderRow(d)).join('');
+        } catch(e) { res.innerHTML = "Fehler beim Laden."; }
+    }
+
+    function renderRow(d) {
+        const plan = new Date(d.plannedWhen || d.when);
+        const act = d.when ? new Date(d.when) : null;
+        const isLive = !!d.when;
+        const direction = (!d.direction || d.direction === "null") ? "Ziel unbekannt" : d.direction;
+        return `<div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${direction}', '${currentApi}')">
+            <div style="flex:1;">
+                <div class="line-id">${d.line.name}</div>
+                <div style="font-size:14px; font-weight:600;">${direction}</div>
+            </div>
+            <div style="text-align:right; font-variant-numeric: tabular-nums;">
+                <div style="font-size:11px; color:var(--sub)">${fTime(plan)}</div>
+                <div class="${isLive ? 'v-green' : ''} ${isLive ? 'is-live' : ''}">${fTime(act || plan, isLive)}</div>
+            </div>
+        </div>`;
+    }
+
+    async function loadTrip(tid, line, dest, apiOrigin) {
+        saveToArchive(tid, line, dest, apiOrigin);
+        currentTripData = { tid, line, dest, apiOrigin };
+        
+        // Aktuellen Trip in Session merken
+        sessionStorage.setItem('currentTrip', JSON.stringify(currentTripData));
+        
+        document.getElementById('ov_trip').style.display = 'block';
+        refreshTrip();
+        clearInterval(tripTimer);
+        tripTimer = setInterval(refreshTrip, 15000);
     }
 
     async function refreshTrip() {
         if(!currentTripData) return;
-        const api = (currentTripData.line.match(/^(RE|RB|S|ICE|IC)/i)) ? API_DB : currentApi;
+        const api = (currentTripData.line.match(/^(RE|RB|S|ICE|IC)/i)) ? API_DB : currentTripData.apiOrigin;
         try {
-            const data = await fetch(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`).then(r => r.json());
-            const trip = data.trip || data;
-            const stops = trip.stopovers || [];
-            const vPos = trip.prognosedLocation || trip.location; 
-            const now = new Date();
+            const trip = await fetch(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`).then(r => r.json());
+            const stops = trip.stopovers || trip.trip.stopovers;
             
-            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest}`;
+            let finalDest = (currentTripData.dest === "Ziel unbekannt" || currentTripData.dest === "Sonderfahrt") ? stops[stops.length-1].stop.name : currentTripData.dest;
+            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${finalDest}`;
 
             document.getElementById('trip_content').innerHTML = stops.map(s => {
                 const pArr = s.plannedArrival ? new Date(s.plannedArrival) : null;
                 const aArr = s.arrival ? new Date(s.arrival) : pArr;
                 const pDep = s.plannedDeparture ? new Date(s.plannedDeparture) : null;
                 const aDep = s.departure ? new Date(s.departure) : pDep;
+                const now = new Date();
+                
+                const isPast = aDep ? aDep < now : aArr < now;
+                const isLiveArr = !!s.arrival;
+                const isLiveDep = !!s.departure;
 
-                const isPast = aDep && (now > aDep);
-                const isCurrent = aArr && (now > aArr) && (!aDep || now < aDep);
-
-                const formatTimeRow = (p, a, live, lbl) => {
-                    if(!p) return "";
-                    const diff = (a - p) / 60000;
-                    const colorClass = live ? (diff > 0.5 ? 'v-red' : 'v-green') : '';
-                    const reached = a <= now;
-                    return `<div class="time-group">
-                        <span class="t-lbl">${lbl}</span>
-                        <span class="t-plan">${p.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                        <span class="t-act ${colorClass} ${reached ? 'is-live' : ''}">
-                            ${a.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second: reached ? '2-digit' : undefined})}
-                        </span>
-                    </div>`;
-                };
-
-                let distHtml = "";
-                if (vPos && s.stop.location && aArr && now < aArr) {
-                    const d = calcDist(vPos.latitude, vPos.longitude, s.stop.location.latitude, s.stop.location.longitude);
-                    distHtml = `<div class="stop-dist">🛰️ ${d}</div>`;
-                }
-
-                return `<div class="stop-row ${isPast ? 'past-stop' : ''} ${isCurrent ? 'current-stop' : ''}">
+                return `<div class="stop-row ${isPast ? 'past-stop' : ''}">
                     <div class="stop-times">
-                        ${formatTimeRow(pArr, aArr, !!s.arrival, 'an')}
-                        ${formatTimeRow(pDep, aDep, !!s.departure, 'ab')}
+                        ${pArr ? `<div class="time-group">
+                            <span class="t-lbl">an</span>
+                            <span class="t-plan">${fTime(pArr)}</span>
+                            <span class="t-act ${isLiveArr ? 'v-green is-live' : ''}">${fTime(aArr, isLiveArr)}</span>
+                        </div>` : ''}
+                        ${pDep ? `<div class="time-group">
+                            <span class="t-lbl">ab</span>
+                            <span class="t-plan">${fTime(pDep)}</span>
+                            <span class="t-act ${isLiveDep ? 'v-green is-live' : ''}">${fTime(aDep, isLiveDep)}</span>
+                        </div>` : ''}
                     </div>
                     <div class="stop-name-box">
-                        <div class="stop-name" style="${isCurrent ? 'font-weight:800' : ''}">${s.stop.name}</div>
-                        ${distHtml}
+                        <div class="stop-name">${s.stop.name}</div>
+                        ${s.cancelled ? '<div style="font-size:9px; color:var(--red); font-weight:bold;">HALT ENTFÄLLT</div>' : ''}
                     </div>
-                    <div class="stop-plat">${formatPlat(s.platform)}</div>
+                    <div class="stop-plat">${s.platform ? 'Gl. ' + s.platform : ''}</div>
                 </div>`;
             }).join('');
-        } catch(e) {}
+        } catch(e) { console.error("Trip-Fehler:", e); }
     }
 
-    async function loadTrip(tid, line, dest) {
-        currentTripData = { tid, line, dest };
-        document.getElementById('ov_trip').style.display = 'block';
-        refreshTrip(); 
-        clearInterval(tripTimer);
-        tripTimer = setInterval(refreshTrip, 15000);
+    // SESSION WIEDERHERSTELLUNG
+    function restoreSession() {
+        const lastStation = sessionStorage.getItem('lastStation');
+        const currentTrip = sessionStorage.getItem('currentTrip');
+
+        if(lastStation) {
+            const s = JSON.parse(lastStation);
+            activeId = s.id;
+            document.getElementById('inp').value = s.name;
+            currentApi = s.api;
+            loadDeps();
+        }
+
+        if(currentTrip) {
+            const t = JSON.parse(currentTrip);
+            loadTrip(t.tid, t.line, t.dest, t.apiOrigin);
+        }
     }
 
-    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; clearInterval(tripTimer); }
+    function closeOv() { 
+        document.getElementById('ov_trip').style.display = 'none'; 
+        clearInterval(tripTimer); 
+        sessionStorage.removeItem('currentTrip'); 
+    }
+
+    // ARCHIV LOGIK
+    function saveToArchive(tid, line, dest, api) {
+        let arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
+        arch = arch.filter(i => i.tid !== tid);
+        arch.unshift({ tid, line, dest, api, ts: Date.now() });
+        localStorage.setItem('dilaeit_arch', JSON.stringify(arch.slice(0, 10)));
+        renderArchive();
+    }
+
+    function initArchive() {
+        const arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
+        const now = Date.now();
+        const filtered = arch.filter(i => now - i.ts < 48 * 60 * 60 * 1000);
+        localStorage.setItem('dilaeit_arch', JSON.stringify(filtered));
+        renderArchive();
+    }
+
+    function renderArchive() {
+        const arch = JSON.parse(localStorage.getItem('dilaeit_arch') || '[]');
+        const container = document.getElementById('archive_container');
+        const list = document.getElementById('archive_list');
+        if(arch.length === 0) { container.style.display = 'none'; return; }
+        container.style.display = 'block';
+        list.innerHTML = arch.map(i => `
+            <div class="row" style="padding: 10px 0; border-bottom: 1px solid var(--border);" onclick="loadTrip('${i.tid}', '${i.line}', '${i.dest}', '${i.api}')">
+                <span style="color:var(--db-red); font-weight:bold; width:50px;">${i.line}</span>
+                <span style="flex:1; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-left:10px;">${i.dest}</span>
+            </div>
+        `).join('');
+    }
+
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function toggleTheme() {
         const b = document.body;
         const next = b.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         b.setAttribute('data-theme', next);
-        document.getElementById('themeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
     }
-    function calcDist(lat1, lon1, lat2, lon2) {
-        const R = 6371;
-        const dLat = (lat2-lat1) * Math.PI / 180, dLon = (lon2-lon1) * Math.PI / 180;
-        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-        const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return d > 1 ? d.toFixed(1) + ' km' : Math.round(d * 1000) + ' m';
-    }
-    function showHistory(e) { alert("Archiv-Funktion: Coming Soon!"); }
 </script>
 </body>
 </html>
