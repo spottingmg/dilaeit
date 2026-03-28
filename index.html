@@ -24,7 +24,7 @@
         .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; min-width: 65px; }
         .dest { font-size: 14px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .t-row { font-size: 16px; display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; align-items: center; }
-        .t-soll { color: var(--sub); font-weight: 400; }
+        .t-soll { color: var(--sub); font-weight: 400; font-size: 14px; }
         
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .live-confirmed { font-weight: 800 !important; } 
@@ -32,8 +32,9 @@
 
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
-        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 115px 1fr 65px; gap: 10px; align-items: center; }
-        .stop-times { font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+        
+        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 110px 1fr 60px; gap: 10px; align-items: center; }
+        .stop-times { font-size: 12px; line-height: 1.3; font-variant-numeric: tabular-nums; }
         .stop-name { font-weight: 600; font-size: 14px; }
         .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; }
 
@@ -47,13 +48,13 @@
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
     <div class="header-right">
-        <span onclick="showHistory(true)" style="cursor:pointer">Archiv</span>
+        <span onclick="toggleTripHistory()" style="cursor:pointer">Archiv</span>
         <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 18px;">🌙</span>
     </div>
 </div>
 
 <div class="search-area">
-    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" onfocus="showHistory()" autocomplete="off">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
     <div class="time-row">
         <input type="date" id="date_inp">
         <input type="time" id="time_inp">
@@ -73,7 +74,6 @@
 </div>
 
 <script>
-    const API_DB = "https://v6.db.transport.rest";
     const API_VRR = "https://v6.vrr.transport.rest";
     let activeId = "", timer;
 
@@ -83,25 +83,26 @@
     function isTrain(l) { return l && /^(RE|RB|S|IC|ICE|EC)/i.test(l); }
     function getPlat(l, p) { return p ? (isTrain(l) ? 'Gl. ' : 'Bst. ') + p : ''; }
 
-    function getLiveDisplay(actual, isMonitor = false) {
+    function getLiveState(planned, actual) {
         if (!actual) return { cls: '', txt: '--:--' };
-        const d = new Date(actual);
-        const isLive = d.getSeconds() !== 0; 
-        const timeStr = (isLive && !isMonitor) 
-            ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) 
-            : d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        return { cls: isLive ? 'live-confirmed' : '', txt: timeStr };
+        const p = new Date(planned), a = new Date(actual);
+        const isLive = (p.getTime() !== a.getTime()) || (a.getSeconds() !== 0);
+        
+        // Wenn fett, dann mit Sekunden anzeigen
+        const format = isLive 
+            ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} 
+            : {hour:'2-digit', minute:'2-digit'};
+
+        return { 
+            cls: isLive ? 'live-confirmed' : '', 
+            txt: a.toLocaleTimeString([], format),
+            soll: p.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+        };
     }
 
-    async function fetchS(path, vrr = true) {
-        try {
-            let r = await fetch((vrr ? API_VRR : API_DB) + path);
-            if (!r.ok) throw new Error();
-            return await r.json();
-        } catch (e) {
-            let r = await fetch((vrr ? API_DB : API_VRR) + path);
-            return await r.json();
-        }
+    async function fetchS(path) {
+        let r = await fetch(API_VRR + path);
+        return await r.json();
     }
 
     function setNow() {
@@ -110,22 +111,30 @@
         if(activeId) loadDeps();
     }
 
-    function saveHistory(id, name) {
-        let hist = JSON.parse(localStorage.getItem('hist') || '[]');
-        hist = hist.filter(x => x.id !== id);
-        hist.unshift({id, name});
-        localStorage.setItem('hist', JSON.stringify(hist.slice(0, 8)));
+    function saveTripToHistory(tid, line, dest) {
+        let hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
+        hist = hist.filter(x => x.tid !== tid);
+        hist.unshift({tid, line, dest});
+        localStorage.setItem('trip_hist', JSON.stringify(hist.slice(0, 10)));
     }
 
-    function showHistory(force = false) {
-        const q = document.getElementById('inp').value;
-        if (q.length > 0 && !force) return;
-        const hist = JSON.parse(localStorage.getItem('hist') || '[]');
+    function toggleTripHistory() {
+        const dd = document.getElementById('dropdown');
+        if (dd.style.display === 'block' && dd.getAttribute('data-type') === 'history') {
+            dd.style.display = 'none';
+        } else {
+            showTripHistory();
+        }
+    }
+
+    function showTripHistory() {
+        const hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
         const dd = document.getElementById('dropdown');
         if (hist.length === 0) return;
         dd.style.display = 'block';
-        dd.innerHTML = '<div class="hist-label">Zuletzt gesucht</div>' + 
-            hist.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">🕒 ${l.name}</div>`).join('');
+        dd.setAttribute('data-type', 'history');
+        dd.innerHTML = '<div class="hist-label">Archiv (Letzte Fahrten)</div>' + 
+            hist.map(t => `<div class="item" onclick="loadTrip('${t.tid}', '${t.line}', '${t.dest}')"><b style="color:var(--db-red)">${t.line}</b> ➔ ${t.dest}</div>`).join('');
     }
 
     async function doSearch() {
@@ -133,80 +142,70 @@
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
         dd.style.display = 'block';
-        try {
-            const data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=5`, true);
-            const stops = Array.isArray(data) ? data : (data.locations || []);
-            dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
-        } catch (e) { dd.innerHTML = "Fehler"; }
+        dd.setAttribute('data-type', 'search');
+        const data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=5`);
+        const stops = data.locations || data;
+        dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
     }
 
     function pick(id, name) {
-        activeId = id; 
-        document.getElementById('inp').value = cleanN(name);
+        activeId = id; document.getElementById('inp').value = cleanN(name);
         document.getElementById('dropdown').style.display = 'none';
-        saveHistory(id, cleanN(name));
         loadDeps();
     }
 
     async function loadDeps() {
         if(!activeId) return;
         const res = document.getElementById('results');
-        const dVal = document.getElementById('date_inp').value;
-        const tVal = document.getElementById('time_inp').value;
-        
-        let timeParam = "";
-        if(dVal && tVal) {
-            const dt = new Date(`${dVal}T${tVal}`);
-            timeParam = `&when=${dt.toISOString()}`;
-        }
-        
+        const dVal = document.getElementById('date_inp').value, tVal = document.getElementById('time_inp').value;
+        let timeParam = (dVal && tVal) ? `&when=${new Date(`${dVal}T${tVal}`).toISOString()}` : "";
         res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade...</div>";
-        try {
-            const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`, true);
-            const deps = data.departures || data;
-            res.innerHTML = deps.map(d => {
-                const soll = d.plannedWhen, ist = d.when || soll;
-                const live = getLiveDisplay(ist, true); 
-                const color = (new Date(ist) > new Date(soll)) ? 'v-red' : 'v-green';
-                return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${cleanN(d.direction)}')">
-                    <div style="flex-grow:1; overflow:hidden;">
-                        <span class="line-id">${d.line.name} <small style="font-size:10px; color:var(--sub)">${getPlat(d.line.name, d.platform)}</small></span>
-                        <span class="dest">${cleanN(d.direction)}</span>
-                    </div>
-                    <div class="t-row">
-                        <span class="t-soll">${new Date(soll).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                        <span class="${color} ${live.cls}">${live.txt}</span>
-                    </div>
-                </div>`;
-            }).join('');
-        } catch (e) { res.innerHTML = "Fehler beim Laden."; }
+        const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`);
+        const deps = data.departures || data;
+        res.innerHTML = deps.map(d => {
+            const live = getLiveState(d.plannedWhen, d.when || d.plannedWhen);
+            const color = (new Date(d.when || d.plannedWhen) > new Date(d.plannedWhen)) ? 'v-red' : 'v-green';
+            return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${cleanN(d.direction)}')">
+                <div style="flex-grow:1; overflow:hidden;">
+                    <span class="line-id">${d.line.name} <small style="font-size:10px; color:var(--sub)">${getPlat(d.line.name, d.platform)}</small></span>
+                    <span class="dest">${cleanN(d.direction)}</span>
+                </div>
+                <div class="t-row">
+                    <span class="t-soll">${live.soll}</span>
+                    <span class="${color} ${live.cls}">${live.txt}</span>
+                </div>
+            </div>`;
+        }).join('');
     }
 
     async function loadTrip(tid, line, dest) {
+        saveTripToHistory(tid, line, dest);
+        document.getElementById('dropdown').style.display = 'none';
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:30px; text-align:center;'>Lade Verlauf...</div>";
-        try {
-            const data = await fetchS(`/trips/${encodeURIComponent(tid)}`, !isTrain(line));
-            const trip = data.trip || data;
-            document.getElementById('ov_title').innerText = line + " ➔ " + dest;
-            cont.innerHTML = trip.stopovers.map(s => {
-                const render = (soll, ist, lbl) => {
-                    if (!soll) return '<div></div>';
-                    const live = getLiveDisplay(ist || soll, false); 
-                    const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
-                    return `<div style="display:flex; gap:8px;">
-                        <span style="color:var(--sub); width:20px;">${lbl}</span>
-                        <span class="${color} ${live.cls}">${live.txt}</span>
-                    </div>`;
-                };
-                return `<div class="stop-row ${s.cancelled?'cancelled':''}">
-                    <div class="stop-times">${render(s.plannedArrival, s.arrival, 'An')}${render(s.plannedDeparture, s.departure, 'Ab')}</div>
-                    <div class="stop-name">${cleanN(s.stop.name)}</div>
-                    <div class="stop-plat">${getPlat(line, s.platform)}</div>
+        cont.innerHTML = "<div style='padding:30px; text-align:center;'>Lade...</div>";
+        const data = await fetchS(`/trips/${encodeURIComponent(tid)}`);
+        const trip = data.trip || data;
+        document.getElementById('ov_title').innerText = line + " ➔ " + dest;
+        cont.innerHTML = trip.stopovers.map(s => {
+            const render = (soll, ist, lbl) => {
+                if (!soll) return '';
+                const live = getLiveState(soll, ist || soll);
+                const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
+                return `<div style="margin-bottom:4px;">
+                    <div style="font-size:10px; color:var(--sub); margin-left:22px;">${lbl} ${live.soll}</div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:10px; color:var(--sub); width:14px;">${lbl[0]}</span>
+                        <span class="${color} ${live.cls}" style="font-size:14px;">${live.txt}</span>
+                    </div>
                 </div>`;
-            }).join('');
-        } catch (e) { cont.innerHTML = "Verlauf nicht verfügbar."; }
+            };
+            return `<div class="stop-row ${s.cancelled?'cancelled':''}">
+                <div class="stop-times">${render(s.plannedArrival, s.arrival, 'An')}${render(s.plannedDeparture, s.departure, 'Ab')}</div>
+                <div class="stop-name">${cleanN(s.stop.name)}</div>
+                <div class="stop-plat">${getPlat(line, s.platform)}</div>
+            </div>`;
+        }).join('');
     }
 
     function toggleTheme(init = false) { 
@@ -215,19 +214,13 @@
             const isDark = body.getAttribute('data-theme') === 'dark';
             body.setAttribute('data-theme', isDark ? 'light' : 'dark');
             localStorage.setItem('theme', isDark ? 'light' : 'dark');
-        } else {
-            body.setAttribute('data-theme', 'dark');
-        }
+        } else { body.setAttribute('data-theme', 'dark'); }
         document.getElementById('themeIcon').innerText = body.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
     }
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
-    
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) 
-            document.getElementById('dropdown').style.display = 'none';
-    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.search-area') && !e.target.closest('.header-right')) document.getElementById('dropdown').style.display = 'none'; });
 </script>
 </body>
 </html>
