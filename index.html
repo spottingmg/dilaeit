@@ -5,26 +5,26 @@
     <title>dilaeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --green: #008f39; --red: #ff3b30; --border: #d2d2d7; }
-        [data-theme="dark"] { --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
+        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
         
-        .header { background: var(--card); padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
-        .header h1 { margin: 0; font-size: 22px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
-        .header-right { display: flex; align-items: center; gap: 15px; font-size: 14px; color: var(--sub); font-weight: 600; }
-
-        .search-area { padding: 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
-        input { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 15px; outline: none; color: var(--text); font-family: inherit; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; transition: background 0.3s; }
         
-        .time-row { display: flex; gap: 8px; }
-        .time-row input { flex: 1; }
-        .btn-jetzt { padding: 0 15px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 12px; color: var(--text); }
+        .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
+        .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--sub); font-weight: 500; }
 
-        .row { padding: 15px 20px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-        .line-id { color: var(--db-red); font-weight: 800; font-size: 18px; min-width: 65px; }
-        .dest { font-size: 14px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .t-row { font-size: 16px; display: flex; gap: 10px; justify-content: flex-end; font-variant-numeric: tabular-nums; align-items: center; }
-        .t-soll { color: var(--sub); font-weight: 400; font-size: 14px; }
+        .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+        input { padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; font-size: 14px; outline: none; color: var(--text); font-family: inherit; width: 100%; box-sizing: border-box; }
+        
+        .time-row { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 8px; align-items: center; }
+        .btn-jetzt { padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 12px; color: var(--text); height: 42px; }
+
+        .row { padding: 15px 20px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .line-id { color: var(--db-red); font-weight: 800; font-size: 17px; min-width: 60px; }
+        .dest { font-size: 14px; font-weight: 600; }
+        .t-row { font-size: 15px; display: flex; gap: 8px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
+        .t-soll { color: var(--sub); font-weight: 400; font-size: 13px; }
         
         .v-red { color: var(--red); } .v-green { color: var(--green); }
         .live-confirmed { font-weight: 800 !important; } 
@@ -33,23 +33,24 @@
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
         
-        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 115px 1fr 60px; gap: 10px; align-items: center; }
-        .stop-times { font-size: 12px; line-height: 1.3; font-variant-numeric: tabular-nums; }
-        .stop-name { font-weight: 600; font-size: 14px; }
-        .stop-plat { font-size: 11px; font-weight: 800; color: var(--sub); text-align: right; }
+        .stop-row { padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 110px 1fr 60px; gap: 10px; align-items: center; }
+        .stop-times { font-size: 11px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+        .stop-name { font-weight: 600; font-size: 13px; }
+        .stop-plat { font-size: 10px; font-weight: 800; color: var(--sub); text-align: right; }
 
-        #dropdown { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-height: 350px; overflow-y: auto; }
-        .item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
-        .hist-label { font-size: 11px; font-weight: 800; color: var(--sub); padding: 10px 15px 5px; text-transform: uppercase; }
+        #dropdown { position: absolute; left: 20px; right: 20px; background: var(--card); border: 1px solid var(--border); z-index: 9999; display: none; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 300px; overflow-y: auto; }
+        .item { padding: 12px 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 14px; color: var(--text); }
+        .item:last-child { border-bottom: none; }
+        .hist-label { font-size: 10px; font-weight: 800; color: var(--sub); padding: 10px 15px 5px; text-transform: uppercase; }
     </style>
 </head>
-<body data-theme="light">
+<body data-theme="dark">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
     <div class="header-right">
         <span onclick="toggleTripHistory()" style="cursor:pointer">Archiv</span>
-        <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 18px;">🌙</span>
+        <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 16px;">☀️</span>
     </div>
 </div>
 
@@ -67,8 +68,8 @@
 
 <div id="ov_trip" class="ov">
     <div class="ov-bar">
-        <span id="ov_title" style="font-weight:800">Verlauf</span>
-        <span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span>
+        <span id="ov_title" style="font-weight:800; font-size:14px;">Verlauf</span>
+        <span onclick="closeOv()" style="cursor:pointer; font-size:20px;">✕</span>
     </div>
     <div id="trip_content"></div>
 </div>
@@ -78,7 +79,7 @@
     const API_DB = "https://v6.db.transport.rest";
     let activeId = "", timer;
 
-    if (localStorage.getItem('theme') === 'dark') toggleTheme(true);
+    if (localStorage.getItem('theme') === 'light') toggleTheme(false, true);
 
     function cleanN(n) { return n ? n.split(',')[0].trim() : ""; }
     function isTrain(l) { return l && /^(RE|RB|S|IC|ICE|EC)/i.test(l); }
@@ -99,24 +100,16 @@
     async function fetchS(path, useDB = false) {
         try {
             let r = await fetch((useDB ? API_DB : API_VRR) + path);
+            if (!r.ok) return null;
             return await r.json();
         } catch (e) { return null; }
     }
 
     function setNow() {
         const now = new Date();
-        const dateStr = now.toISOString().split('T')[0];
-        const timeStr = now.toTimeString().split(' ')[0].substring(0, 5);
-        document.getElementById('date_inp').value = dateStr;
-        document.getElementById('time_inp').value = timeStr;
+        document.getElementById('date_inp').value = now.toISOString().split('T')[0];
+        document.getElementById('time_inp').value = now.toTimeString().substring(0, 5);
         if(activeId) loadDeps();
-    }
-
-    function saveTripToHistory(tid, line, dest) {
-        let hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
-        hist = hist.filter(x => x.tid !== tid);
-        hist.unshift({tid, line, dest});
-        localStorage.setItem('trip_hist', JSON.stringify(hist.slice(0, 10)));
     }
 
     function toggleTripHistory() {
@@ -132,24 +125,36 @@
         if (hist.length === 0) return;
         dd.style.display = 'block';
         dd.setAttribute('data-type', 'history');
-        dd.innerHTML = '<div class="hist-label">Archiv (Letzte Fahrten)</div>' + 
+        dd.innerHTML = '<div class="hist-label">Letzte Fahrten</div>' + 
             hist.map(t => `<div class="item" onclick="loadTrip('${t.tid}', '${t.line}', '${t.dest}')"><b style="color:var(--db-red)">${t.line}</b> ➔ ${t.dest}</div>`).join('');
     }
 
     async function doSearch() {
-        const q = document.getElementById('inp').value;
+        const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
-        dd.style.display = 'block';
-        dd.setAttribute('data-type', 'search');
-        const data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=5`);
+        
+        const data = await fetchS(`/locations?query=${encodeURIComponent(q)}&results=10`);
         if(!data) return;
-        const stops = data.locations || data;
-        dd.innerHTML = stops.map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`).join('');
+
+        // Korrektur: API kann Array oder Objekt mit locations-Property sein
+        const stops = Array.isArray(data) ? data : (data.locations || []);
+        
+        if (stops.length > 0) {
+            dd.style.display = 'block';
+            dd.setAttribute('data-type', 'search');
+            dd.innerHTML = stops
+                .filter(l => l.type === 'stop' || l.id)
+                .map(l => `<div class="item" onclick="pick('${l.id}', '${l.name}')">${l.name}</div>`)
+                .join('');
+        } else {
+            dd.style.display = 'none';
+        }
     }
 
     function pick(id, name) {
-        activeId = id; document.getElementById('inp').value = cleanN(name);
+        activeId = id; 
+        document.getElementById('inp').value = cleanN(name);
         document.getElementById('dropdown').style.display = 'none';
         loadDeps();
     }
@@ -159,17 +164,19 @@
         const res = document.getElementById('results');
         const dVal = document.getElementById('date_inp').value, tVal = document.getElementById('time_inp').value;
         let timeParam = (dVal && tVal) ? `&when=${new Date(`${dVal}T${tVal}`).toISOString()}` : "";
-        res.innerHTML = "<div style='padding:40px; text-align:center;'>Lade...</div>";
+        res.innerHTML = "<div style='padding:40px; text-align:center; font-size:13px; color:var(--sub)'>Lade Monitor...</div>";
+        
         const data = await fetchS(`/stops/${encodeURIComponent(activeId)}/departures?duration=120${timeParam}`);
-        if(!data) { res.innerHTML = "Fehler."; return; }
-        const deps = data.departures || data;
+        if(!data) { res.innerHTML = ""; return; }
+        
+        const deps = Array.isArray(data) ? data : (data.departures || []);
         res.innerHTML = deps.map(d => {
             const live = getLiveState(d.plannedWhen, d.when || d.plannedWhen);
             const color = (new Date(d.when || d.plannedWhen) > new Date(d.plannedWhen)) ? 'v-red' : 'v-green';
             return `<div class="row ${d.cancelled?'cancelled':''}" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${cleanN(d.direction)}')">
                 <div style="flex-grow:1; overflow:hidden;">
-                    <span class="line-id">${d.line.name} <small style="font-size:10px; color:var(--sub)">${getPlat(d.line.name, d.platform)}</small></span>
-                    <span class="dest">${cleanN(d.direction)}</span>
+                    <div class="line-id">${d.line.name} <small style="font-size:9px; color:var(--sub); font-weight:normal;">${getPlat(d.line.name, d.platform)}</small></div>
+                    <div class="dest">${cleanN(d.direction)}</div>
                 </div>
                 <div class="t-row">
                     <span class="t-soll">${live.soll}</span>
@@ -180,25 +187,30 @@
     }
 
     async function loadTrip(tid, line, dest) {
-        saveTripToHistory(tid, line, dest);
+        let hist = JSON.parse(localStorage.getItem('trip_hist') || '[]');
+        hist = [{tid, line, dest}, ...hist.filter(x => x.tid !== tid)].slice(0, 10);
+        localStorage.setItem('trip_hist', JSON.stringify(hist));
+        
         document.getElementById('dropdown').style.display = 'none';
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:30px; text-align:center;'>Lade...</div>";
+        cont.innerHTML = "<div style='padding:30px; text-align:center; color:var(--sub)'>Lade Verlauf...</div>";
+        
         const data = await fetchS(`/trips/${encodeURIComponent(tid)}`, isTrain(line));
-        if(!data) { cont.innerHTML = "Verlauf nicht verfügbar."; return; }
+        if(!data) { cont.innerHTML = "<div style='padding:20px;'>Verlauf aktuell nicht verfügbar.</div>"; return; }
+        
         const trip = data.trip || data;
         document.getElementById('ov_title').innerText = line + " ➔ " + dest;
-        cont.innerHTML = trip.stopovers.map(s => {
+        cont.innerHTML = (trip.stopovers || []).map(s => {
             const render = (soll, ist, lbl) => {
                 if (!soll) return '';
                 const live = getLiveState(soll, ist || soll);
                 const color = new Date(ist||soll) > new Date(soll) ? 'v-red' : 'v-green';
                 return `<div style="margin-bottom:6px;">
-                    <div style="font-size:10px; color:var(--sub); margin-left:24px;">${lbl} ${live.soll}</div>
+                    <div style="font-size:9px; color:var(--sub); margin-left:22px;">${lbl} ${live.soll}</div>
                     <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="font-size:10px; color:var(--sub); width:16px;">${lbl[0]}</span>
-                        <span class="${color} ${live.cls}" style="font-size:14px;">${live.txt}</span>
+                        <span style="font-size:9px; color:var(--sub); width:14px;">${lbl[0]}</span>
+                        <span class="${color} ${live.cls}" style="font-size:13px;">${live.txt}</span>
                     </div>
                 </div>`;
             };
@@ -210,14 +222,13 @@
         }).join('');
     }
 
-    function toggleTheme(init = false) { 
+    function toggleTheme(manual = true, initLight = false) { 
         const body = document.body;
-        if (!init) {
-            const isDark = body.getAttribute('data-theme') === 'dark';
-            body.setAttribute('data-theme', isDark ? 'light' : 'dark');
-            localStorage.setItem('theme', isDark ? 'light' : 'dark');
-        } else { body.setAttribute('data-theme', 'dark'); }
-        document.getElementById('themeIcon').innerText = body.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
+        const current = body.getAttribute('data-theme');
+        const next = initLight ? 'light' : (current === 'dark' ? 'light' : 'dark');
+        body.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        document.getElementById('themeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
     }
 
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
