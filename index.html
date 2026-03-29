@@ -16,36 +16,25 @@
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; color: var(--text); outline: none; }
         input:focus { border-color: var(--db-red); }
 
-        .time-row { display: flex; gap: 8px; }
-        .time-row input { flex: 1; font-size: 14px; }
-        .btn-now { background: var(--db-red); color: white; border: none; border-radius: 10px; padding: 0 15px; font-weight: bold; cursor: pointer; }
-
         #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 6000; display: none; border-radius: 12px; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; }
 
-        .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; }
         .line-badge { background: var(--db-red); color: white; font-weight: 900; padding: 3px 7px; border-radius: 5px; font-size: 13px; margin-bottom: 4px; display: inline-block; }
-        .line-badge.local { background: var(--border); color: var(--text); }
+        .cancelled { text-decoration: line-through; opacity: 0.6; }
         
-        .t-plan { color: var(--sub); font-size: 12px; }
-        .t-act { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .t-prognosis { font-weight: 300; } /* Dünne Schrift für Prognosen */
-        
-        .v-delay { color: var(--red); }
-        .v-ontime { color: var(--green); }
+        .remarks { font-size: 11px; color: var(--red); margin-top: 4px; display: block; font-weight: 600; }
+        .platform-badge { font-size: 11px; background: var(--border); padding: 2px 5px; border-radius: 4px; margin-top: 5px; display: inline-block; }
 
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
+        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); }
         
-        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 110px 1fr 50px; gap: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
-        .time-group { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; line-height: 1.3; }
-        .t-trip-plan { font-size: 10px; color: var(--sub); display: block; }
-        .t-trip-act { font-weight: bold; font-size: 13px; }
-        .arr-label { font-size: 9px; color: var(--sub); text-transform: uppercase; margin-right: 3px; }
-        
-        .remarks-container { margin-top: 4px; }
-        .remarks { font-size: 12px; color: var(--red); display: block; font-weight: 500; line-height: 1.2; }
-        .remark-icon { margin-right: 4px; }
+        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 90px 1fr 60px; gap: 10px; border-bottom: 1px solid var(--border); align-items: center; }
+        .t-plan { font-size: 10px; color: var(--sub); text-decoration: line-through; }
+        .t-act { font-weight: bold; font-size: 14px; }
+        .v-delay { color: var(--red); }
+        .v-ontime { color: var(--green); }
+        .status-tag { font-size: 9px; padding: 2px 4px; border-radius: 3px; font-weight: bold; text-transform: uppercase; }
     </style>
 </head>
 <body data-theme="dark">
@@ -58,78 +47,55 @@
 <div class="search-area">
     <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
     <div id="dropdown"></div>
-    <div class="time-row">
+    <div style="display:flex; gap:8px;">
         <input type="date" id="date_inp">
         <input type="time" id="time_inp">
-        <button class="btn-now" onclick="setNow()">Jetzt</button>
+        <button style="background:var(--db-red); color:white; border:none; border-radius:10px; padding:0 15px; font-weight:bold;" onclick="setNow()">Jetzt</button>
     </div>
 </div>
 
 <div id="results"></div>
 
 <div id="ov_trip" class="ov">
-    <div class="ov-bar">
-        <span id="ov_title" style="font-weight:bold;"></span>
-        <span onclick="closeOv()" style="cursor:pointer; font-size:20px;">✕</span>
-    </div>
+    <div class="ov-bar"><span id="ov_title"></span><span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span></div>
     <div id="trip_content"></div>
 </div>
 
 <script>
     const APIS = { DB: "https://v6.db.transport.rest", VRR: "https://v6.vrr.transport.rest" };
-    let activeId = "", activeApi = "", timer, searchController;
+    let activeId = "", activeApi = "", timer;
 
     function setNow() {
         const n = new Date();
         document.getElementById('date_inp').value = n.toISOString().split('T')[0];
-        document.getElementById('time_inp').value = n.toLocaleTimeString('de-DE', {hour: '2-digit', minute:'2-digit'});
-        if(activeId) loadDeps();
+        document.getElementById('time_inp').value = n.toTimeString().slice(0,5);
     }
 
-  async function doSearch() {
-    const q = document.getElementById('inp').value.trim();
-    const dd = document.getElementById('dropdown');
-    if (q.length < 3) { dd.style.display = 'none'; return; }
-    
-    if (searchController) searchController.abort();
-    searchController = new AbortController();
-    
-    dd.style.display = 'block';
-    dd.innerHTML = "<div style='padding:10px; opacity:0.5;'>Suche...</div>";
-    
-    try {
+    async function doSearch() {
+        const q = document.getElementById('inp').value;
+        if(q.length < 3) return;
+        const dd = document.getElementById('dropdown');
+        dd.style.display = 'block';
+        dd.innerHTML = '...';
+        
         const results = await Promise.allSettled([
-            fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json()),
-            fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json())
+            fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json()),
+            fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json())
         ]);
         
-        let merged = [];
-        results.forEach((res, i) => { 
-            if(res.status === "fulfilled") {
-                // WICHTIG: Prüfen, ob die Daten direkt ein Array sind oder in einem Unterobjekt stecken
+        let html = '';
+        results.forEach((res, i) => {
+            if(res.status === 'fulfilled') {
                 const data = Array.isArray(res.value) ? res.value : (res.value.stations || res.value.stops || []);
-                const sourceLabel = i === 0 ? 'DB' : 'VRR';
-                merged = [...merged, ...data.map(l => ({...l, src: sourceLabel}))]; 
+                data.forEach(l => {
+                    html += `<div class="dd-item" onclick="pick('${l.id}','${l.name}','${i==0?APIS.DB:APIS.VRR}')">
+                        <span>${l.name}</span><small>${i==0?'DB':'VRR'}</small>
+                    </div>`;
+                });
             }
         });
-        
-        if (merged.length === 0) {
-            dd.innerHTML = "<div style='padding:10px;'>Nichts gefunden</div>";
-        } else {
-            dd.innerHTML = merged.map(l => `
-                <div class="dd-item" onclick="pick('${l.id}', '${l.name}', '${APIS[l.src]}')">
-                    <span>${l.name}</span> 
-                    <small style="opacity:0.5; background: #3a3a3c; padding: 2px 5px; border-radius: 4px; font-size: 10px;">${l.src}</small>
-                </div>
-            `).join('');
-        }
-    } catch(e) { 
-        if(e.name !== 'AbortError') {
-            console.error(e);
-            dd.style.display = 'none';
-        }
+        dd.innerHTML = html;
     }
-}
 
     function pick(id, name, api) {
         activeId = id; activeApi = api;
@@ -140,103 +106,77 @@
 
     async function loadDeps() {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Abfahrten...</div>";
+        res.innerHTML = "Lade...";
         const when = `${document.getElementById('date_inp').value}T${document.getElementById('time_inp').value}`;
         
         try {
             const data = await fetch(`${activeApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60&when=${when}&remarks=true`).then(r => r.json());
-            const deps = data.departures || data || [];
+            const deps = data.departures || data;
             
             res.innerHTML = deps.map(d => {
-                const isCancelled = d.cancelled === true;
-                const delay = Math.round((new Date(d.when || d.plannedWhen) - new Date(d.plannedWhen)) / 60000);
+                const isCancelled = d.cancelled;
+                const delay = Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 60000);
+                const reasons = (d.remarks || []).filter(r => r.type === 'warning').map(r => r.text);
                 
-                // Filtere Begründungen (Statusmeldungen/Warnungen)
-                const reasons = (d.remarks || [])
-                    .filter(r => r.type === 'warning' || r.type === 'status')
-                    .map(r => r.text)
-                    .filter((v, i, a) => a.indexOf(v) === i); // Duplikate entfernen
-
                 return `
-                    <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
-                        <div style="flex:1; padding-right: 10px;">
-                            <span class="line-badge ${['bus','tram'].includes(d.line.mode)?'local':''}">${d.line.name}</span>
-                            <div style="font-weight:bold; ${isCancelled ? 'opacity:0.5' : ''}">${d.direction}</div>
-                            <div class="remarks-container">
-                                ${reasons.map(text => `<span class="remarks"><span class="remark-icon">⚠️</span>${text}</span>`).join('')}
-                            </div>
-                        </div>
-                        <div style="text-align:right; min-width: 80px;">
-                            <div class="t-plan">${fTime(d.plannedWhen, activeApi)}</div>
-                            ${!isCancelled ? `<div class="t-act t-prognosis ${delay > 0 ? 'v-delay' : 'v-ontime'}">${fTime(d.when || d.plannedWhen, activeApi)}</div>` : '<div class="v-delay" style="font-size:14px; font-weight:bold;">Fällt aus</div>'}
-                            <small style="font-weight:bold; color:var(--sub)">${d.platform ? 'Gl. ' + d.platform : ''}</small>
-                        </div>
+                <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
+                    <div style="flex:1">
+                        <span class="line-badge">${d.line.name}</span>
+                        <div class="${isCancelled ? 'cancelled' : ''}" style="font-weight:bold">${d.direction}</div>
+                        ${isCancelled ? '<span class="remarks">⚠️ Fahrt fällt aus</span>' : ''}
+                        ${reasons.map(r => `<span class="remarks">⚠️ ${r}</span>`).join('')}
                     </div>
-                `;
+                    <div style="text-align:right">
+                        <div style="font-size:12px; opacity:0.6">${fTime(d.plannedWhen)}</div>
+                        <div class="t-act ${delay > 0 ? 'v-delay' : 'v-ontime'}">${isCancelled ? '--:--' : fTime(d.when)}</div>
+                        <div class="platform-badge">${d.platform ? (activeApi.includes('vrr') ? 'Steig ' : 'Gl. ') + d.platform : '--'}</div>
+                    </div>
+                </div>`;
             }).join('');
-        } catch(e) { res.innerHTML = "<div style='padding:20px;'>Fehler beim Laden.</div>"; }
+        } catch(e) { res.innerHTML = "Fehler."; }
     }
 
     async function loadTrip(tid, line, api) {
         if(!tid) return;
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:20px;'>Verlauf wird geladen...</div>";
+        cont.innerHTML = "Lade Verlauf...";
         
         try {
             const trip = await fetch(`${api}/trips/${encodeURIComponent(tid)}`).then(r => r.json());
-            const stops = trip.stopovers || (trip.trip && trip.trip.stopovers) || [];
+            const stops = trip.stopovers || trip.trip.stopovers;
             document.getElementById('ov_title').innerText = line;
             
             cont.innerHTML = stops.map(s => {
-                const renderTime = (type, plan, act) => {
-                    if(!plan && !act) return '';
-                    const hasDelay = plan && act && new Date(plan).getTime() !== new Date(act).getTime();
-                    
-                    return `
-                        <div style="margin-bottom: 2px;">
-                            ${hasDelay ? `<span class="t-trip-plan">${fTime(plan, api)}</span>` : ''}
-                            <span class="t-trip-act ${hasDelay ? 'v-delay' : 'v-ontime'}"><small class="arr-label">${type}</small>${fTime(act || plan, api)}</span>
-                        </div>
-                    `;
-                };
-
+                const arrDel = Math.round((new Date(s.arrival) - new Date(s.plannedArrival)) / 60000);
+                const depDel = Math.round((new Date(s.departure) - new Date(s.plannedDeparture)) / 60000);
+                
                 return `
-                    <div class="stop-row" style="${s.cancelled ? 'opacity:0.3' : ''}">
-                        <div class="time-group">
-                            ${renderTime('An', s.plannedArrival, s.arrival)}
-                            ${renderTime('Ab', s.plannedDeparture, s.departure)}
-                        </div>
-                        <div style="font-weight:600">${s.stop.name}</div>
-                        <div style="text-align:right; font-size:11px; color:var(--sub)">${s.platform || ''}</div>
+                <div class="stop-row ${s.cancelled ? 'cancelled' : ''}">
+                    <div style="display:flex; flex-direction:column; font-size:11px;">
+                        ${s.plannedArrival ? `<div><span class="t-plan">${fTime(s.plannedArrival)}</span> <span class="${arrDel>0?'v-delay':'v-ontime'}">${fTime(s.arrival)}</span></div>` : ''}
+                        ${s.plannedDeparture ? `<div><span class="t-plan">${fTime(s.plannedDeparture)}</span> <span class="${depDel>0?'v-delay':'v-ontime'}">${fTime(s.departure)}</span></div>` : ''}
                     </div>
-                `;
+                    <div>
+                        <div style="font-weight:bold">${s.stop.name}</div>
+                        ${s.cancelled ? '<b style="color:var(--red); font-size:10px;">HALT ENTFÄLLT</b>' : ''}
+                        ${s.additional ? '<b style="color:var(--green); font-size:10px;">ZUSATZHALT</b>' : ''}
+                    </div>
+                    <div style="font-size:12px; text-align:right">${s.platform || ''}</div>
+                </div>`;
             }).join('');
         } catch(e) { cont.innerHTML = "Trip-Daten nicht verfügbar."; }
     }
 
-    function fTime(isoStr, api) {
-        if (!isoStr) return '--:--';
-        const date = new Date(isoStr);
-        const options = { hour: '2-digit', minute: '2-digit' };
-        
-        // Sekunden für VRR/Rheinbahn
-        if (api && api.includes('vrr')) {
-            options.second = '2-digit';
-        }
-        
-        return date.toLocaleTimeString('de-DE', options);
-    }
-
+    function fTime(iso) { return iso ? new Date(iso).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : ''; }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
-    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 300); }
-    
+    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function toggleTheme() {
-        const isDark = document.body.getAttribute('data-theme') === 'dark';
-        document.body.setAttribute('data-theme', isDark ? 'light' : 'dark');
+        const d = document.body;
+        const isDark = d.getAttribute('data-theme') === 'dark';
+        d.setAttribute('data-theme', isDark ? 'light' : 'dark');
         document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
     }
-    
     setNow();
 </script>
 </body>
