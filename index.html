@@ -2,10 +2,10 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | V6 Ultra Logic</title>
+    <title>dilaeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --orange: #ff9f0a; }
         body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         h1 { color: var(--db-red); font-weight: 900; margin: 0; text-transform: lowercase; }
@@ -15,7 +15,6 @@
         
         .row { background: var(--card); padding: 14px; border-radius: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; border: 1px solid var(--border); cursor: pointer; }
         .line-badge { background: var(--db-red); color: white; padding: 3px 7px; border-radius: 5px; font-weight: 800; font-size: 12px; }
-        .dest { font-weight: 600; margin-top: 4px; }
         
         .time-box { text-align: right; }
         .plan { font-size: 12px; color: var(--sub); font-weight: 300; line-height: 1.3; }
@@ -26,11 +25,14 @@
         /* Overlay Fahrtverlauf */
         #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:1000; overflow-y:auto; padding:20px; }
         .ov-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:0; background:var(--bg); padding:10px 0; border-bottom:1px solid var(--border); }
-        .stop-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; padding: 15px 0; border-bottom: 1px solid var(--border); align-items: center; }
-        .stop-times { display: flex; gap: 12px; align-items: center; }
-        .prog { font-weight: 300; font-size: 16px; line-height: 1.3; text-align: right; min-width: 65px; }
-        .has-seconds { font-weight: 900 !important; } 
-        .passed { opacity: 0.4; } /* Vergangene Halte */
+        .stop-row { display: grid; grid-template-columns: 140px 1fr; gap: 10px; padding: 15px 0; border-bottom: 1px solid var(--border); align-items: start; }
+        .stop-times { display: flex; gap: 12px; align-items: start; }
+        .prog { font-weight: 300; font-size: 15px; line-height: 1.3; text-align: right; min-width: 75px; }
+        .has-seconds { font-weight: 900 !important; font-variant-numeric: tabular-nums; } 
+        .passed { opacity: 0.7; } 
+        .cancelled { text-decoration: line-through; color: var(--red) !important; }
+        .remarks { font-size: 11px; color: var(--orange); margin-top: 4px; font-weight: 400; line-height: 1.2; }
+        .platform { font-size: 12px; font-weight: 800; color: var(--sub); background: var(--border); padding: 1px 4px; border-radius: 4px; margin-left: 5px; }
         
         #archive-section { margin-top: 30px; border-top: 1px solid var(--border); padding-top: 10px; }
     </style>
@@ -39,7 +41,7 @@
 
 <div class="header">
     <h1>dilaeit</h1>
-    <div style="font-size: 12px; color: var(--sub);">V6 Live</div>
+    <div style="font-size: 12px; color: var(--sub);">V6 Ultra Live</div>
 </div>
 
 <div class="search-area" style="position:relative; margin-bottom:20px;">
@@ -101,25 +103,27 @@
         const t = document.getElementById('sel_time').value;
         const iso = new Date(`${d}T${t}`).toISOString();
 
-        const res = await fetch(`${API}/stops/${id}/departures?when=${iso}&duration=60`);
-        const deps = await res.json();
-        
-        resDiv.innerHTML = (deps.departures || deps).map(d => {
-            const plan = new Date(d.plannedWhen);
-            const act = d.when ? new Date(d.when) : plan;
-            const delay = d.delay ? Math.round(d.delay / 60) : 0;
-            return `
-                <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name || 'Zug'}')">
-                    <div>
-                        <span class="line-badge">${d.line?.name || 'Zug'}</span>
-                        <div class="dest">${d.direction}</div>
-                    </div>
-                    <div class="time-box">
-                        <div class="plan">${plan.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                        <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}">${act.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                    </div>
-                </div>`;
-        }).join('');
+        try {
+            const res = await fetch(`${API}/stops/${id}/departures?when=${iso}&duration=60`);
+            const deps = await res.json();
+            
+            resDiv.innerHTML = (deps.departures || deps).map(d => {
+                const plan = new Date(d.plannedWhen);
+                const act = d.when ? new Date(d.when) : plan;
+                const delay = d.delay ? Math.round(d.delay / 60) : 0;
+                return `
+                    <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name || 'Zug'}')">
+                        <div>
+                            <span class="line-badge">${d.line?.name || 'Zug'}</span>
+                            <div style="font-weight:600; margin-top:4px;">${d.direction}</div>
+                        </div>
+                        <div class="time-box">
+                            <div class="plan">${plan.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                            <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}">${act.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                        </div>
+                    </div>`;
+            }).join('');
+        } catch(e) { resDiv.innerHTML = "Fehler beim Abruf."; }
     }
 
     async function openTrip(tripId, lineName) {
@@ -129,44 +133,59 @@
         ov.style.display = 'block';
         cont.innerHTML = "Lade Verlauf...";
 
-        const res = await fetch(`${API}/trips/${encodeURIComponent(tripId)}`);
-        const data = await res.json();
-        const now = new Date();
-        
-        cont.innerHTML = data.trip.stopovers.map(s => {
-            const parseTime = (iso) => {
-                if(!iso) return null;
-                const dt = new Date(iso);
-                const hasSec = dt.getSeconds() !== 0;
-                return {
-                    hm: dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}),
-                    full: dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second: hasSec ? '2-digit' : undefined}),
-                    hasSec,
-                    raw: dt
-                };
-            };
-
-            const pAn = parseTime(s.plannedArrival) || {hm:'--:--', full:'--:--'};
-            const pAb = parseTime(s.plannedDeparture) || {hm:'--:--', full:'--:--'};
-            const aAn = parseTime(s.arrival || s.plannedArrival);
-            const aAb = parseTime(s.departure || s.plannedDeparture);
+        try {
+            const res = await fetch(`${API}/trips/${encodeURIComponent(tripId)}`);
+            const data = await res.json();
+            const now = new Date();
             
-            const isPassed = (s.departure ? new Date(s.departure) : new Date(s.arrival)) < now;
-            const delAn = s.arrivalDelay / 60 || 0;
-            const delAb = s.departureDelay / 60 || 0;
+            cont.innerHTML = data.trip.stopovers.map(s => {
+                const parseTime = (iso, isActual = false) => {
+                    if(!iso) return null;
+                    const dt = new Date(iso);
+                    // Bei Echtzeit (isActual) erzwingen wir Sekundenanzeige für "Bahn-Expert-Gefühl"
+                    const options = isActual ? {hour:'2-digit', minute:'2-digit', second:'2-digit'} : {hour:'2-digit', minute:'2-digit'};
+                    return {
+                        hm: dt.toLocaleTimeString('de-DE', options),
+                        hasSec: isActual,
+                        raw: dt
+                    };
+                };
 
-            return `
-                <div class="stop-row ${isPassed ? 'passed' : ''}">
-                    <div class="stop-times">
-                        <div class="plan">${pAn.hm}<br>${pAb.hm}</div>
-                        <div class="prog">
-                            <div class="${delAn >= 1 ? 'v-red' : 'v-green'} ${aAn?.hasSec ? 'has-seconds' : ''}">${aAn?.full || ''}</div>
-                            <div class="${delAb >= 1 ? 'v-red' : 'v-green'} ${aAb?.hasSec ? 'has-seconds' : ''}">${aAb?.full || ''}</div>
+                const pAn = parseTime(s.plannedArrival) || {hm:'--:--'};
+                const pAb = parseTime(s.plannedDeparture) || {hm:'--:--'};
+                const aAn = parseTime(s.arrival || s.plannedArrival, !!s.arrival);
+                const aAb = parseTime(s.departure || s.plannedDeparture, !!s.departure);
+                
+                const isPassed = (s.departure ? new Date(s.departure) : new Date(s.arrival)) < now;
+                const delAn = s.arrivalDelay / 60 || 0;
+                const delAb = s.departureDelay / 60 || 0;
+
+                const isCancelled = s.cancelled;
+                const platform = s.prognosedPlatform || s.plannedPlatform;
+                
+                // Begründungen und Infos filtern
+                const reason = s.remarks?.filter(r => r.type === 'warning' || r.type === 'status').map(r => r.text).join(' | ');
+
+                return `
+                    <div class="stop-row ${isPassed ? 'passed' : ''}">
+                        <div class="stop-times">
+                            <div class="plan">${pAn.hm}<br>${pAb.hm}</div>
+                            <div class="prog">
+                                <div class="${isCancelled ? 'cancelled' : (delAn >= 1 ? 'v-red' : 'v-green')} ${aAn?.hasSec ? 'has-seconds' : ''}">${aAn?.hm || ''}</div>
+                                <div class="${isCancelled ? 'cancelled' : (delAb >= 1 ? 'v-red' : 'v-green')} ${aAb?.hasSec ? 'has-seconds' : ''}">${aAb?.hm || ''}</div>
+                            </div>
                         </div>
-                    </div>
-                    <div style="font-weight:600; font-size:15px;">${s.stop.name}</div>
-                </div>`;
-        }).join('');
+                        <div>
+                            <div style="font-weight:600; font-size:15px;">
+                                ${s.stop.name} 
+                                ${platform ? `<span class="platform">${platform}</span>` : ''}
+                                ${s.additional ? '<span style="color:var(--orange); font-size:10px; margin-left:5px;">ZUSATZHALT</span>' : ''}
+                            </div>
+                            ${reason ? `<div class="remarks">${reason}</div>` : ''}
+                        </div>
+                    </div>`;
+            }).join('');
+        } catch(e) { cont.innerHTML = "Details nicht verfügbar."; }
         
         addToArchive(tripId, lineName, new Date().toLocaleTimeString());
     }
