@@ -10,45 +10,47 @@
         h1 { color: var(--db-red); font-weight: 900; margin: 0; text-transform: lowercase; font-size: 28px; }
         .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
         
+        .input-container { position: relative; z-index: 1001; }
         input { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; color: white; font-size: 17px; outline: none; width: 100%; box-sizing: border-box; }
-        #dropdown { position: absolute; top: 60px; left: 0; right: 0; background: #2c2c2e; border-radius: 14px; z-index: 100; border: 1px solid var(--border); display: none; max-height: 300px; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
-        .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; }
+        
+        #dropdown { position: absolute; top: 60px; left: 0; right: 0; background: #2c2c2e; border-radius: 14px; z-index: 2000; border: 1px solid var(--border); display: none; max-height: 300px; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+        .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 15px; color: #fff; }
+        .dd-item:last-child { border: none; }
         
         .row { background: var(--card); padding: 16px; border-radius: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); cursor: pointer; }
-        .line-badge { background: var(--db-red); color: white; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 13px; }
+        .line-badge { background: var(--db-red); color: white; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 13px; min-width: 40px; text-align: center; }
         
-        .time-box { text-align: right; }
+        .time-box { text-align: right; min-width: 70px; }
         .plan { font-size: 11px; color: var(--sub); margin-bottom: 2px; font-weight: 300; }
         .actual { font-size: 19px; font-weight: 400; font-variant-numeric: tabular-nums; }
         
-        .is-live { font-weight: 900 !important; color: #fff; text-shadow: 0 0 12px rgba(48, 209, 88, 0.4); }
+        .is-live { font-weight: 900 !important; text-shadow: 0 0 12px rgba(48, 209, 88, 0.4); }
         .v-green { color: var(--green); }
         .v-red { color: var(--red); }
         .cancelled-text { text-decoration: line-through; color: var(--red); opacity: 0.7; }
 
-        #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:1000; overflow-y:auto; padding:20px; }
-        .ov-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:0; background:var(--bg); padding:10px 0; border-bottom:1px solid var(--border); }
-        .stop-row { display: grid; grid-template-columns: 145px 1fr; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--border); }
-        .prog { font-size: 15px; line-height: 1.4; text-align: right; min-width: 90px; }
+        #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:3000; overflow-y:auto; padding:20px; }
+        .ov-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:0; background:var(--bg); padding:10px 0; border-bottom:1px solid var(--border); z-index: 10; }
+        .stop-row { display: grid; grid-template-columns: 100px 1fr; gap: 15px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+        .prog { font-size: 15px; font-weight: 600; }
         .passed { opacity: 0.35; filter: grayscale(0.5); }
         .remarks { font-size: 11px; color: var(--orange); margin-top: 6px; font-weight: 400; line-height: 1.3; }
-        .platform { font-size: 11px; font-weight: 900; background: var(--border); color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
-        .add-halt { color: var(--orange); font-size: 10px; font-weight: 900; border: 1px solid var(--orange); padding: 1px 4px; border-radius: 3px; margin-left: 5px; }
+        .platform { font-size: 11px; font-weight: 900; background: var(--border); color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 5px; vertical-align: middle; }
     </style>
 </head>
 <body>
 
 <div class="header">
     <h1>dilaeit</h1>
-    <div style="font-size: 12px; color: var(--sub); font-weight: 700; letter-spacing: 1px;">VRR PRO LIVE</div>
+    <div style="font-size: 12px; color: var(--sub); font-weight: 700; letter-spacing: 1px;">V6 ULTRA LOGIC</div>
 </div>
 
-<div style="position:relative; margin-bottom:15px;">
-    <input type="text" id="inp" placeholder="Haltestelle suchen..." oninput="debounceSearch()" autocomplete="off">
+<div class="input-container" style="margin-bottom:15px;">
+    <input type="text" id="inp" placeholder="Haltestelle suchen (z.B. Köln Hbf)..." oninput="debounceSearch()" autocomplete="off">
     <div id="dropdown"></div>
     <div style="display: flex; gap: 8px; margin-top:8px;">
-        <input type="date" id="sel_date" style="flex:1.5; font-size: 14px; padding: 12px; background:var(--card); border:1px solid var(--border); color:white; border-radius:10px;">
-        <input type="time" id="sel_time" style="flex:1; font-size: 14px; padding: 12px; background:var(--card); border:1px solid var(--border); color:white; border-radius:10px;">
+        <input type="date" id="sel_date" style="flex:1.5; font-size: 14px; padding: 12px;">
+        <input type="time" id="sel_time" style="flex:1; font-size: 14px; padding: 12px;">
     </div>
 </div>
 
@@ -69,6 +71,7 @@
     const API = "https://v6.vrr.transport.rest";
     let timer;
 
+    // Zeit initialisieren
     const now = new Date();
     document.getElementById('sel_date').value = now.toISOString().split('T')[0];
     document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
@@ -80,11 +83,14 @@
         const dd = document.getElementById('dropdown');
         if(q.length < 2) { dd.style.display = 'none'; return; }
         try {
-            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=6`);
+            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=10`);
             const data = await res.json();
-            dd.innerHTML = data.map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚏 ${s.name}</div>`).join('');
+            // Filtern auf Stationen für NRW-weite Treffer
+            dd.innerHTML = data.filter(s => s.type === 'stop' || s.type === 'station').map(s => 
+                `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`
+            ).join('');
             dd.style.display = 'block';
-        } catch(e) {}
+        } catch(e) { console.error("Suche fehlgeschlagen", e); }
     }
 
     function pick(id, name) {
@@ -95,24 +101,30 @@
 
     async function loadBoard(id) {
         const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='padding:20px; opacity:0.5; text-align:center;'>Synchronisiere mit VRR...</div>";
+        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.6;'>Daten werden abgerufen...</div>";
+        
         const d = document.getElementById('sel_date').value;
         const t = document.getElementById('sel_time').value;
         const iso = new Date(`${d}T${t}`).toISOString();
 
         try {
-            const res = await fetch(`${API}/stops/${id}/departures?when=${iso}&duration=60&results=15`);
+            const res = await fetch(`${API}/stops/${encodeURIComponent(id)}/departures?when=${iso}&duration=60&results=20`);
             const data = await res.json();
             const deps = data.departures || data;
-            
+
+            if (!deps || deps.length === 0) {
+                resDiv.innerHTML = "<div class='row'>Keine Abfahrten gefunden.</div>";
+                return;
+            }
+
             resDiv.innerHTML = deps.map(d => {
-                const plan = new Date(d.plannedWhen);
+                const plan = new Date(d.plannedWhen || d.when);
                 const act = d.when ? new Date(d.when) : plan;
-                const delaySec = d.delay || 0;
+                const delay = d.delay !== null ? Math.round(d.delay / 60) : 0;
                 const plat = d.prognosedPlatform || d.plannedPlatform;
                 
                 return `
-                    <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name || 'Bus'}', '${d.direction}')">
+                    <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name || 'Zug'}', '${d.direction}')">
                         <div>
                             <span class="line-badge">${d.line?.name || '???'}</span>
                             <div style="font-weight:700; margin-top:8px; font-size:16px;">
@@ -121,16 +133,19 @@
                         </div>
                         <div class="time-box">
                             <div class="plan">${plan.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                            <div class="actual ${delaySec >= 60 ? 'v-red' : 'v-green'}">
+                            <div class="actual ${delay > 0 ? 'v-red' : 'v-green'} ${d.when ? 'is-live' : ''}">
                                 ${act.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                             </div>
                         </div>
                     </div>`;
             }).join('');
-        } catch(e) { resDiv.innerHTML = "<div class='row'>Fehler beim Laden.</div>"; }
+        } catch(e) { 
+            resDiv.innerHTML = "<div class='row' style='color:var(--red)'>Serverfehler beim Abruf.</div>"; 
+        }
     }
 
     async function openTrip(tripId, lineName, direction) {
+        if(!tripId) { alert("Keine Detaildaten für diese Fahrt verfügbar."); return; }
         const ov = document.getElementById('ov');
         const cont = document.getElementById('ov-content');
         document.getElementById('ov-title').innerText = lineName;
@@ -141,59 +156,29 @@
         try {
             const res = await fetch(`${API}/trips/${encodeURIComponent(tripId)}`);
             const data = await res.json();
-            const curTime = new Date();
+            const now = new Date();
             
             cont.innerHTML = data.trip.stopovers.map(s => {
-                const processTime = (actual, planned) => {
-                    if(!actual) return { str: '--:--', live: false, delay: 0 };
-                    const dA = new Date(actual);
-                    const dP = new Date(planned);
-                    // Live wenn Sekunden vorhanden oder Zeitabweichung existiert
-                    const isLive = dA.getSeconds() !== 0 || dA.getTime() !== dP.getTime();
-                    const delay = Math.round((dA - dP) / 1000); 
-
-                    return {
-                        str: dA.toLocaleTimeString('de-DE', {
-                            hour:'2-digit', minute:'2-digit', 
-                            second: isLive ? '2-digit' : undefined
-                        }),
-                        live: isLive,
-                        delay: delay
-                    };
-                };
-
-                const aAn = processTime(s.arrival, s.plannedArrival);
-                const aAb = processTime(s.departure, s.plannedDeparture);
-                
-                const pAn = s.plannedArrival ? new Date(s.plannedArrival).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--';
-                const pAb = s.plannedDeparture ? new Date(s.plannedDeparture).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--';
-                
-                const isPassed = (s.departure ? new Date(s.departure) : new Date(s.arrival)) < curTime;
-                const plat = s.prognosedPlatform || s.plannedPlatform;
-                
-                // Alle verfügbaren Remarks sammeln (Störungen, Aufzüge, etc.)
-                const remarks = s.remarks?.map(r => r.text).join(' • ');
+                const pTime = s.plannedDeparture ? new Date(s.plannedDeparture) : new Date(s.plannedArrival);
+                const aTime = s.departure ? new Date(s.departure) : new Date(s.arrival);
+                const isPassed = aTime < now;
+                const delay = Math.round((aTime - pTime) / 60000);
 
                 return `
                     <div class="stop-row ${isPassed ? 'passed' : ''}">
-                        <div class="stop-times">
-                            <div class="plan">${pAn}<br>${pAb}</div>
-                            <div class="prog">
-                                <div class="${s.cancelled ? 'cancelled-text' : (aAn.delay >= 60 ? 'v-red' : 'v-green')} ${aAn.live ? 'is-live' : ''}">${aAn.str}</div>
-                                <div class="${s.cancelled ? 'cancelled-text' : (aAb.delay >= 60 ? 'v-red' : 'v-green')} ${aAb.live ? 'is-live' : ''}">${aAb.str}</div>
+                        <div class="prog ${delay > 0 ? 'v-red' : 'v-green'}">
+                            ${aTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                            <div style="font-size:10px; font-weight:300; color:var(--sub)">
+                                Plan: ${pTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                             </div>
                         </div>
                         <div>
-                            <div style="font-weight:700; font-size:16px;">
-                                ${s.stop.name}
-                                ${plat ? `<span class="platform">${plat}</span>` : ''}
-                                ${s.additional ? `<span class="add-halt">ZUSATZHALT</span>` : ''}
-                            </div>
-                            ${remarks ? `<div class="remarks">${remarks}</div>` : ''}
+                            <div style="font-weight:700;">${s.stop.name} ${s.plannedPlatform ? `<span class="platform">${s.plannedPlatform}</span>` : ''}</div>
+                            ${s.remarks ? s.remarks.map(r => `<div class="remarks">${r.text}</div>`).join('') : ''}
                         </div>
                     </div>`;
             }).join('');
-        } catch(e) { cont.innerHTML = "Verlauf nicht verfügbar."; }
+        } catch(e) { cont.innerHTML = "Detailverlauf konnte nicht geladen werden."; }
     }
 
     function closeOv() { document.getElementById('ov').style.display = 'none'; }
