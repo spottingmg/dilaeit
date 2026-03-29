@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV in Echtzeit</title>
+    <title>dilaeit - ÖPNV Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -257,45 +257,74 @@
 
     <script>
         // --- Configuration & State ---
-        const API_ENDPOINTS = [
-            'https://v6.db.transport.rest',
-            'https://v5.db.transport.rest'
+        const REGIONAL_APIS = {
+            NATIONAL: ['https://v6.db.transport.rest', 'https://v5.db.transport.rest'],
+            NRW: ['https://v5.vrr.transport.rest'],
+            BERLIN: ['https://v6.vbb.transport.rest'],
+            HAMBURG: ['https://v5.hvv.transport.rest']
+        };
+        
+        // Flatten for general search but maintain source info
+        const ALL_API_SOURCES = [
+            { url: 'https://v6.db.transport.rest', region: 'NATIONAL' },
+            { url: 'https://v5.db.transport.rest', region: 'NATIONAL' },
+            { url: 'https://v5.vrr.transport.rest', region: 'NRW' },
+            { url: 'https://v6.vbb.transport.rest', region: 'BERLIN' },
+            { url: 'https://v5.hvv.transport.rest', region: 'HAMBURG' }
         ];
-        const VRR_API = 'https://v5.vrr.transport.rest'; // Specialized VRR API
-        let currentEndpointIndex = 0;
+
         const REFRESH_INTERVAL = 60000;
         
         let state = {
             currentStation: null,
+            currentRegion: 'NATIONAL', // Detected region of the station
             departures: [],
             refreshTimer: null,
             searchTimer: null,
             lastSearchQuery: '',
             isRateLimited: false,
-            lastRequestTime: 0
+            lastRequestTime: 0,
+            searchCache: new Map()
         };
 
         const $ = (id) => document.getElementById(id);
 
-        function getApiBase(isVRR = false) {
-            if (isVRR) return VRR_API;
-            return API_ENDPOINTS[currentEndpointIndex];
+        function detectRegion(stationName) {
+            if (!stationName) return 'NATIONAL';
+            const name = stationName.toLowerCase();
+            
+            // NRW Detection (Aggressive)
+            const nrwKeywords = ['düsseldorf', 'duisburg', 'essen', 'bochum', 'dortmund', 'gelsenkirchen', 'mönchengladbach', 'wuppertal', 'oberhausen', 'krefeld', 'hagen', 'hamm', 'mülheim', 'leverkusen', 'solingen', 'neuss', 'herne', 'rheydt', 'viersen', 'korschenbroich', 'kleinenbroich', 'büttgen', 'jüchen', 'erkelenz', 'hückelhoven', 'baal', 'wassenberg', 'wegberg', 'mg', 'moenchengladbach'];
+            if (nrwKeywords.some(k => name.includes(k))) return 'NRW';
+            
+            // Berlin Detection
+            if (name.includes('berlin') || name.includes('potsdam') || name.includes('cottbus') || name.includes('vbb')) return 'BERLIN';
+            
+            // Hamburg Detection
+            if (name.includes('hamburg') || name.includes('lübeck') || name.includes('kiel') || name.includes('hvv')) return 'HAMBURG';
+            
+            return 'NATIONAL';
         }
 
-        function isNRWStation(station) {
-            if (!station || !station.name) return false;
-            const name = station.name.toLowerCase();
-            const nrwKeywords = [
-                'düsseldorf', 'duisburg', 'essen', 'bochum', 'dortmund', 'gelsenkirchen', 
-                'mönchengladbach', 'wuppertal', 'oberhausen', 'krefeld', 'hagen', 'hamm', 
-                'mülheim', 'leverkusen', 'solingen', 'neuss', 'herne', 'rheydt', 'viersen',
-                'korschenbroich', 'kleinenbroich', 'büttgen', 'jüchen', 'erkelenz', 'hückelhoven',
-                'baal', 'wassenberg', 'wegberg'
-            ];
-            const nrwPrefixes = ['mg', 'dus', 'e ', 'do ', 'w ', 'k ', 'bn '];
+        // String Similarity helper
+        function calculateSimilarity(query, target) {
+            const q = query.toLowerCase();
+            const t = target.toLowerCase();
+            if (t.includes(q)) return 1.0; // Perfect substring
             
-            return nrwKeywords.some(k => name.includes(k)) || 
-                   nrwPrefixes.some(p => name.startsWith(p));
+            const qWords = q.split(/[\s,.-]+/).filter(w => w.length >= 2);
+            if (qWords.length === 0) return 0;
+            
+            let matches = 0;
+            qWords.forEach(w => {
+                if (t.includes(w)) matches++;
+            });
+            
+            // Boost if the first word matches (often the city/station name)
+            let boost = 0;
+            if (t.startsWith(qWords[0])) boost = 0.2;
+
+            return Math.min(1.0, (matches / qWords.length) + boost);
         }
 
         function switchApiEndpoint() {
@@ -329,8 +358,15 @@
 
         function setupDefaultDateTime() {
             const now = new Date();
-            $('query-date').value = now.toISOString().split('T')[0];
-            $('query-time').value = now.toTimeString().slice(0, 5);
+            // Local date/time for input fields
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            
+            $('query-date').value = `${year}-${month}-${day}`;
+            $('query-time').value = `${hours}:${minutes}`;
         }
 
         function attachEventListeners() {
@@ -364,8 +400,9 @@
         }
 
         // --- Search Logic ---
-        async function handleSearchInput(val) {
+        async function handleSearchInput(val, depth = 0) {
             const query = val.trim();
+            if (depth > 3) return;
             if (query === state.lastSearchQuery) return;
             
             if (query.length < 2) {
@@ -374,59 +411,140 @@
                 return;
             }
 
+            if (state.searchCache.has(query.toLowerCase())) {
+                renderSearchResults(state.searchCache.get(query.toLowerCase()));
+                return;
+            }
+
             clearTimeout(state.searchTimer);
             state.searchTimer = setTimeout(async () => {
                 state.lastSearchQuery = query;
-                
                 const container = $('search-results');
                 container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
                 container.classList.remove('hidden');
 
-                // APIs to try
-                const endpoints = [
-                    'https://v6.db.transport.rest',
-                    'https://v5.db.transport.rest',
-                    'https://v5.vrr.transport.rest'
-                ];
-                
-                let resultsFound = false;
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-                // Try each endpoint
-                for (const baseUrl of endpoints) {
-                    try {
-                        console.log(`Searching on: ${baseUrl}`);
-                        const res = await fetch(`${baseUrl}/locations?query=${encodeURIComponent(query)}&results=15`);
-                        
-                        if (!res.ok) {
-                            console.warn(`Search failed on ${baseUrl}: ${res.status}`);
-                            continue;
+                try {
+                    // DB-only Suche (National) für Stationsfindung, wie angefragt
+                    const dbSources = REGIONAL_APIS.NATIONAL.map(url => ({ url, region: 'NATIONAL' }));
+                    const searchPromises = dbSources.map(async (source) => {
+                        try {
+                            const res = await fetch(`${source.url}/locations?query=${encodeURIComponent(query)}&results=20`, {
+                                signal: controller.signal
+                            });
+                            
+                            if (!res.ok) return [];
+                            const data = await res.json();
+                            
+                            // Handle different response formats (Array, {results: []}, {locations: []})
+                            let results = [];
+                            if (Array.isArray(data)) results = data;
+                            else if (data.results) results = data.results;
+                            else if (data.locations) results = data.locations;
+                            else if (typeof data === 'object') results = Object.values(data).find(v => Array.isArray(v)) || [];
+
+                            return results
+                                .filter(r => r && (r.name || r.stop?.name) && (r.id || r.extId || r.stop?.id))
+                                .map(r => {
+                                    const name = r.name || r.stop?.name;
+                                    const id = r.id || r.extId || r.stop?.id;
+                                    const similarity = calculateSimilarity(query, name);
+
+                                    return { 
+                                        ...r,
+                                        name: name,
+                                        id: id,
+                                        sourceRegion: detectRegion(name) || 'DEUTSCHLAND', 
+                                        sourceUrl: source.url,
+                                        score: similarity * 100
+                                    };
+                                })
+                                .filter(r => r !== null);
+                        } catch (e) { 
+                            console.error(`Search failed for ${source.url}:`, e);
+                            return []; 
                         }
-                        
-                        const data = await res.json();
-                        // v6 returns array, v5 returns array, some return {results: []}
-                        const results = Array.isArray(data) ? data : (data.results || []);
-                        
-                        if (results && results.length > 0) {
-                            const validResults = results.filter(r => r.name && (r.id || r.extId));
-                            if (validResults.length > 0) {
-                                console.log(`Found ${validResults.length} stations on ${baseUrl}`);
-                                renderSearchResults(validResults);
-                                resultsFound = true;
-                                break; 
+                    });
+
+                    // Wait for all DB sources to finish
+                    const allResultsSets = await Promise.all(searchPromises);
+                    const flattenedResults = allResultsSets.flat();
+
+                    if (flattenedResults.length === 0) {
+                        // Wenn keine Ergebnisse, dann schrittweise entschärfen
+                        const normalizedQuery = query.trim();
+                        const lowerQuery = normalizedQuery.toLowerCase();
+
+                        const fallbackQueries = [];
+                        if (lowerQuery.includes('hauptbahnhof')) {
+                            fallbackQueries.push(normalizedQuery.replace(/hauptbahnhof/gi, 'hbf'));
+                        }
+
+                        if (normalizedQuery.includes(',')) {
+                            const parts = normalizedQuery.split(',').map(p => p.trim()).filter(p => p);
+                            if (parts.length > 1) {
+                                // zuletzt gern Stadt
+                                fallbackQueries.push(parts[parts.length - 1]);
+                                // zuerst Addresse
+                                fallbackQueries.push(parts[0]);
                             }
                         }
-                    } catch (err) {
-                        console.error(`Fetch error on ${baseUrl}:`, err);
-                    }
-                }
 
-                if (!resultsFound) {
-                    container.innerHTML = `
-                        <div class="px-5 py-4 text-sm text-red-500 italic space-y-2">
-                            <div>Keine Station gefunden.</div>
-                            <p class="text-[10px] text-gray-400">Tipp: Probiere es mit einem anderen Suchbegriff.</p>
-                        </div>
-                    `;
+                        if (/[0-9]/.test(normalizedQuery)) {
+                            const textOnly = normalizedQuery.replace(/[0-9]+/g, '').replace(/\s+/g, ' ').trim();
+                            if (textOnly && textOnly.length > 1) {
+                                fallbackQueries.push(textOnly);
+                            }
+                        }
+
+                        if (!lowerQuery.includes('hbf')) {
+                            fallbackQueries.push(`${normalizedQuery} Hbf`);
+                        }
+
+                        if (!lowerQuery.includes('bahnhof')) {
+                            fallbackQueries.push(`${normalizedQuery} Bahnhof`);
+                        }
+
+                        // nacheinander testen (Depth-limitierung verhindert Loops)
+                        for (const fb of fallbackQueries) {
+                            if (!fb || fb.toLowerCase() === lowerQuery) continue;
+                            state.lastSearchQuery = '';
+                            await handleSearchInput(fb, depth + 1);
+                            return;
+                        }
+
+                        throw new Error('No results');
+                    }
+
+                    // Group by name, prioritize regional source
+                    const uniqueResultsMap = new Map();
+                    flattenedResults.forEach(res => {
+                        const key = res.name.toLowerCase();
+                        const existing = uniqueResultsMap.get(key);
+                        if (!existing || res.score > existing.score) {
+                            uniqueResultsMap.set(key, res);
+                        }
+                    });
+
+                    // Sort: exact matches first, then score, then name length
+                    const sortedResults = Array.from(uniqueResultsMap.values())
+                        .sort((a, b) => {
+                            const aExact = a.name.toLowerCase() === query.toLowerCase();
+                            const bExact = b.name.toLowerCase() === query.toLowerCase();
+                            if (aExact !== bExact) return bExact ? 1 : -1;
+                            if (b.score !== a.score) return b.score - a.score;
+                            return a.name.length - b.name.length;
+                        })
+                        .slice(0, 15);
+
+                    state.searchCache.set(query.toLowerCase(), sortedResults);
+                    renderSearchResults(sortedResults);
+                } catch (err) {
+                    container.innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
+                } finally {
+                    clearTimeout(timeoutId);
                 }
             }, 300);
         }
@@ -435,222 +553,163 @@
             const container = $('search-results');
             container.innerHTML = '';
             
-            if (!Array.isArray(results)) {
-                container.classList.add('hidden');
+            if (results.length === 0) {
+                container.innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
                 return;
             }
 
-            const validResults = results.filter(r => r.name && (r.id || r.extId));
-            
-            if (validResults.length === 0) {
-                container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic">Keine Stationen gefunden.</div>';
-                container.classList.remove('hidden');
-                return;
-            }
-
-            validResults.forEach(loc => {
+            results.forEach(res => {
                 const item = document.createElement('div');
-                item.className = 'px-5 py-4 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center gap-4 border-b border-gray-100 dark:border-zinc-800 last:border-0';
+                item.className = 'px-5 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center gap-3';
                 
-                const products = loc.products ? Object.keys(loc.products).filter(p => loc.products[p]) : [];
+                const icon = (res.type === 'stop' || res.type === 'station') ? 'fa-train' : 'fa-map-marker-alt';
                 
                 item.innerHTML = `
-                    <div class="w-10 h-10 rounded-xl bg-gray-100 dark:bg-zinc-800 flex items-center justify-center text-gray-400">
-                        <i class="fas fa-location-dot"></i>
-                    </div>
+                    <i class="fas ${icon} text-gray-400 w-5"></i>
                     <div class="flex-1 min-w-0">
-                        <div class="font-bold text-sm truncate">${loc.name}</div>
-                        <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">${products.join(' • ')}</div>
+                        <div class="text-sm font-semibold truncate">${res.name}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-wider">${res.sourceRegion || 'DEUTSCHLAND'}</div>
                     </div>
                 `;
-                item.onclick = (e) => {
-                    e.stopPropagation();
-                    selectStation(loc);
+                
+                item.onclick = () => {
+                    state.currentStation = res;
+                    state.currentRegion = detectRegion(res.name);
+                    $('station-search').value = res.name;
+                    container.classList.add('hidden');
+                    $('board-header').classList.remove('hidden');
+                    $('station-display-name').textContent = res.name;
+                    refreshDepartures();
+                    
+                    if (state.refreshTimer) clearInterval(state.refreshTimer);
+                    state.refreshTimer = setInterval(refreshDepartures, REFRESH_INTERVAL);
                 };
                 container.appendChild(item);
             });
-
-            container.classList.remove('hidden');
         }
 
-        function selectStation(loc) {
-            state.currentStation = loc;
-            state.isRateLimited = false; // Reset rate limit on new selection
-            $('station-search').value = loc.name;
-            $('search-results').classList.add('hidden');
-            $('board-header').classList.remove('hidden');
-            $('station-display-name').textContent = loc.name;
+        function renderDepartures() {
+            const list = $('departures-list');
+            list.innerHTML = '';
             
-            refreshDepartures();
+            if (state.departures.length === 0) {
+                list.innerHTML = `<div class="py-20 text-center text-gray-500">Keine aktuellen Abfahrten gefunden.</div>`;
+                return;
+            }
+
+            state.departures.forEach(dep => {
+                const item = document.createElement('div');
+                item.className = 'trip-item py-4 hover:bg-gray-50 dark:hover:bg-zinc-900/50 cursor-pointer transition-colors px-1 group';
+                
+                const lineName = dep.line?.name || dep.line?.id || '???';
+                const isTrainLine = isTrain(dep.line);
+                const isCancelled = dep.cancelled;
+                
+                const schedTime = new Date(dep.plannedWhen || dep.when);
+                const actualTime = dep.when ? new Date(dep.when) : null;
+                const delay = dep.delay !== undefined ? dep.delay / 60 : (actualTime && schedTime ? (actualTime - schedTime) / 60000 : null);
+                const roundedDelay = delay !== null ? Math.round(delay) : null;
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 flex flex-col items-center">
+                            <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
+                            ${!isCancelled && actualTime && roundedDelay !== null && roundedDelay !== 0 ? `
+                                <span class="text-[10px] font-bold ${roundedDelay >= 1 ? 'text-red-500' : (roundedDelay <= -1 ? 'text-blue-500' : 'text-green-500')}">
+                                    ${roundedDelay > 0 ? '+' : ''}${roundedDelay}'
+                                </span>
+                            ` : ''}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-0.5">
+                                <span class="px-2 py-0.5 rounded bg-red-600 text-[10px] font-black text-white italic">${lineName}</span>
+                                <span class="text-sm font-bold truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${dep.direction}</span>
+                            </div>
+                            <div class="flex items-center gap-3 text-[10px] mono text-gray-500">
+                                <span class="${dep.prognosis?.platform && dep.prognosis.platform !== dep.plannedPlatform ? 'platform-changed' : ''}">
+                                    ${dep.platform || '---'}
+                                </span>
+                                ${isCancelled ? '<span class="text-red-500 font-bold uppercase">[Fällt aus]</span>' : ''}
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-300 group-hover:text-red-500 transition-colors text-xs pr-2"></i>
+                    </div>
+                `;
+                
+                item.onclick = () => showTripDetails(dep);
+                list.appendChild(item);
+            });
+        }
+
+        function isTrain(line) {
+            if (!line) return false;
+            const name = (line.name || '').toUpperCase();
+            const product = (line.product || '').toLowerCase();
             
-            // Auto-refresh
-            if (state.refreshTimer) clearInterval(state.refreshTimer);
-            state.refreshTimer = setInterval(() => {
-                if (document.visibilityState === 'visible' && !state.isRateLimited) {
-                    refreshDepartures();
-                }
-            }, REFRESH_INTERVAL);
+            // Explicit non-train products
+            const nonTrainProducts = ['bus', 'tram', 'tramway', 'subway', 'metro', 'light_rail', 'urban_rail'];
+            if (nonTrainProducts.some(p => product.includes(p))) return false;
+            
+            // Explicit train products
+            return product === 'national' || product === 'nationalexpress' || product === 'regional' || product === 'regionalexpress' ||
+                   name.startsWith('ICE') || name.startsWith('IC') || name.startsWith('ICD') ||
+                   name.startsWith('RE') || name.startsWith('RB') || name.startsWith('S') ||
+                   name.startsWith('IRE') || name.startsWith('EC') || name.startsWith('EN');
         }
 
         // --- Departure Logic ---
         async function refreshDepartures() {
             if (!state.currentStation) return;
-            
             const now = Date.now();
-            if (now - state.lastRequestTime < 1500) return; // Slightly faster cooldown
+            if (now - state.lastRequestTime < 1500) return;
             state.lastRequestTime = now;
 
-            const date = $('query-date').value;
-            const time = $('query-time').value;
-            const timestamp = `${date}T${time}:00`;
+            const dateVal = $('query-date').value;
+            const timeVal = $('query-time').value;
+            const [year, month, day] = dateVal.split('-').map(Number);
+            const [hours, minutes] = timeVal.split(':').map(Number);
+            const localDate = new Date(year, month - 1, day, hours, minutes);
+            const timestamp = localDate.toISOString();
 
-            // Prepare endpoints to try
-            let endpointsToTry = [];
-            if (isNRWStation(state.currentStation)) {
-                endpointsToTry = [VRR_API, ...API_ENDPOINTS];
+            // API Selection Logic:
+            // 1. If station is NRW -> VRR is primary for everything.
+            // 2. National APIs as fallback.
+            let searchOrder = [];
+            if (state.currentRegion === 'NRW') {
+                // NRW: VRR für Busse/Trams, DB für Züge
+                searchOrder = ['https://v5.vrr.transport.rest', ...REGIONAL_APIS.NATIONAL];
             } else {
-                endpointsToTry = [...API_ENDPOINTS, VRR_API];
+                searchOrder = [...REGIONAL_APIS.NATIONAL];
             }
 
+            ALL_API_SOURCES.forEach(s => { if (!searchOrder.includes(s.url)) searchOrder.push(s.url); });
+
             let lastError = null;
-            for (const apiBase of endpointsToTry) {
+            for (const apiBase of searchOrder) {
                 try {
                     const url = `${apiBase}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
                     const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : null });
-                    
-                    if (res.status === 429 || (res.status === 500 && (await res.clone().text()).includes('Too Many Requests'))) {
-                        continue; // Try next API
-                    }
-
-                    if (!res.ok) {
-                        continue; // Try next API
-                    }
+                    if (!res.ok) continue;
 
                     state.isRateLimited = false;
-                const data = await res.json();
-                const departures = Array.isArray(data) ? data : (data.departures || []);
-                
-                // Tag each departure with the API that provided it
-                state.departures = departures.map(d => ({ ...d, sourceApi: apiBase }));
-                
-                renderDepartures();
-                return; // Success!
-                } catch (err) {
-                    console.warn(`Departure fetch failed on ${apiBase}:`, err);
-                    lastError = err;
-                }
+                    const data = await res.json();
+                    const departures = Array.isArray(data) ? data : (data.departures || []);
+                    state.departures = departures.map(d => ({ ...d, sourceApi: apiBase }));
+                    renderDepartures();
+                    return;
+                } catch (err) { lastError = err; }
             }
 
-            // If all failed
-            console.error('All departure fetch attempts failed:', lastError);
-            state.isRateLimited = (lastError?.message?.includes('Limit') || false);
-            
-            let errorHtml = `
-                <div class="py-20 text-center space-y-4">
-                    <p class="text-red-500 font-bold">Fehler beim Laden der Daten.</p>
-                    <p class="text-[10px] text-gray-500 mono opacity-50">${lastError?.message === 'Failed to fetch' ? 'Serververbindung fehlgeschlagen' : lastError?.message}</p>
-            `;
-
-            if (state.isRateLimited) {
-                errorHtml += `
-                    <p class="text-xs text-orange-500">System überlastet. Warte kurz...</p>
-                    <p class="text-[10px] text-gray-400">Automatischer Versuch in 10s</p>
-                `;
-                setTimeout(() => { 
-                    state.isRateLimited = false; 
-                    if (state.currentStation) refreshDepartures(); 
-                }, 10000);
-            } else {
-                errorHtml += `<button onclick="refreshDepartures()" class="px-6 py-3 bg-zinc-800 rounded-xl text-sm font-bold hover:bg-zinc-700 transition-colors shadow-lg">Erneut versuchen</button>`;
-            }
-
-            errorHtml += `</div>`;
-            $('departures-list').innerHTML = errorHtml;
-        }
-
-        function renderDepartures() {
-            const container = $('departures-list');
-            container.innerHTML = '';
-
-            if (!state.departures || state.departures.length === 0) {
-                container.innerHTML = `<p class="py-20 text-center text-gray-500 text-sm italic">Momentan keine Abfahrten gefunden.</p>`;
-                return;
-            }
-
-            state.departures.forEach(dep => {
-                // In transport.rest APIs:
-                // dep.plannedWhen: original scheduled time
-                // dep.when: current best estimate (real-time if available)
-                const scheduledTime = dep.plannedWhen ? new Date(dep.plannedWhen) : (dep.when ? new Date(dep.when) : null);
-                const actualTime = dep.when ? new Date(dep.when) : scheduledTime;
-                
-                if (!scheduledTime) return;
-
-                const delay = Math.round((actualTime.getTime() - scheduledTime.getTime()) / 60000);
-                const isCancelled = dep.cancelled;
-                // Consider it real-time if either a prognosis exists OR the time differs from plan
-                const hasRealtime = !!dep.prognosis || (dep.plannedWhen && dep.when && dep.plannedWhen !== dep.when);
-                
-                let timeColorClass = 'text-gray-400';
-                if (hasRealtime) {
-                    timeColorClass = delay > 0 ? 'text-red-500' : 'text-green-500';
-                }
-
-                const lineName = dep.line?.name || dep.line?.id || '???';
-                const direction = dep.direction || 'Unbekanntes Ziel';
-                
-                const item = document.createElement('div');
-                item.className = `trip-item py-4 flex items-center gap-5 hover:bg-gray-50 dark:hover:bg-zinc-900/30 cursor-pointer transition-colors px-2 rounded-xl ${isCancelled ? 'opacity-40' : ''}`;
-                
-                item.innerHTML = `
-                    <div class="w-16 flex flex-col justify-center">
-                        <!-- Planzeit oben (Weiß, Fett) -->
-                        <div class="text-lg font-bold mono text-white leading-none ${isCancelled ? 'line-through text-gray-500' : ''}">
-                            ${scheduledTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                        
-                        <!-- Echtzeit/Prognose darunter (Farbig, ohne Sekunden) -->
-                        ${!isCancelled ? `
-                            <div class="text-xs font-bold mt-1 ${timeColorClass}">
-                                ${hasRealtime ? (delay > 0 ? '+' + delay : (delay < 0 ? delay : actualTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }))) : ''}
-                            </div>
-                        ` : '<div class="text-[10px] text-red-500 font-bold uppercase mt-1">Fällt aus</div>'}
-                    </div>
-                    
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 mb-0.5">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic uppercase">${lineName}</span>
-                            <span class="font-bold text-base truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${direction}</span>
-                        </div>
-                        <div class="flex items-center gap-3 text-[10px] mono">
-                            <span class="${dep.prognosis && dep.prognosis.platform !== dep.platform ? 'platform-changed' : 'text-gray-500'}">
-                                ${dep.platform ? 'GLEIS ' + dep.platform : ''}
-                            </span>
-                            ${dep.remarks?.length > 0 ? `<span class="text-red-400 truncate max-w-[200px]"><i class="fas fa-info-circle mr-1"></i>${dep.remarks[0].text}</span>` : ''}
-                        </div>
-                    </div>
-
-                    <div class="text-gray-500">
-                        <i class="fas fa-chevron-right text-xs"></i>
-                    </div>
-                `;
-
-                item.onclick = () => showTripDetails(dep);
-                container.appendChild(item);
-            });
+            $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der regionalen Daten.</div>`;
         }
 
         // --- Detail Logic ---
         async function showTripDetails(dep) {
             const tripId = dep.tripId || (dep.prognosis && dep.prognosis.tripId);
-            if (!tripId) {
-                console.error('No tripId found for departure:', dep);
-                return;
-            }
+            if (!tripId) return;
             
             const modal = $('detail-view');
             const itinerary = $('trip-itinerary');
-            
             modal.classList.add('active');
             itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i></div>`;
             
@@ -660,66 +719,125 @@
             $('detail-operator').textContent = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
             $('detail-trip-id').textContent = `TRIP: ${tripId.split('|')[0]}`;
 
-            // Try the same API that provided the departure first
-            const endpoints = dep.sourceApi ? [dep.sourceApi, ...API_ENDPOINTS, VRR_API] : [...API_ENDPOINTS, VRR_API];
-            
-            let tripData = null;
-            let lastError = null;
+            // Priority Logic for Detail API:
+            // 1. NRW + Bus/Tram/U-Bahn (kein Zug) -> VRR first
+            // 2. Zug (überall) -> DB first
+            // 3. Außerhalb NRW + kein Zug -> Regional API first (falls vorhanden), dann DB
+            const isNrwLocal = state.currentRegion === 'NRW' && !isTrain(dep.line);
+            const isTrain_line = isTrain(dep.line);
+            const depSourceIsVrr = dep.sourceApi?.includes('vrr');
 
-            for (const apiBase of endpoints) {
+            // Debug logging
+            console.log(`Trip: ${lineName}, Region: ${state.currentRegion}, IsTrain: ${isTrain_line}, Product: ${dep.line?.product}, sourceApi: ${dep.sourceApi}`);
+            
+            let detailEndpoints = [];
+            
+            if (isNrwLocal && depSourceIsVrr) {
+                // NRW local transport with VRR-based departure -> VRR exclusively
+                console.log('Using VRR-only for NRW local transport (departure source VRR)');
+                detailEndpoints = ['https://v5.vrr.transport.rest'];
+            } else if (isNrwLocal) {
+                // NRW local transport (Bus/Tram/U-Bahn): VRR is primary, DB fallback
+                console.log('Using VRR for NRW local transport (fallback DB allowed)');
+                detailEndpoints = ['https://v5.vrr.transport.rest', ...REGIONAL_APIS.NATIONAL];
+            } else if (isTrain_line) {
+                // Train (everywhere): DB is primary
+                console.log('Using DB for train');
+                detailEndpoints = [...REGIONAL_APIS.NATIONAL, 'https://v5.vrr.transport.rest'];
+            } else {
+                // Non-train outside NRW: Use best scenario based on region
+                console.log(`Using regional API for non-train outside NRW: ${state.currentRegion}`);
+                if (state.currentRegion === 'BERLIN') {
+                    detailEndpoints = ['https://v6.vbb.transport.rest', ...REGIONAL_APIS.NATIONAL];
+                } else if (state.currentRegion === 'HAMBURG') {
+                    detailEndpoints = ['https://v5.hvv.transport.rest', ...REGIONAL_APIS.NATIONAL];
+                } else {
+                    detailEndpoints = [...REGIONAL_APIS.NATIONAL];
+                }
+            }
+            
+            // Add other regions as fallback
+            ALL_API_SOURCES.forEach(s => { 
+                if (!detailEndpoints.includes(s.url)) detailEndpoints.push(s.url); 
+            });
+
+            let tripData = null;
+            let usedApi = null;
+            
+            for (const apiBase of detailEndpoints) {
                 try {
-                    console.log(`Fetching trip details from: ${apiBase} for tripId: ${tripId}`);
-                    // Ensure tripId is properly encoded for the specific API
                     const res = await fetch(`${apiBase}/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`);
-                    
-                    if (!res.ok) {
-                        console.warn(`Trip details failed on ${apiBase}: ${res.status}`);
-                        continue;
-                    }
-                    
-                    tripData = await res.json();
-                    if (tripData && (tripData.stopovers || tripData.trip)) {
-                        console.log(`Successfully loaded trip details from ${apiBase}`);
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    const stops = data.stopovers || data.trip?.stopovers;
+                    if (stops && stops.length > 0) {
+                        tripData = data;
+                        usedApi = apiBase;
                         break;
                     }
-                } catch (err) {
-                    console.error(`Error fetching trip from ${apiBase}:`, err);
-                    lastError = err;
-                }
+                } catch (err) { continue; }
             }
 
             if (tripData) {
-                renderItinerary(tripData.stopovers || tripData.trip?.stopovers || [], tripData.remarks || tripData.trip?.remarks || []);
+                const stops = tripData.stopovers || tripData.trip?.stopovers || [];
+                const remarks = tripData.remarks || tripData.trip?.remarks || [];
+                
+                // Identify source for UI display based on tatsächlich verwendetem Endpunkt
+                let sourceName = 'API';
+                if (usedApi?.includes('vrr')) sourceName = 'VRR';
+                else if (usedApi?.includes('db')) sourceName = 'Deutsche Bahn';
+                else if (usedApi?.includes('vbb')) sourceName = 'VBB';
+                else if (usedApi?.includes('hvv')) sourceName = 'HVV';
+
+                // Mark NRWr Local situations where DB-Fallback genutzt wird
+                if (isNrwLocal && usedApi?.includes('db')) {
+                    sourceName = depSourceIsVrr ? 'Deutsche Bahn (VRR-Fallback)' : 'Deutsche Bahn';
+                }
+
+                if (isNrwLocal && usedApi?.includes('vrr')) {
+                    sourceName = 'VRR';
+                }
+
+                renderItinerary(stops, remarks, sourceName);
+                
+                // Show which API was used for transparency
+                console.log(`Trip details loaded from: ${usedApi}`);
             } else {
-                itinerary.innerHTML = `
-                    <div class="py-20 text-center space-y-4">
-                        <p class="text-red-500 font-bold">Fahrtverlauf konnte nicht geladen werden.</p>
-                        <p class="text-[10px] text-gray-500 mono opacity-50">${lastError ? lastError.message : 'Keine Daten von den APIs erhalten'}</p>
-                        <p class="text-[10px] text-gray-400">Mögliche Ursache: Die Trip-ID ist für diesen Server ungültig oder abgelaufen.</p>
-                    </div>
-                `;
+                itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
             }
         }
 
-        function renderItinerary(stopovers, tripRemarks = []) {
+        function renderItinerary(stopovers, tripRemarks = [], sourceName = 'API') {
             const container = $('trip-itinerary');
             container.innerHTML = '';
 
+            // Update footer data source
+            $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
+
             const translationMap = {
-                "Number of bicycles conveyed limited": "Fahrradmitnahme begrenzt",
-                "Vehicle-bound boarding aid available": "Fahrzeuggebundene Einstiegshilfe vorhanden",
+                "Number of bicycles conveyed limited": "Fahrradmitnahme begrenzt.",
+                "Vehicle-bound boarding aid available": "Fahrzeuggebundene Einstiegshilfe vorhanden.",
                 "WiFi available": "WLAN verfügbar",
                 "Air conditioning": "Klimaanlage",
-                "Step-free access": "Stufenfreier Zugang",
-                "Power sockets available": "Steckdosen verfügbar",
-                "Quiet zone": "Ruhebereich",
-                "Area for people with reduced mobility": "Bereich für mobilitätseingeschränkte Personen"
+                "Step-free access": "Stufenfreier Zugang.",
+                "Power sockets available": "Steckdosen verfügbar.",
+                "Quiet zone": "Ruhebereich.",
+                "Area for people with reduced mobility": "Bereich für mobilitätseingeschränkte Personen.",
+                "Special service": "Sonderfahrt",
+                "Replacement service": "Schienenersatzverkehr."
             };
 
             const translate = (text) => translationMap[text] || text;
 
+            // Sort stopovers by departure time (or arrival if no departure)
+            const sortedStopovers = [...stopovers].sort((a, b) => {
+                const timeA = new Date(a.plannedDeparture || a.plannedArrival).getTime();
+                const timeB = new Date(b.plannedDeparture || b.plannedArrival).getTime();
+                return timeA - timeB;
+            });
+
             // Render stopovers
-            stopovers.forEach(stop => {
+            sortedStopovers.forEach(stop => {
                 const isCancelled = stop.cancelled;
                 const isAdditional = stop.additional;
                 
@@ -735,19 +853,31 @@
                     if (!sched) return '';
                     const now = new Date();
                     const isPast = actual && (actual.getTime() < now.getTime());
+                    const delay = actual && sched ? Math.round((actual.getTime() - sched.getTime()) / 60000) : null;
                     
                     const planStr = `<span class="text-gray-500/40 font-normal mr-2">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     
+                    let delayStr = '';
+                    if (delay !== null && delay !== 0) {
+                        const delayColor = delay >= 1 ? 'text-red-500' : (delay <= -1 ? 'text-blue-500' : 'text-green-500');
+                        const sign = delay > 0 ? '+' : '';
+                        delayStr = `<span class="text-[8px] font-bold ${delayColor} ml-1">${sign}${Math.abs(delay)}'</span>`;
+                    }
+
                     if (!hasLive && !actual) {
                         return `${planStr}<span class="text-gray-500/50 font-normal">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
 
+                    const realTimeColor = delay !== null ?
+                        (delay >= 1 ? 'text-red-500' : (delay <= -1 ? 'text-blue-500' : 'text-green-500')) :
+                        'text-green-500';
+
                     if (isPast) {
-                        // Echtzeit-Signal gesendet: Fett + Sekunden
-                        return `${planStr}<span class="precision-time text-green-500 font-bold">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
+                        // Echtzeit-Signal gesendet: Fett + Sekunden, Farbe basierend auf Delay
+                        return `${planStr}<span class="precision-time ${realTimeColor} font-bold">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
                     } else {
-                        // Prognose: Dünn, ohne Sekunden
-                        return `${planStr}<span class="thin-prognosis text-green-500/70 font-light italic">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                        // Prognose: Dünn, aber ebenfalls farbcodiert nach Verzögerung
+                        return `${planStr}<span class="thin-prognosis ${realTimeColor} font-light italic">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
                     }
                 };
 
