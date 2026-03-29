@@ -2,86 +2,46 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | MOTIS Final Fix</title>
+    <title>dilaeit | GitHub Edition</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
-        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
-        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; }
-        .header { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; }
-        .search-area { padding: 0 20px 20px; }
-        .input-group { display: flex; flex-direction: column; gap: 10px; position: relative; }
-        input, .dt-select { flex: 1; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-size: 16px; outline: none; }
-        #dropdown { position: absolute; top: 58px; left: 0; right: 0; background: var(--card); border: 1px solid var(--border); border-radius: 12px; display: none; z-index: 5000; max-height: 250px; overflow-y: auto; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        input { width: 100%; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: white; font-size: 16px; box-sizing: border-box; outline: none; }
+        #dropdown { background: var(--card); border-radius: 12px; border: 1px solid var(--border); margin-top: 5px; display: none; }
         .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
-        .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-        .line-badge { background: var(--db-red); color: white; font-weight: 800; padding: 3px 8px; border-radius: 6px; font-size: 12px; }
-        .v-delay { color: var(--red); font-weight: 700; }
-        .v-ontime { color: var(--green); }
-        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 10000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
-        #debug { font-size: 10px; color: #666; padding: 0 20px; }
+        .row { padding: 15px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+        .line { background: var(--db-red); color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+        .delay { color: var(--red); }
+        .ontime { color: var(--green); }
+        #status { font-size: 10px; color: #888; margin-top: 10px; }
     </style>
 </head>
-<body data-theme="dark">
+<body>
 
-<div class="header">
-    <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="tglIcon" style="cursor:pointer; font-size: 18px;">🌙</span>
-</div>
+<h1 style="color:var(--db-red); margin: 0 0 20px 0;">dilaeit</h1>
 
-<div class="search-area">
-    <div class="input-group">
-        <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
-        <div id="dropdown"></div>
-        <div style="display: flex; gap: 10px;">
-            <input type="date" id="sel_date" class="dt-select">
-            <input type="time" id="sel_time" class="dt-select">
-        </div>
-    </div>
-</div>
-<div id="debug"></div>
-<div id="results"></div>
+<input type="text" id="inp" placeholder="Station (z.B. Köln Hbf)" oninput="debounceSearch()" autocomplete="off">
+<div id="dropdown"></div>
 
-<div id="ov_trip" class="ov">
-    <div class="ov-bar">
-        <span id="ov_title" style="font-weight:bold">Fahrtverlauf</span>
-        <span onclick="closeOv()" style="cursor:pointer; font-size:24px">✕</span>
-    </div>
-    <div id="trip_content"></div>
-</div>
+<div id="status">Bereit für GitHub Test...</div>
+<div id="results" style="margin-top:20px"></div>
 
 <script>
-    const API_URL = "https://eu.transitous.org";
+    const API_BASE = "https://eu.transitous.org";
     let timer;
 
-    const now = new Date();
-    document.getElementById('sel_date').value = now.toISOString().split('T')[0];
-    document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
-
-    function log(msg) { document.getElementById('debug').innerText = msg; }
-
-    async function callMOTIS(endpoint, method = "GET", body = null) {
-        // Wir nutzen einen extrem simplen Proxy für maximale Kompatibilität
-        const proxy = "https://corsproxy.io/?";
-        const url = proxy + encodeURIComponent(API_URL + endpoint);
+    async function fetchViaProxy(url, isPost = false, body = null) {
+        // Wir nutzen den AllOrigins JSON-Wrapper, der auf GitHub am stabilsten läuft
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
         
         try {
-            const options = {
-                method: method,
-                headers: { 
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
-            };
-            if (body) options.body = JSON.stringify(body);
-
-            const response = await fetch(url, options);
-            if (!response.ok) throw new Error("HTTP " + response.status);
-            return await response.json();
+            const response = await fetch(proxyUrl);
+            const data = await response.json();
+            // AllOrigins packt die Antwort in ein "contents" Feld als String
+            return JSON.parse(data.contents);
         } catch (e) {
-            console.error(e);
+            document.getElementById('status').innerText = "Proxy-Fehler: " + e.message;
             throw e;
         }
     }
@@ -90,32 +50,26 @@
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if(q.length < 2) { dd.style.display = 'none'; return; }
-        
+
         dd.style.display = 'block';
         dd.innerHTML = '<div class="dd-item">Suche...</div>';
-        log("Sende Guesser-Anfrage...");
 
         try {
-            // Wir schicken den Guesser als POST-Request (oft stabiler bei Transitous)
-            const data = await callMOTIS('/', 'POST', {
-                destination: { type: "Module", target: "/guesser" },
-                content_type: "StationGuesserRequest",
-                content: { input: q, guess_count: 8 }
-            });
+            // Wir nutzen die GET-Schnittstelle für den Guesser
+            const data = await fetchViaProxy(`${API_BASE}/guesser?input=${encodeURIComponent(q)}`);
             
-            const guesses = data.content.guesses || [];
-            if (guesses.length === 0) {
-                dd.innerHTML = '<div class="dd-item">Nichts gefunden.</div>';
+            if(!data.guesses || data.guesses.length === 0) {
+                dd.innerHTML = '<div class="dd-item">Keine Treffer</div>';
                 return;
             }
-            dd.innerHTML = guesses.map(g => `
-                <div class="dd-item" onclick="pick('${g.id}', '${g.name.replace(/'/g, "\\'")}')">
+
+            dd.innerHTML = data.guesses.map(g => `
+                <div class="dd-item" onclick="pick('${g.id}', '${g.name}')">
                     <strong>${g.name}</strong>
-                </div>`).join('');
-            log("Suche erfolgreich.");
+                </div>
+            `).join('');
         } catch(e) {
-            dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Verbindungsfehler.</div>';
-            log("Fehler: " + e.message);
+            dd.innerHTML = '<div class="dd-item">Fehler beim Laden.</div>';
         }
     }
 
@@ -127,68 +81,34 @@
 
     async function loadBoard(id) {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px'>Lade Board...</div>";
-        const ts = Math.floor(new Date(document.getElementById('sel_date').value + 'T' + document.getElementById('sel_time').value).getTime() / 1000);
+        res.innerHTML = "Lade Abfahrten...";
+        const now = Math.floor(Date.now() / 1000);
 
         try {
-            const data = await callMOTIS('/', 'POST', {
-                destination: { type: "Module", target: "/stb/stop_board" },
-                content_type: "StationBoardRequest",
-                content: { stop_id: id, time: ts, direction: "Departure", event_count: 20 }
-            });
+            // Wir nutzen hier den direkten STB-Endpunkt als GET (viele Proxies mögen kein POST)
+            const data = await fetchViaProxy(`${API_BASE}/stb/stop_board?stop_id=${id}&time=${now}&direction=Departure&event_count=15`);
             
             res.innerHTML = data.content.entries.map(e => {
-                const plan = e.event.schedule_time;
-                const act = e.event.time;
-                const delay = Math.round((act - plan) / 60);
+                const delay = Math.round((e.event.time - e.event.schedule_time) / 60);
+                const time = new Date(e.event.schedule_time * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
                 return `
-                <div class="row" onclick="loadTrip('${e.trip_id.id}', '${e.trip_id.station_id}', ${e.trip_id.train_nr}, '${e.line_id || e.direction}')">
+                <div class="row">
                     <div>
-                        <span class="line-badge">${e.line_id || 'Zug'}</span>
-                        <div style="font-weight:bold; margin-top:4px;">${e.direction}</div>
+                        <span class="line">${e.line_id || 'Zug'}</span>
+                        <div style="margin-top:5px; font-weight:bold">${e.direction}</div>
                     </div>
                     <div style="text-align:right">
-                        <span style="font-size:12px; opacity:0.5">${fTime(plan)}</span><br>
-                        <span class="${delay > 0 ? 'v-delay' : 'v-ontime'}">${fTime(act)}</span>
+                        <div style="font-size:12px; opacity:0.5">${time}</div>
+                        <div class="${delay > 0 ? 'delay' : 'ontime'}">${delay > 0 ? '+' + delay : 'Pünktlich'}</div>
                     </div>
                 </div>`;
             }).join('');
-        } catch(e) { res.innerHTML = "<div style='padding:20px'>Ladefehler Board.</div>"; }
+        } catch(e) {
+            res.innerHTML = "Abfahrten konnten nicht geladen werden.";
+        }
     }
 
-    async function loadTrip(tripId, stationId, trainNr, title) {
-        document.getElementById('ov_trip').style.display = 'block';
-        document.getElementById('ov_title').innerText = title;
-        const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:20px'>Lade Verlauf...</div>";
-
-        try {
-            const data = await callMOTIS('/', 'POST', {
-                destination: { type: "Module", target: "/trip_details" },
-                content_type: "TripDetailsRequest",
-                content: { trip_id: { id: tripId, station_id: stationId, train_nr: trainNr } }
-            });
-            cont.innerHTML = data.content.trip.stop_overs.map(s => `
-                <div style="padding:15px 20px; border-bottom:1px solid var(--border); display:grid; grid-template-columns: 85px 1fr; align-items:center;">
-                    <div style="font-size:12px;">
-                        ${s.arrival ? 'an ' + fTime(s.arrival.time) : ''}<br>
-                        ${s.departure ? 'ab ' + fTime(s.departure.time) : ''}
-                    </div>
-                    <div style="font-weight:bold">${s.stop.name}</div>
-                </div>
-            `).join('');
-        } catch(e) { cont.innerHTML = "Fehler im Verlauf."; }
-    }
-
-    function fTime(ts) { return new Date(ts * 1000).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}); }
-    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
-    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
-    function toggleTheme() {
-        const b = document.body;
-        const isDark = b.getAttribute('data-theme') === 'dark';
-        b.setAttribute('data-theme', isDark ? 'light' : 'dark');
-        document.getElementById('tglIcon').innerText = isDark ? '☀️' : '🌙';
-    }
+    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 500); }
 </script>
 </body>
 </html>
