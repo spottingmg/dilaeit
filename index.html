@@ -124,12 +124,39 @@
 
         .itinerary-line {
             position: absolute;
-            left: 19px;
+            left: 14px;
             top: 0;
             bottom: 0;
             width: 2px;
             background-color: #374151;
             z-index: 0;
+        }
+
+        .itinerary-item {
+            padding-left: 32px;
+            margin-bottom: 0.45rem;
+            min-height: 48px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .itinerary-item-content {
+            margin-left: 12px;
+        }
+
+        #trip-itinerary {
+            max-height: 62vh;
+            overflow-y: auto;
+        }
+
+        #detail-trip-id {
+            font-size: 0.76rem;
+            font-weight: 700;
+        }
+
+        .itinerary-info {
+            font-size: 0.73rem;
         }
     </style>
     <script>
@@ -879,6 +906,7 @@
                 console.log('No tripId found in dep:', dep);
                 return;
             }
+            const lineName = dep.line?.name || dep.line?.id || '???';
             console.log(`Using tripId: ${tripId} for line ${lineName}`);
             
             const modal = $('detail-view');
@@ -886,7 +914,6 @@
             modal.classList.add('active');
             itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i></div>`;
             
-            const lineName = dep.line?.name || dep.line?.id || '???';
             $('detail-line-badge').textContent = lineName;
             $('detail-train-direction').textContent = dep.direction || 'Unbekanntes Ziel';
             $('detail-operator').textContent = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
@@ -1059,28 +1086,24 @@
                 };
 
                 const stopItem = document.createElement('div');
-                stopItem.className = `relative itinerary-item flex items-start gap-6 ${isCancelled ? 'opacity-40' : ''}`;
-                
-                const indicator = document.createElement('div');
-                indicator.className = `absolute left-[13px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 
-                    ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}`;
-                stopItem.appendChild(indicator);
+                stopItem.className = `relative itinerary-item ${isCancelled ? 'opacity-40' : ''}`;
 
-                stopItem.innerHTML += `
-                    <div class="flex-1 min-w-0">
-                        <div class="flex justify-between items-center gap-4">
-                            <div>
-                                <h4 class="font-bold text-sm ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''}">
+                stopItem.innerHTML = `
+                    <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}"></div>
+                    <div class="itinerary-item-content">
+                        <div class="flex justify-between items-start gap-2">
+                            <div class="min-w-0">
+                                <h4 class="font-semibold ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''} text-sm">
                                     ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
                                 </h4>
-                                <div class="text-[10px] mono flex items-center gap-2">
-                                    <span class="${stop.prognosis?.platform && stop.prognosis.platform !== stop.plannedPlatform ? 'platform-changed' : 'text-gray-500'}">
-                                        ${stop.platform ? 'GLEIS ' + stop.platform : '---'}
+                                <div class="itinerary-info mt-1 text-gray-600 dark:text-gray-300">
+                                    <span class="${stop.prognosis?.platform && stop.prognosis.platform !== stop.plannedPlatform ? 'platform-changed' : 'text-gray-600 dark:text-gray-300'} font-semibold">
+                                        Gleis: ${stop.platform || '---'}
                                     </span>
-                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 truncate max-w-[150px]"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
+                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 block truncate max-w-full mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
                                 </div>
                             </div>
-                            <div class="text-right mono text-[10px] leading-tight shrink-0">
+                            <div class="text-right mono text-[11px] leading-tight shrink-0">
                                 ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr)}</div>` : ''}
                                 ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep)}</div>` : ''}
                             </div>
