@@ -2,167 +2,117 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | Dein Verspätungsmonitor</title>
+    <title>dilaeit | Verspätungsmonitor</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --blue: #0a84ff; --hover: #3a3a3c; }
-        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; --blue: #007aff; --hover: #f2f2f7; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --hover: #3a3a3c; }
+        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; --hover: #f2f2f7; }
         
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
-        
-        /* Header & Search */
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
         .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
-        .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; letter-spacing: -1px; }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
         
-        .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 5000; }
-        input[type="text"] { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 18px; color: var(--text); width: 100%; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+        .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; }
+        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; color: var(--text); outline: none; }
         input:focus { border-color: var(--db-red); }
 
         .time-row { display: flex; gap: 8px; }
-        .time-row input { flex: 1; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; outline: none; }
+        .time-row input { flex: 1; font-size: 14px; }
         .btn-now { background: var(--db-red); color: white; border: none; border-radius: 10px; padding: 0 15px; font-weight: bold; cursor: pointer; }
 
-#dropdown { 
-    position: absolute; 
-    left: 20px; 
-    right: 20px; 
-    top: 65px;
-    background: var(--card); 
-    border: 1px solid var(--border); 
-    z-index: 10001; 
-    display: none; 
-    border-radius: 12px; 
-    max-height: 400px; 
-    overflow-y: auto; 
-    box-shadow: 0 20px 40px rgba(0,0,0,0.4); 
-}
-        .dd-item { padding: 14px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-        .dd-item:hover { background: var(--hover); }
-        .source-tag { font-size: 9px; padding: 2px 5px; border-radius: 4px; background: var(--border); color: var(--sub); font-weight: bold; }
+        #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 6000; display: none; border-radius: 12px; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
 
-        /* List Styling */
-        .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; animation: fadeIn 0.3s ease-out; }
-        .row:active { background: var(--hover); }
-        
-        .line-badge { background: var(--db-red); color: white; font-weight: 900; padding: 4px 8px; border-radius: 6px; font-size: 14px; margin-bottom: 6px; display: inline-block; }
+        .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .line-badge { background: var(--db-red); color: white; font-weight: 900; padding: 3px 7px; border-radius: 5px; font-size: 13px; margin-bottom: 4px; display: inline-block; }
         .line-badge.local { background: var(--border); color: var(--text); }
         
-        .t-plan { color: var(--sub); font-size: 13px; font-weight: 500; text-decoration: line-through; opacity: 0.7; }
-        .t-act { font-size: 19px; font-weight: 400; font-variant-numeric: tabular-nums; }
-        .t-act.v-delay { color: var(--red); font-weight: 800; }
-        .t-act.v-ontime { color: var(--green); font-weight: 800; }
-        .ss-mark { opacity: 0.4; font-size: 0.7em; margin-left: 1px; }
+        .t-plan { color: var(--sub); font-size: 12px; text-decoration: line-through; }
+        .t-act { font-size: 18px; font-weight: 700; }
+        .v-delay { color: var(--red); }
+        .v-ontime { color: var(--green); }
 
-        /* Fullscreen Overlay */
+        /* Overlay & Trip Details */
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); align-items: center; z-index: 10; }
-        
-        .stop-row { padding: 15px 20px; display: grid; grid-template-columns: 100px 1fr 40px; align-items: center; gap: 15px; border-bottom: 1px solid var(--border); }
-        .remarks { font-size: 12px; color: var(--red); font-weight: 600; margin-top: 4px; display: block; }
-
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
+        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 80px 1fr 50px; gap: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+        .time-group { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+        .arr-label { font-size: 10px; color: var(--sub); text-transform: uppercase; }
+        .remarks { font-size: 12px; color: var(--red); margin-top: 4px; display: block; font-weight: 500; }
     </style>
 </head>
 <body data-theme="dark">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 20px;">🌙</span>
+    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer;">🌙</span>
 </div>
 
 <div class="search-area">
-    <input type="text" id="inp" placeholder="Station (z.B. Essen Hbf)" oninput="debounceSearch()" autocomplete="off">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
+    <div id="dropdown"></div>
     <div class="time-row">
         <input type="date" id="date_inp">
-        <input type="time" id="time_inp" step="1">
+        <input type="time" id="time_inp">
         <button class="btn-now" onclick="setNow()">Jetzt</button>
     </div>
-    <div id="dropdown"></div>
 </div>
 
 <div id="results"></div>
 
 <div id="ov_trip" class="ov">
     <div class="ov-bar">
-        <span id="ov_title" style="font-weight:900; font-size: 14px;"></span>
-        <span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span>
+        <span id="ov_title" style="font-weight:bold;"></span>
+        <span onclick="closeOv()" style="cursor:pointer; font-size:20px;">✕</span>
     </div>
     <div id="trip_content"></div>
 </div>
 
 <script>
-    const APIS = {
-        DB: "https://v6.db.transport.rest",
-        VRR: "https://v6.vrr.transport.rest"
-    };
-
-    let activeId = "", activeApi = "", timer;
+    const APIS = { DB: "https://v6.db.transport.rest", VRR: "https://v6.vrr.transport.rest" };
+    let activeId = "", activeApi = "", timer, searchController;
 
     function setNow() {
-        const now = new Date();
-        document.getElementById('date_inp').value = now.toISOString().split('T')[0];
-        document.getElementById('time_inp').value = now.toTimeString().split(' ')[0];
+        const n = new Date();
+        document.getElementById('date_inp').value = n.toISOString().split('T')[0];
+        document.getElementById('time_inp').value = n.toLocaleTimeString('de-DE', {hour: '2-digit', minute:'2-digit'});
         if(activeId) loadDeps();
     }
 
-async function doSearch() {
-    const q = document.getElementById('inp').value.trim();
-    const dd = document.getElementById('dropdown');
-    
-    if (q.length < 3) { 
-        dd.style.display = 'none'; 
-        return; 
-    }
+    async function doSearch() {
+        const q = document.getElementById('inp').value.trim();
+        const dd = document.getElementById('dropdown');
+        if (q.length < 3) { dd.style.display = 'none'; return; }
 
-    // Visuelles Feedback: Zeige, dass gesucht wird
-    dd.style.display = 'block';
-    dd.innerHTML = "<div style='padding:15px; opacity:0.5; font-size:14px;'>Suche Stationen...</div>";
+        if (searchController) searchController.abort();
+        searchController = new AbortController();
 
-    try {
-        // Wir nutzen Promise.allSettled statt Promise.all
-        // So stürzt die Suche nicht ab, wenn z.B. der VRR-Server gerade down ist.
-        const results = await Promise.allSettled([
-            fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json()),
-            fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json())
-        ]);
+        dd.style.display = 'block';
+        dd.innerHTML = "<div style='padding:10px; opacity:0.5;'>Suche...</div>";
 
-        let merged = [];
-        
-        // Ergebnisse sicher verarbeiten
-        results.forEach((result, index) => {
-            if (result.status === "fulfilled" && Array.isArray(result.value)) {
-                const sourceName = index === 0 ? 'DB' : 'VRR';
-                const items = result.value.map(l => ({...l, source: sourceName}));
-                merged = [...merged, ...items];
-            }
-        });
+        try {
+            const results = await Promise.allSettled([
+                fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json()),
+                fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json())
+            ]);
 
-        // Duplikate entfernen (falls DB und VRR die gleiche Station finden)
-        const unique = Array.from(new Map(merged.map(item => [item.id, item])).values());
+            let merged = [];
+            results.forEach((res, i) => {
+                if(res.status === "fulfilled") {
+                    merged = [...merged, ...res.value.map(l => ({...l, src: i === 0 ? 'DB' : 'VRR'}))];
+                }
+            });
 
-        if (unique.length === 0) {
-            dd.innerHTML = "<div style='padding:15px; font-size:14px;'>Keine Station gefunden.</div>";
-            return;
-        }
-
-        dd.innerHTML = unique.map(l => `
-            <div class="dd-item" onclick="pick('${l.id}', '${l.name.replace(/'/g, "\\'")}', '${APIS[l.source]}')">
-                <div>
-                    <strong>${l.name}</strong><br>
-                    <small style="color:var(--sub)">${l.id}</small>
+            dd.innerHTML = merged.map(l => `
+                <div class="dd-item" onclick="pick('${l.id}', '${l.name}', '${APIS[l.src]}')">
+                    <span>${l.name}</span> <small style="opacity:0.5">${l.src}</small>
                 </div>
-                <span class="source-tag">${l.source}</span>
-            </div>
-        `).join('');
-    } catch(e) { 
-        console.error("Search error", e);
-        dd.innerHTML = "<div style='padding:15px; color:var(--red);'>Suche fehlgeschlagen.</div>";
+            `).join('') || "<div style='padding:10px;'>Nichts gefunden</div>";
+        } catch(e) { if(e.name !== 'AbortError') dd.style.display = 'none'; }
     }
-}
 
-    function pick(id, name, apiUrl) {
-        activeId = id;
-        activeApi = apiUrl;
+    function pick(id, name, api) {
+        activeId = id; activeApi = api;
         document.getElementById('inp').value = name;
         document.getElementById('dropdown').style.display = 'none';
         loadDeps();
@@ -170,87 +120,63 @@ async function doSearch() {
 
     async function loadDeps() {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Echtzeitdaten werden geladen...</div>";
-        
-        const when = `${document.getElementById('date_inp').value}T${document.getElementById('time_inp').value.substring(0,5)}`;
+        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Abfahrten...</div>";
+        const when = `${document.getElementById('date_inp').value}T${document.getElementById('time_inp').value}`;
 
         try {
             const data = await fetch(`${activeApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60&when=${when}&remarks=true`).then(r => r.json());
             const deps = data.departures || data || [];
-            res.innerHTML = deps.length ? deps.map(d => renderRow(d)).join('') : "<div style='padding:20px;'>Keine Fahrten gefunden.</div>";
-        } catch(e) { res.innerHTML = "<div style='padding:20px;'>Fehler beim Abrufen der Daten.</div>"; }
-    }
-
-    function renderRow(d) {
-        const plan = d.plannedWhen;
-        const act = d.when || plan;
-        const delayMin = Math.round((new Date(act) - new Date(plan)) / 60000);
-        
-        let delayCls = "";
-        if (d.when) delayCls = delayMin > 0 ? "v-delay" : "v-ontime";
-
-        const lineCls = ["bus", "tram", "subway"].includes(d.line.mode) ? "local" : "";
-        const remarks = (d.remarks || []).filter(r => r.type === 'warning').map(r => r.text).join(' • ');
-
-        return `
-            <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
-                <div style="flex:1; padding-right:15px;">
-                    <span class="line-badge ${lineCls}">${d.line.name}</span>
-                    <div style="font-weight:700; font-size:16px;">${d.direction || 'Unbekannt'}</div>
-                    ${remarks ? `<span class="remarks">${remarks}</span>` : ''}
-                </div>
-                <div style="text-align:right;">
-                    ${delayMin !== 0 || !d.when ? `<div class="t-plan">${fTime(plan)}</div>` : ''}
-                    <div class="t-act ${delayCls}">${fTime(act, true)}</div>
-                    <div style="font-size:11px; color:var(--sub); font-weight:bold; margin-top:3px;">
-                        ${d.platform ? 'GL. ' + d.platform : ''}
+            res.innerHTML = deps.map(d => {
+                const delay = Math.round((new Date(d.when || d.plannedWhen) - new Date(d.plannedWhen)) / 60000);
+                const remarkTxt = (d.remarks || []).filter(r => r.type === 'warning').map(r => r.text).join(' • ');
+                return `
+                    <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
+                        <div style="flex:1">
+                            <span class="line-badge ${['bus','tram'].includes(d.line.mode)?'local':''}">${d.line.name}</span>
+                            <div style="font-weight:bold">${d.direction}</div>
+                            ${remarkTxt ? `<span class="remarks">${remarkTxt}</span>` : ''}
+                        </div>
+                        <div style="text-align:right">
+                            <div class="t-plan">${fTime(d.plannedWhen)}</div>
+                            <div class="t-act ${delay > 0 ? 'v-delay' : 'v-ontime'}">${fTime(d.when || d.plannedWhen)}</div>
+                            <small style="font-weight:bold">${d.platform ? 'Pl. ' + d.platform : ''}</small>
+                        </div>
                     </div>
-                </div>
-            </div>
-        `;
+                `;
+            }).join('');
+        } catch(e) { res.innerHTML = "<div style='padding:20px;'>Fehler beim Laden.</div>"; }
     }
 
-    function fTime(dateStr, withSeconds = false) {
-        if(!dateStr) return "--:--";
-        const d = new Date(dateStr);
-        const h = String(d.getHours()).padStart(2, '0');
-        const m = String(d.getMinutes()).padStart(2, '0');
-        const s = String(d.getSeconds()).padStart(2, '0');
-        if(!withSeconds) return `${h}:${m}`;
-        return `${h}:${m}<span class="ss-mark">:${s}</span>`;
-    }
-
-    // Trip Details & Theme Logic (Kurzfassung)
     async function loadTrip(tid, line, api) {
         if(!tid) return;
         document.getElementById('ov_trip').style.display = 'block';
-        document.getElementById('trip_content').innerHTML = "<div style='padding:20px;'>Lade Verlauf...</div>";
+        const cont = document.getElementById('trip_content');
+        cont.innerHTML = "<div style='padding:20px;'>Verlauf wird geladen...</div>";
         try {
             const trip = await fetch(`${api}/trips/${encodeURIComponent(tid)}`).then(r => r.json());
             const stops = trip.stopovers || (trip.trip && trip.trip.stopovers) || [];
             document.getElementById('ov_title').innerText = line;
-            document.getElementById('trip_content').innerHTML = stops.map(s => `
-                <div class="stop-row">
-                    <div style="font-variant-numeric: tabular-nums; font-size:14px;">
-                        ${s.departure ? fTime(s.departure, true) : fTime(s.arrival, true)}
+            cont.innerHTML = stops.map(s => `
+                <div class="stop-row" style="${s.cancelled ? 'opacity:0.3' : ''}">
+                    <div class="time-group">
+                        ${s.arrival ? `<span><small class="arr-label">An</small> ${fTime(s.arrival)}</span>` : ''}
+                        ${s.departure ? `<span><small class="arr-label">Ab</small> ${fTime(s.departure)}</span>` : ''}
                     </div>
-                    <div style="font-weight:600; font-size:14px; ${s.cancelled ? 'text-decoration:line-through; opacity:0.4;' : ''}">
-                        ${s.stop.name}
-                    </div>
-                    <div style="text-align:right; font-size:12px; color:var(--sub);">${s.platform || ''}</div>
+                    <div style="font-weight:600">${s.stop.name}</div>
+                    <div style="text-align:right; font-size:11px; color:var(--sub)">${s.platform || ''}</div>
                 </div>
             `).join('');
-        } catch(e) { }
+        } catch(e) { cont.innerHTML = "Trip-Daten nicht verfügbar."; }
     }
 
+    function fTime(s) { return s ? new Date(s).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : '--:--'; }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function toggleTheme() {
-        const isDark = document.body.getAttribute('data-theme') === 'dark';
-        document.body.setAttribute('data-theme', isDark ? 'light' : 'dark');
-        document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
+        const d = document.body.getAttribute('data-theme') === 'dark';
+        document.body.setAttribute('data-theme', d ? 'light' : 'dark');
+        document.getElementById('themeIcon').innerText = d ? '☀️' : '🌙';
     }
-    
     setNow();
 </script>
 </body>
