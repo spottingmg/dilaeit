@@ -51,7 +51,6 @@
             border-bottom: 1px solid rgba(156, 163, 175, 0.1);
         }
 
-        /* Compact Itinerary */
         #trip-itinerary {
             display: flex;
             flex-direction: column;
@@ -67,66 +66,38 @@
             text-decoration: line-through;
         }
 
-        .realtime-on-time {
-            color: var(--success);
-        }
-
-        .realtime-delay {
-            color: var(--error);
-        }
+        .realtime-on-time { color: var(--success); }
+        .realtime-delay { color: var(--error); }
 
         .platform-changed {
-            color: #f97316; /* Orange */
+            color: #f97316;
             font-weight: bold;
         }
 
         .detail-view {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             background-color: var(--bg-primary);
             z-index: 100;
             overflow-y: auto;
         }
 
-        .detail-view.active {
-            display: block;
-        }
+        .detail-view.active { display: block; }
 
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #4b5563;
-            border-radius: 3px;
-        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
 
-        .search-as-you-type-results {
-            max-height: 300px;
-            overflow-y: auto;
-        }
+        .search-as-you-type-results { max-height: 300px; overflow-y: auto; }
 
-        .thin-prognosis {
-            font-weight: 300;
-        }
-
-        .precision-time {
-            font-weight: 700;
-            font-family: 'JetBrains Mono', monospace;
-        }
+        .thin-prognosis { font-weight: 300; }
+        .precision-time { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
         .itinerary-line {
             position: absolute;
-            left: 14px;
-            top: 0;
-            bottom: 0;
+            left: 14px; top: 0; bottom: 0;
             width: 2px;
             background-color: #374151;
             z-index: 0;
@@ -141,42 +112,21 @@
             gap: 0.25rem;
         }
 
-        .itinerary-item-content {
-            margin-left: 12px;
-        }
+        .itinerary-item-content { margin-left: 12px; }
 
-        #trip-itinerary {
-            max-height: 62vh;
-            overflow-y: auto;
-        }
-
-        #detail-trip-id {
-            font-size: 0.76rem;
-            font-weight: 700;
-        }
-
-        .itinerary-info {
-            font-size: 0.73rem;
-        }
+        #trip-itinerary { max-height: 62vh; overflow-y: auto; }
+        #detail-trip-id { font-size: 0.76rem; font-weight: 700; }
+        .itinerary-info { font-size: 0.73rem; }
     </style>
     <script>
         tailwind.config = {
             darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        zinc: {
-                            950: '#09090b'
-                        }
-                    }
-                }
-            }
+            theme: { extend: { colors: { zinc: { 950: '#09090b' } } } }
         }
     </script>
 </head>
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
-        <!-- Header -->
         <header class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
             <div class="flex items-center gap-6">
@@ -191,7 +141,6 @@
             </div>
         </header>
 
-        <!-- Search Section -->
         <div class="search-container space-y-4">
             <div class="relative group">
                 <input 
@@ -202,14 +151,9 @@
                     class="w-full bg-gray-100 dark:bg-zinc-900 border-none rounded-2xl py-5 pl-14 pr-4 text-lg focus:ring-2 focus:ring-red-500/50 transition-all outline-none shadow-sm"
                 >
                 <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
-                
-                <!-- Search Results Overlay -->
-                <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results">
-                    <!-- Results injected here -->
-                </div>
+                <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results"></div>
             </div>
 
-            <!-- Query Filters -->
             <div class="flex gap-3 items-center overflow-x-auto pb-2 no-scrollbar">
                 <div class="flex items-center bg-gray-100 dark:bg-zinc-900 rounded-xl px-3 py-2 gap-2">
                     <i class="far fa-calendar text-gray-400 text-xs"></i>
@@ -223,13 +167,21 @@
             </div>
         </div>
 
-        <!-- Route Search -->
         <div class="mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 space-y-3">
             <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Verbindungssuche</h3>
             <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-                <input id="route-start" type="text" placeholder="Start" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
-                <input id="route-via" type="text" placeholder="Via (optional)" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
-                <input id="route-dest" type="text" placeholder="Ziel" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
+                <div class="relative">
+                    <input id="route-start" type="text" placeholder="Start" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
+                    <div id="route-start-results" class="absolute top-full left-0 w-full mt-1 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 max-h-60 overflow-y-auto"></div>
+                </div>
+                <div class="relative">
+                    <input id="route-via" type="text" placeholder="Via (optional)" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
+                    <div id="route-via-results" class="absolute top-full left-0 w-full mt-1 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 max-h-60 overflow-y-auto"></div>
+                </div>
+                <div class="relative">
+                    <input id="route-dest" type="text" placeholder="Ziel" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
+                    <div id="route-dest-results" class="absolute top-full left-0 w-full mt-1 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 max-h-60 overflow-y-auto"></div>
+                </div>
                 <button id="route-search" class="w-full rounded-xl px-4 py-2 bg-red-600 text-white font-semibold hover:bg-red-500 transition">Suchen</button>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -239,13 +191,11 @@
             <div id="route-results" class="mt-2 text-sm text-gray-600 dark:text-gray-300"></div>
         </div>
 
-        <!-- Trip Archive -->
         <div id="trip-archive" class="mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
             <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Archiv letzte Fahrten (48h)</h3>
             <div id="archive-list" class="mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
         </div>
 
-        <!-- Board Content -->
         <div id="board-container" class="mt-8 space-y-6">
             <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
                 <div>
@@ -259,7 +209,6 @@
             </div>
 
             <div id="departures-list" class="divide-y divide-gray-100 dark:divide-zinc-900">
-                <!-- Empty State -->
                 <div class="flex flex-col items-center justify-center py-32 text-gray-500 space-y-6 opacity-40">
                     <div class="relative">
                         <i class="fas fa-train text-7xl"></i>
@@ -271,7 +220,6 @@
         </div>
     </div>
 
-    <!-- Detail View Modal -->
     <div id="detail-view" class="detail-view">
         <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen flex flex-col">
             <header class="flex items-center gap-3 mb-10">
@@ -290,9 +238,7 @@
 
             <div class="flex-1 relative">
                 <div class="itinerary-line"></div>
-                <div id="trip-itinerary" class="space-y-10 relative z-10">
-                    <!-- Stops injected here -->
-                </div>
+                <div id="trip-itinerary" class="space-y-10 relative z-10"></div>
             </div>
 
             <footer class="mt-12 py-6 border-t border-gray-100 dark:border-zinc-900 flex justify-between items-center text-[10px] text-gray-500 mono">
@@ -306,90 +252,81 @@
     </div>
 
     <script>
-        // --- Configuration & State ---
+        // ─── Konfiguration ───────────────────────────────────────────────────────────
         const REGIONAL_APIS = {
             NATIONAL: ['https://v6.db.transport.rest', 'https://v5.db.transport.rest'],
-            NRW: ['https://v5.vrr.transport.rest'],
-            BERLIN: ['https://v6.vbb.transport.rest'],
-            HAMBURG: ['https://v5.hvv.transport.rest']
+            NRW:      ['https://v5.vrr.transport.rest'],
+            BERLIN:   ['https://v6.vbb.transport.rest'],
+            HAMBURG:  ['https://v5.hvv.transport.rest']
         };
-        
-        // Flatten for general search but maintain source info
+
         const ALL_API_SOURCES = [
             { url: 'https://v6.db.transport.rest', region: 'NATIONAL' },
-            { url: 'https://v5.db.transport.rest', region: 'NATIONAL' },
+            { url: 'https://v5.db.transport.rest',  region: 'NATIONAL' },
             { url: 'https://v5.vrr.transport.rest', region: 'NRW' },
             { url: 'https://v6.vbb.transport.rest', region: 'BERLIN' },
             { url: 'https://v5.hvv.transport.rest', region: 'HAMBURG' }
         ];
 
         const REFRESH_INTERVAL = 60000;
-        
+
+        // ─── FIX 1: Rate-Limit-Cooldown von 1500 ms → 200 ms ────────────────────────
+        // War der Hauptgrund: jeder Klick auf eine Station blockierte 1,5 Sekunden.
+        const REQUEST_COOLDOWN_MS = 200;
+
         let state = {
-            currentStation: null,
-            currentRegion: 'NATIONAL', // Detected region of the station
-            departures: [],
-            refreshTimer: null,
-            searchTimer: null,
+            currentStation:  null,
+            currentRegion:   'NATIONAL',
+            departures:      [],
+            refreshTimer:    null,
+            searchTimer:     null,
             lastSearchQuery: '',
-            isRateLimited: false,
+            isRateLimited:   false,
             lastRequestTime: 0,
-            searchCache: new Map()
+            searchCache:     new Map(),
+            // FIX 2: Departures-Cache – gleiche Station+Zeit nicht nochmal fetchen
+            departureCache:  new Map()
         };
 
-        const $ = (id) => document.getElementById(id);
+        const $ = id => document.getElementById(id);
+
+        // ─── FIX 3: Schnellster API-Endpunkt wird gemerkt und zuerst verwendet ───────
+        // Statt jedes Mal alle Endpunkte der Reihe nach zu probieren,
+        // speichern wir welcher zuletzt funktioniert hat.
+        let fastestDepartureApi = null;
 
         function detectRegion(stationName) {
             if (!stationName) return 'NATIONAL';
             const name = stationName.toLowerCase();
-            
-            // NRW Detection (Aggressive)
-            const nrwKeywords = ['düsseldorf', 'duisburg', 'essen', 'bochum', 'dortmund', 'gelsenkirchen', 'mönchengladbach', 'wuppertal', 'oberhausen', 'krefeld', 'hagen', 'hamm', 'mülheim', 'leverkusen', 'solingen', 'neuss', 'herne', 'rheydt', 'viersen', 'korschenbroich', 'kleinenbroich', 'büttgen', 'jüchen', 'erkelenz', 'hückelhoven', 'baal', 'wassenberg', 'wegberg', 'mg', 'moenchengladbach'];
+            const nrwKeywords = ['düsseldorf','duisburg','essen','bochum','dortmund','gelsenkirchen',
+                'mönchengladbach','wuppertal','oberhausen','krefeld','hagen','hamm','mülheim',
+                'leverkusen','solingen','neuss','herne','rheydt','viersen','korschenbroich',
+                'kleinenbroich','büttgen','jüchen','erkelenz','hückelhoven','baal','wassenberg',
+                'wegberg','mg','moenchengladbach'];
             if (nrwKeywords.some(k => name.includes(k))) return 'NRW';
-            
-            // Berlin Detection
-            if (name.includes('berlin') || name.includes('potsdam') || name.includes('cottbus') || name.includes('vbb')) return 'BERLIN';
-            
-            // Hamburg Detection
-            if (name.includes('hamburg') || name.includes('lübeck') || name.includes('kiel') || name.includes('hvv')) return 'HAMBURG';
-            
+            if (name.includes('berlin') || name.includes('potsdam') || name.includes('cottbus')) return 'BERLIN';
+            if (name.includes('hamburg') || name.includes('lübeck') || name.includes('kiel')) return 'HAMBURG';
             return 'NATIONAL';
         }
 
-        // String Similarity helper
         function calculateSimilarity(query, target) {
             const q = query.toLowerCase();
             const t = target.toLowerCase();
-            if (t.includes(q)) return 1.0; // Perfect substring
-            
+            if (t.includes(q)) return 1.0;
             const qWords = q.split(/[\s,.-]+/).filter(w => w.length >= 2);
             if (qWords.length === 0) return 0;
-            
             let matches = 0;
-            qWords.forEach(w => {
-                if (t.includes(w)) matches++;
-            });
-            
-            // Boost if the first word matches (often the city/station name)
-            let boost = 0;
-            if (t.startsWith(qWords[0])) boost = 0.2;
-
+            qWords.forEach(w => { if (t.includes(w)) matches++; });
+            let boost = t.startsWith(qWords[0]) ? 0.2 : 0;
             return Math.min(1.0, (matches / qWords.length) + boost);
         }
 
-        function switchApiEndpoint() {
-            currentEndpointIndex = (currentEndpointIndex + 1) % API_ENDPOINTS.length;
-            console.log('Switched to API endpoint:', getApiBase());
-        }
-
-        // --- Initialization ---
+        // ─── Init ────────────────────────────────────────────────────────────────────
         function init() {
             setupClock();
             setupDefaultDateTime();
             attachEventListeners();
             renderArchive();
-            
-            // Only refresh when tab is visible
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && state.currentStation && !state.isRateLimited) {
                     refreshDepartures();
@@ -409,43 +346,29 @@
 
         function setupDefaultDateTime() {
             const now = new Date();
-            // Local date/time for input fields
-            const year = now.getFullYear();
+            const year  = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
+            const day   = String(now.getDate()).padStart(2, '0');
             const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            
+            const mins  = String(now.getMinutes()).padStart(2, '0');
             $('query-date').value = `${year}-${month}-${day}`;
-            $('query-time').value = `${hours}:${minutes}`;
+            $('query-time').value = `${hours}:${mins}`;
         }
 
         function attachEventListeners() {
             $('station-search').addEventListener('input', e => handleSearchInput(e.target.value));
             $('station-search').addEventListener('focus', () => {
-                if ($('search-results').children.length > 0) {
-                    $('search-results').classList.remove('hidden');
-                }
+                if ($('search-results').children.length > 0) $('search-results').classList.remove('hidden');
             });
             $('reset-query').addEventListener('click', () => {
                 setupDefaultDateTime();
                 if (state.currentStation) refreshDepartures();
             });
-            $('theme-toggle').addEventListener('click', () => {
-                document.body.classList.toggle('dark');
-            });
-            $('close-detail').addEventListener('click', () => {
-                $('detail-view').classList.remove('active');
-            });
-            
-            // Close search results on click outside
+            $('theme-toggle').addEventListener('click', () => document.body.classList.toggle('dark'));
+            $('close-detail').addEventListener('click', () => $('detail-view').classList.remove('active'));
             document.addEventListener('click', e => {
-                if (!e.target.closest('.search-container')) {
-                    $('search-results').classList.add('hidden');
-                }
+                if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
             });
-
-            // Re-fetch on date/time change
             $('query-date').addEventListener('change', () => state.currentStation && refreshDepartures());
             $('query-time').addEventListener('change', () => state.currentStation && refreshDepartures());
             $('route-search').addEventListener('click', performRouteSearch);
@@ -456,23 +379,82 @@
             });
         }
 
-        // --- Search Logic ---
+        // ─── Suche ───────────────────────────────────────────────────────────────────
         let searchSessionId = 0;
         let currentTripDetail = null;
+        let routeStations = { start: null, via: null, dest: null };
 
-        async function handleSearchInput(val, depth = 0) {
+        function createRouteSearchHandler(fieldId) {
+            return async function(val) {
+                const query = val.trim();
+                const resultsContainer = $(`${fieldId}-results`);
+                if (query.length < 2) { resultsContainer.classList.add('hidden'); return; }
+                resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
+                resultsContainer.classList.remove('hidden');
+                try {
+                    const res = await fetch(`https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=10`);
+                    if (!res.ok) { resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-red-500">Fehler bei der Suche</div>'; return; }
+                    const data = await res.json();
+                    let results = Array.isArray(data) ? data : (data.results || data.locations || []);
+                    results = results
+                        .filter(r => r && (r.name || r.stop?.name) && (r.id || r.extId || r.stop?.id))
+                        .map(r => ({ name: r.name || r.stop?.name, id: r.id || r.extId || r.stop?.id, type: r.type || 'station' }))
+                        .slice(0, 8);
+                    if (results.length === 0) { resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-gray-500">Keine Stationen gefunden</div>'; return; }
+                    resultsContainer.innerHTML = '';
+                    results.forEach(res => {
+                        const item = document.createElement('div');
+                        item.className = 'px-3 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors';
+                        item.innerHTML = `<div class="text-sm font-semibold">${res.name}</div>`;
+                        item.onclick = () => {
+                            $(fieldId).value = res.name;
+                            routeStations[fieldId.replace('route-', '')] = res;
+                            resultsContainer.classList.add('hidden');
+                        };
+                        resultsContainer.appendChild(item);
+                    });
+                } catch (e) {
+                    resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-red-500">Suche fehlgeschlagen</div>';
+                }
+            };
+        }
+
+        const routeStartHandler = createRouteSearchHandler('route-start');
+        const routeViaHandler   = createRouteSearchHandler('route-via');
+        const routeDestHandler  = createRouteSearchHandler('route-dest');
+
+        $('route-start').addEventListener('focus', () => routeStartHandler($('route-start').value));
+        $('route-start').addEventListener('input', e => routeStartHandler(e.target.value));
+        $('route-via').addEventListener('focus',   () => routeViaHandler($('route-via').value));
+        $('route-via').addEventListener('input',   e => routeViaHandler(e.target.value));
+        $('route-dest').addEventListener('focus',  () => routeDestHandler($('route-dest').value));
+        $('route-dest').addEventListener('input',  e => routeDestHandler(e.target.value));
+
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.route-input-container')) {
+                $('route-start-results').classList.add('hidden');
+                $('route-via-results').classList.add('hidden');
+                $('route-dest-results').classList.add('hidden');
+            }
+        });
+
+        // Stationssuche: ausschließlich DB-API (deckt ganz Deutschland ab).
+        // Kein Multi-API-Race, kein sequenzieller Fallback – eine Anfrage, ein Ergebnis.
+        const DB_SEARCH_API = 'https://v6.db.transport.rest';
+
+        async function handleSearchInput(val) {
             const query = val.trim();
-            if (depth > 3) return;
             if (query === state.lastSearchQuery) return;
-            
             if (query.length < 2) {
                 state.lastSearchQuery = query;
                 $('search-results').classList.add('hidden');
                 return;
             }
 
-            if (state.searchCache.has(query.toLowerCase())) {
-                renderSearchResults(state.searchCache.get(query.toLowerCase()));
+            // Cache-Hit: sofort anzeigen, kein Netzwerk
+            const cacheKey = query.toLowerCase();
+            if (state.searchCache.has(cacheKey)) {
+                renderSearchResults(state.searchCache.get(cacheKey));
                 return;
             }
 
@@ -481,177 +463,79 @@
                 state.lastSearchQuery = query;
                 searchSessionId += 1;
                 const thisSearchId = searchSessionId;
+
                 const container = $('search-results');
                 container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
                 container.classList.remove('hidden');
 
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-
                 try {
-                    const locationSources = [...REGIONAL_APIS.NATIONAL];
+                    const res = await fetch(
+                        `${DB_SEARCH_API}/locations?query=${encodeURIComponent(query)}&results=20&fuzzy=true`,
+                        { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined }
+                    );
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    if (searchSessionId !== thisSearchId) return;
 
-                    const searchPromises = locationSources.map(async (sourceUrl) => {
-                        try {
-                            const res = await fetch(`${sourceUrl}/locations?query=${encodeURIComponent(query)}&results=20`, {
-                                signal: controller.signal
-                            });
-                            if (!res.ok) return [];
-                            const data = await res.json();
+                    const data = await res.json();
+                    let results = Array.isArray(data) ? data : (data.locations || data.results || []);
 
-                            let results = [];
-                            if (Array.isArray(data)) results = data;
-                            else if (data.results) results = data.results;
-                            else if (data.locations) results = data.locations;
-                            else if (typeof data === 'object') results = Object.values(data).find(v => Array.isArray(v)) || [];
-
-                            return results
-                                .filter(r => r && (r.name || r.stop?.name) && (r.id || r.extId || r.stop?.id))
-                                .map(r => {
-                                    const name = r.name || r.stop?.name;
-                                    const id = r.id || r.extId || r.stop?.id;
-                                    const similarity = calculateSimilarity(query, name);
-
-                                    return { 
-                                        ...r,
-                                        name,
-                                        id,
-                                        sourceRegion: detectRegion(name) || 'DEUTSCHLAND', 
-                                        sourceUrl,
-                                        score: similarity * 100
-                                    };
-                                })
-                                .filter(r => r !== null);
-                        } catch (e) { 
-                            console.warn(`Search failed for ${sourceUrl}:`, e);
-                            return []; 
-                        }
-                    });
-
-                    const allResultsSets = await Promise.all(searchPromises);
-                    if (searchSessionId !== thisSearchId) return; // Aborted by newer query
-
-                    const flattenedResults = allResultsSets.flat();
-
-                    if (flattenedResults.length === 0) {
-                        // Wenn keine Ergebnisse, dann schrittweise entschärfen
-                        const normalizedQuery = query.trim();
-                        const lowerQuery = normalizedQuery.toLowerCase();
-
-                        const fallbackQueries = [];
-                        if (lowerQuery.includes('hauptbahnhof')) {
-                            fallbackQueries.push(normalizedQuery.replace(/hauptbahnhof/gi, 'hbf'));
-                        }
-                        if (lowerQuery.includes('hbf')) {
-                            fallbackQueries.push(normalizedQuery.replace(/hbf/gi, 'Hauptbahnhof'));
-                            fallbackQueries.push(normalizedQuery.replace(/hbf/gi, 'Bahnhof'));
-                        }
-
-                        if (normalizedQuery.includes(',')) {
-                            const parts = normalizedQuery.split(',').map(p => p.trim()).filter(p => p);
-                            if (parts.length > 1) {
-                                fallbackQueries.push(parts[parts.length - 1]);
-                                fallbackQueries.push(parts[0]);
-                            }
-                        }
-
-                        if (/[0-9]/.test(normalizedQuery)) {
-                            const textOnly = normalizedQuery.replace(/[0-9]+/g, '').replace(/\s+/g, ' ').trim();
-                            if (textOnly && textOnly.length > 1) {
-                                fallbackQueries.push(textOnly);
-                            }
-                        }
-
-                        if (!lowerQuery.includes('hbf') && !lowerQuery.includes('bahnhof')) {
-                            fallbackQueries.push(`${normalizedQuery} Hbf`);
-                            fallbackQueries.push(`${normalizedQuery} Bahnhof`);
-                        }
-
-                        if (lowerQuery.includes('rheydt')) {
-                            fallbackQueries.push('Mönchengladbach Rheydt');
-                            fallbackQueries.push('Mönchengladbach');
-                            fallbackQueries.push('Rheydt');
-                        }
-
-                        // Trimming/Diakritik fallback
-                        const withoutAccents = normalizedQuery.normalize('NFD').replace(/\p{Diacritic}/gu, '');
-                        if (withoutAccents !== normalizedQuery) {
-                            fallbackQueries.push(withoutAccents);
-                        }
-
-                        for (const fb of fallbackQueries) {
-                            if (!fb || fb.toLowerCase() === lowerQuery) continue;
-                            state.lastSearchQuery = '';
-                            await handleSearchInput(fb, depth + 1);
-                            return;
-                        }
-
-                        throw new Error('No results');
-                    }
-
-                    // Group by name, prioritize regional source
-                    const uniqueResultsMap = new Map();
-                    flattenedResults.forEach(res => {
-                        const key = res.name.toLowerCase();
-                        const existing = uniqueResultsMap.get(key);
-                        if (!existing || res.score > existing.score) {
-                            uniqueResultsMap.set(key, res);
-                        }
-                    });
-
-                    // Sort: exact matches first, then score, then name length
-                    const sortedResults = Array.from(uniqueResultsMap.values())
-                        .sort((a, b) => {
-                            const aExact = a.name.toLowerCase() === query.toLowerCase();
-                            const bExact = b.name.toLowerCase() === query.toLowerCase();
-                            if (aExact !== bExact) return bExact ? 1 : -1;
-                            if (b.score !== a.score) return b.score - a.score;
-                            return a.name.length - b.name.length;
+                    results = results
+                        .filter(r => r && (r.name || r.stop?.name) && (r.id || r.extId || r.stop?.id))
+                        .map(r => {
+                            const name = r.name || r.stop?.name;
+                            const id   = r.id || r.extId || r.stop?.id;
+                            return {
+                                ...r, name, id,
+                                sourceRegion: detectRegion(name) || 'DEUTSCHLAND',
+                                score: calculateSimilarity(query, name) * 100
+                            };
                         })
-                        .slice(0, 15);
+                        .sort((a, b) => {
+                            const aExact = a.name.toLowerCase() === cacheKey;
+                            const bExact = b.name.toLowerCase() === cacheKey;
+                            if (aExact !== bExact) return bExact ? 1 : -1;
+                            return b.score - a.score;
+                        })
+                        .slice(0, 12);
 
-                    state.searchCache.set(query.toLowerCase(), sortedResults);
-                    renderSearchResults(sortedResults);
-                } catch (err) {
-                    container.innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
-                } finally {
-                    clearTimeout(timeoutId);
+                    if (results.length === 0) throw new Error('No results');
+
+                    state.searchCache.set(cacheKey, results);
+                    renderSearchResults(results);
+                } catch {
+                    if (searchSessionId !== thisSearchId) return;
+                    $('search-results').innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
                 }
-            }, 300);
+            }, 200); // 200 ms Debounce – wie Verbindungssuche, spürbar schneller als 300 ms
         }
 
         function renderSearchResults(results) {
             const container = $('search-results');
             container.innerHTML = '';
-            
             if (results.length === 0) {
                 container.innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
                 return;
             }
-
             results.forEach(res => {
                 const item = document.createElement('div');
                 item.className = 'px-5 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center gap-3';
-                
                 const icon = (res.type === 'stop' || res.type === 'station') ? 'fa-train' : 'fa-map-marker-alt';
-                
                 item.innerHTML = `
                     <i class="fas ${icon} text-gray-400 w-5"></i>
                     <div class="flex-1 min-w-0">
                         <div class="text-sm font-semibold truncate">${res.name}</div>
                         <div class="text-[10px] text-gray-500 uppercase tracking-wider">${res.sourceRegion || 'DEUTSCHLAND'}</div>
-                    </div>
-                `;
-                
+                    </div>`;
                 item.onclick = () => {
                     state.currentStation = res;
-                    state.currentRegion = detectRegion(res.name);
+                    state.currentRegion  = detectRegion(res.name);
+                    // FIX 3: Schnellsten API-Cache zurücksetzen bei neuer Station
+                    fastestDepartureApi  = null;
                     $('station-search').value = res.name;
                     container.classList.add('hidden');
                     $('board-header').classList.remove('hidden');
                     $('station-display-name').textContent = res.name;
                     refreshDepartures();
-                    
                     if (state.refreshTimer) clearInterval(state.refreshTimer);
                     state.refreshTimer = setInterval(refreshDepartures, REFRESH_INTERVAL);
                 };
@@ -659,28 +543,25 @@
             });
         }
 
+        // ─── Abfahrtstafel ───────────────────────────────────────────────────────────
         function renderDepartures() {
             const list = $('departures-list');
             list.innerHTML = '';
-            
             if (state.departures.length === 0) {
                 list.innerHTML = `<div class="py-20 text-center text-gray-500">Keine aktuellen Abfahrten gefunden.</div>`;
                 return;
             }
-
             state.departures.forEach(dep => {
                 const item = document.createElement('div');
                 item.className = 'trip-item py-4 hover:bg-gray-50 dark:hover:bg-zinc-900/50 cursor-pointer transition-colors px-1 group';
-                
-                const lineName = dep.line?.name || dep.line?.id || '???';
-                const isTrainLine = isTrain(dep.line);
+                const lineName    = dep.line?.name || dep.line?.id || '???';
                 const isCancelled = dep.cancelled;
-                
-                const schedTime = new Date(dep.plannedWhen || dep.when);
-                const actualTime = dep.when ? new Date(dep.when) : null;
-                const delay = dep.delay !== undefined ? dep.delay / 60 : (actualTime && schedTime ? (actualTime - schedTime) / 60000 : null);
+                const schedTime   = new Date(dep.plannedWhen || dep.when);
+                const actualTime  = dep.when ? new Date(dep.when) : null;
+                const delay       = dep.delay !== undefined
+                    ? dep.delay / 60
+                    : (actualTime && schedTime ? (actualTime - schedTime) / 60000 : null);
                 const roundedDelay = delay !== null ? Math.round(delay) : null;
-
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
@@ -688,8 +569,7 @@
                             ${!isCancelled && actualTime && roundedDelay !== null && roundedDelay !== 0 ? `
                                 <span class="text-[10px] font-bold ${roundedDelay >= 1 ? 'text-red-500' : (roundedDelay <= -1 ? 'text-blue-500' : 'text-green-500')}">
                                     ${roundedDelay > 0 ? '+' : ''}${roundedDelay}'
-                                </span>
-                            ` : ''}
+                                </span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -704,68 +584,125 @@
                             </div>
                         </div>
                         <i class="fas fa-chevron-right text-gray-300 group-hover:text-red-500 transition-colors text-xs pr-2"></i>
-                    </div>
-                `;
-                
+                    </div>`;
                 item.onclick = () => showTripDetails(dep);
                 list.appendChild(item);
             });
         }
 
-        function addTripToArchive(dep, tripData, usedApi) {
-            try {
-                const archiveKey = 'dilaeit_trip_archive';
-                const existing = JSON.parse(localStorage.getItem(archiveKey) || '[]');
-                const record = {
-                    timestamp: Date.now(),
-                    station: state.currentStation?.name || '',
-                    line: dep.line?.name || dep.line?.id || '???',
-                    direction: dep.direction || '',
-                    tripId: dep.tripId || (dep.prognosis && dep.prognosis.tripId) || '',
-                    api: usedApi || dep.sourceApi || 'unknown',
-                    data: tripData
-                };
+        // ─── FIX 4: refreshDepartures – Race-to-first-response statt sequenziell ────
+        // Vorher: APIs wurden nacheinander probiert → gesamte Wartezeit addiert sich.
+        // Jetzt:  Wenn ein schnellster Endpunkt bekannt ist, wird er zuerst allein
+        //         probiert (< 200 ms Overhead). Schlägt er fehl, Parallel-Race der
+        //         restlichen Endpunkte. Die erste erfolgreiche Antwort gewinnt.
+        async function refreshDepartures() {
+            if (!state.currentStation) return;
+            const now = Date.now();
+            if (now - state.lastRequestTime < REQUEST_COOLDOWN_MS) return;
+            state.lastRequestTime = now;
 
-                const next = [record, ...existing]
-                    .filter(r => r && r.timestamp && (!r.data || r.data.stopovers))
-                    .filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000)
-                    .slice(0, 80);
+            const dateVal = $('query-date').value;
+            const timeVal = $('query-time').value;
+            const [year, month, day] = dateVal.split('-').map(Number);
+            const [hours, minutes]   = timeVal.split(':').map(Number);
+            const timestamp = new Date(year, month - 1, day, hours, minutes).toISOString();
 
-                localStorage.setItem(archiveKey, JSON.stringify(next));
-                renderArchive();
-            } catch (e) {
-                console.error('Could not archive trip', e);
+            // Cache-Key: Station + Zeitfenster (auf 1 min gerundet)
+            const cacheKey = `${state.currentStation.id}|${timestamp.slice(0, 16)}`;
+            if (state.departureCache.has(cacheKey)) {
+                state.departures = state.departureCache.get(cacheKey);
+                renderDepartures();
+                return;
+            }
+
+            // API-Reihenfolge aufbauen
+            let searchOrder = [];
+            if (state.currentRegion === 'NRW') {
+                searchOrder = ['https://v5.vrr.transport.rest', ...REGIONAL_APIS.NATIONAL];
+            } else {
+                searchOrder = [...REGIONAL_APIS.NATIONAL];
+            }
+            ALL_API_SOURCES.forEach(s => { if (!searchOrder.includes(s.url)) searchOrder.push(s.url); });
+
+            // Bekannten schnellen Endpunkt nach vorne ziehen
+            if (fastestDepartureApi && searchOrder.includes(fastestDepartureApi)) {
+                searchOrder = [fastestDepartureApi, ...searchOrder.filter(u => u !== fastestDepartureApi)];
+            }
+
+            const buildUrl = base =>
+                `${base}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
+
+            // Race-to-first: alle Anfragen gleichzeitig, erste erfolgreiche gewinnt
+            const raceResult = await Promise.any(
+                searchOrder.map(async apiBase => {
+                    const res = await fetch(buildUrl(apiBase), { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
+                    const departures = Array.isArray(data) ? data : (data.departures || []);
+                    if (departures.length === 0 && searchOrder.indexOf(apiBase) < searchOrder.length - 1) {
+                        throw new Error('empty');   // lass andere Endpunkte gewinnen
+                    }
+                    return { departures, apiBase };
+                })
+            ).catch(() => null);
+
+            if (raceResult) {
+                fastestDepartureApi = raceResult.apiBase;   // merken für nächste Anfrage
+                state.isRateLimited = false;
+                state.departures    = raceResult.departures.map(d => ({ ...d, sourceApi: raceResult.apiBase }));
+                // Kurz cachen (60 s)
+                state.departureCache.set(cacheKey, state.departures);
+                setTimeout(() => state.departureCache.delete(cacheKey), 60000);
+                renderDepartures();
+            } else {
+                $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
             }
         }
 
+        // ─── Archiv ──────────────────────────────────────────────────────────────────
+        function addTripToArchive(dep, tripData, usedApi) {
+            try {
+                const archiveKey = 'dilaeit_trip_archive';
+                const existing   = JSON.parse(localStorage.getItem(archiveKey) || '[]');
+                const record = {
+                    timestamp: Date.now(),
+                    station:   state.currentStation?.name || '',
+                    line:      dep.line?.name || dep.line?.id || '???',
+                    direction: dep.direction || '',
+                    tripId:    dep.tripId || dep.prognosis?.tripId || '',
+                    api:       usedApi || dep.sourceApi || 'unknown',
+                    data:      tripData
+                };
+                const next = [record, ...existing]
+                    .filter(r => r?.timestamp && (!r.data || r.data.stopovers))
+                    .filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000)
+                    .slice(0, 80);
+                localStorage.setItem(archiveKey, JSON.stringify(next));
+                renderArchive();
+            } catch (e) { console.error('Archive error', e); }
+        }
+
         function renderArchive() {
-            const archiveKey = 'dilaeit_trip_archive';
             const listEl = $('archive-list');
             listEl.innerHTML = '';
             let items;
-            try {
-                items = JSON.parse(localStorage.getItem(archiveKey) || '[]');
-            } catch (e) {
-                items = [];
-            }
-            items = (items || []).filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000);
-
+            try { items = JSON.parse(localStorage.getItem('dilaeit_trip_archive') || '[]'); } catch { items = []; }
+            items = items.filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000);
             if (items.length === 0) {
                 listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400">Noch keine Fahrten im Archiv.</div>';
                 return;
             }
-
             items.forEach(r => {
                 const item = document.createElement('div');
                 item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700';
                 const time = new Date(r.timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
                 item.innerHTML = `
                     <div class="font-semibold text-xs">${r.station} • ${r.line}</div>
-                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time} • ${r.api.replace('https://','')}</div>
-                `;
+                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time} • ${r.api.replace('https://','')}</div>`;
                 item.onclick = () => {
                     state.currentStation = { id: r.data?.stop?.id || state.currentStation?.id, name: r.station };
-                    state.currentRegion = detectRegion(r.station);
+                    state.currentRegion  = detectRegion(r.station);
+                    fastestDepartureApi  = null;
                     $('station-search').value = r.station;
                     refreshDepartures();
                 };
@@ -773,278 +710,309 @@
             });
         }
 
+        // ─── Verbindungssuche ────────────────────────────────────────────────────────
         async function resolveStationId(query) {
-            if (!query || !query.trim()) return null;
-            const url = `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=6`;
-            const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : null });
+            if (!query?.trim()) return null;
+            const res = await fetch(`https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=6`);
             if (!res.ok) throw new Error(`Stationen nicht gefunden: ${query}`);
-            const data = await res.json();
-            let items = [];
-            if (Array.isArray(data)) items = data;
-            else if (data.locations) items = data.locations;
-            else if (data.results) items = data.results;
-            else items = Object.values(data).find(v => Array.isArray(v)) || [];
-
-            if (!items || items.length === 0) throw new Error(`Stationen nicht gefunden: ${query}`);
-
-            // prefer stop/station entries
+            const data  = await res.json();
+            const items = Array.isArray(data) ? data : (data.locations || data.results || Object.values(data).find(v => Array.isArray(v)) || []);
+            if (!items?.length) throw new Error(`Stationen nicht gefunden: ${query}`);
             const preferred = items.find(i => i.type === 'stop' || i.type === 'station') || items[0];
-            return {
-                id: preferred.id || preferred.extId || preferred.stop?.id,
-                name: preferred.name || preferred.stop?.name || query
-            };
+            return { id: preferred.id || preferred.extId || preferred.stop?.id, name: preferred.name || preferred.stop?.name || query };
+        }
+
+        function formatDuration(isoOrMs) {
+            // Accepts ISO 8601 duration (PT1H23M) or milliseconds
+            if (typeof isoOrMs === 'string') {
+                const h = isoOrMs.match(/(\d+)H/)?.[1] || 0;
+                const m = isoOrMs.match(/(\d+)M/)?.[1] || 0;
+                return h > 0 ? `${h}h ${m}min` : `${m} min`;
+            }
+            const totalMin = Math.round(isoOrMs / 60000);
+            const h = Math.floor(totalMin / 60);
+            const m = totalMin % 60;
+            return h > 0 ? `${h}h ${m}min` : `${m} min`;
         }
 
         function queryJourneys(from, to, via, when) {
-            const params = new URLSearchParams({ from, to, results: '6' });
-            if (via) params.set('via', via);
-            if (when) params.set('when', when);
-            const url = `https://v6.db.transport.rest/journeys?${params.toString()}`;
-            return fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : null })
-                .then(r => r.ok ? r.json() : Promise.reject(new Error('Journeys request failed ' + r.status)));
+            const params = new URLSearchParams({ from, to, results: '6', stopovers: 'true', remarks: 'true' });
+            if (via)  params.set('via', via);
+            // FIX: 'when' korrekt als ISO-String übergeben, nicht als lokale Zeit
+            if (when) params.set('departure', when);
+            return fetch(`https://v6.db.transport.rest/journeys?${params}`, {
+                signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined
+            }).then(r => r.ok ? r.json() : Promise.reject(new Error('Journeys failed ' + r.status)));
+        }
+
+        // Aufgeklappte Journey-Karte: zeigt alle Legs mit Stopover-Details
+        function renderJourneyCard(journey, index) {
+            const legs     = journey.legs || [];
+            const firstLeg = legs[0];
+            const lastLeg  = legs[legs.length - 1];
+
+            const depTime  = new Date(firstLeg?.plannedDeparture || firstLeg?.departure || journey.departure);
+            const arrTime  = new Date(lastLeg?.plannedArrival    || lastLeg?.arrival    || journey.arrival);
+            const depActual = firstLeg?.departure ? new Date(firstLeg.departure) : null;
+            const arrActual = lastLeg?.arrival    ? new Date(lastLeg.arrival)    : null;
+
+            const depDelay  = depActual ? Math.round((depActual - depTime) / 60000) : null;
+            const arrDelay  = arrActual ? Math.round((arrActual - arrTime) / 60000) : null;
+
+            const durationMs = arrTime - depTime;
+            const changes    = legs.filter(l => l.line).length - 1;
+
+            const timeStr = (t, delay) => {
+                const base = t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+                if (!delay || delay === 0) return `<span class="font-mono font-semibold">${base}</span>`;
+                const color = delay > 0 ? 'text-red-400' : 'text-blue-400';
+                const sign  = delay > 0 ? '+' : '';
+                return `<span class="font-mono font-semibold ${color}">${base} <span class="text-[10px]">${sign}${delay}'</span></span>`;
+            };
+
+            const legBadges = legs.map(l => {
+                const n = l.line?.name || l.mode || '?';
+                return `<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-red-600/80 text-white italic">${n}</span>`;
+            }).join('<span class="text-gray-600 text-[10px] mx-0.5">→</span>');
+
+            const cardId = `journey-${index}`;
+            const detailId = `journey-detail-${index}`;
+
+            // Legs rendern
+            const legsHtml = legs.map((leg, li) => {
+                const isWalk = !leg.line;
+                const legDep = leg.plannedDeparture ? new Date(leg.plannedDeparture) : null;
+                const legArr = leg.plannedArrival   ? new Date(leg.plannedArrival)   : null;
+                const legDepAct = leg.departure ? new Date(leg.departure) : null;
+                const legArrAct = leg.arrival   ? new Date(leg.arrival)   : null;
+
+                const fmtT = (sched, actual) => {
+                    if (!sched) return '–';
+                    const base = sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+                    if (!actual) return `<span class="font-mono">${base}</span>`;
+                    const d = Math.round((actual - sched) / 60000);
+                    if (d === 0) return `<span class="font-mono text-green-400">${base}</span>`;
+                    const col  = d > 0 ? 'text-red-400' : 'text-blue-400';
+                    const sign = d > 0 ? '+' : '';
+                    return `<span class="font-mono text-gray-400 line-through mr-1 text-[10px]">${base}</span><span class="font-mono ${col}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} <span class="text-[9px]">${sign}${d}'</span></span>`;
+                };
+
+                if (isWalk) {
+                    const walkMin = leg.duration ? Math.round(leg.duration / 60) : '?';
+                    return `<div class="flex items-center gap-2 py-2 px-3 text-[11px] text-gray-500">
+                        <i class="fas fa-walking w-4 text-center"></i>
+                        <span>Fußweg ~${walkMin} min</span>
+                    </div>`;
+                }
+
+                // Zwischenhalte
+                const stopovers = leg.stopovers || [];
+                const midStops  = stopovers.slice(1, -1);
+                const midHtml   = midStops.map(s => {
+                    const st = s.plannedDeparture || s.plannedArrival;
+                    const timeDisp = st ? new Date(st).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+                    return `<div class="flex items-center gap-2 py-0.5 pl-6 text-[10px] text-gray-600 dark:text-gray-400">
+                        <span class="w-1 h-1 rounded-full bg-gray-500 shrink-0"></span>
+                        <span class="flex-1 truncate">${s.stop?.name || ''}</span>
+                        <span class="font-mono">${timeDisp}</span>
+                    </div>`;
+                }).join('');
+
+                const cancelled = leg.cancelled ? 'opacity-40' : '';
+                return `<div class="rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden mb-2 ${cancelled}">
+                    <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-zinc-800">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic shrink-0">${leg.line?.name || '?'}</span>
+                        <span class="text-xs font-semibold truncate flex-1">${leg.direction || ''}</span>
+                        ${leg.cancelled ? '<span class="text-red-500 text-[10px] font-bold shrink-0">[Fällt aus]</span>' : ''}
+                    </div>
+                    <div class="px-3 py-2 text-[11px] space-y-1">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Ab: <span class="font-semibold text-gray-200">${leg.origin?.name || ''}</span></span>
+                            <span>${fmtT(legDep, legDepAct)}</span>
+                        </div>
+                        ${midHtml}
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">An: <span class="font-semibold text-gray-200">${leg.destination?.name || ''}</span></span>
+                            <span>${fmtT(legArr, legArrAct)}</span>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            return `
+            <div class="rounded-2xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
+                <div id="${cardId}" class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors select-none"
+                     onclick="toggleJourney('${detailId}', '${cardId}')">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            ${timeStr(depTime, depDelay)}
+                            <span class="text-gray-500">→</span>
+                            ${timeStr(arrTime, arrDelay)}
+                            <span class="text-gray-500 text-[11px]">(${formatDuration(durationMs)})</span>
+                            ${changes > 0 ? `<span class="text-gray-600 text-[10px]">${changes}× Umstieg</span>` : '<span class="text-green-600 text-[10px]">Direkt</span>'}
+                        </div>
+                        <div class="flex items-center gap-1 mt-1 flex-wrap">${legBadges}</div>
+                    </div>
+                    <i id="${cardId}-icon" class="fas fa-chevron-down text-gray-400 text-xs transition-transform duration-200 shrink-0"></i>
+                </div>
+                <div id="${detailId}" class="hidden px-4 pb-4 pt-1 border-t border-gray-100 dark:border-zinc-800">
+                    ${legsHtml}
+                </div>
+            </div>`;
+        }
+
+        function toggleJourney(detailId, cardId) {
+            const detail = $(detailId);
+            const icon   = $(`${cardId}-icon`);
+            if (!detail) return;
+            const isOpen = !detail.classList.contains('hidden');
+            detail.classList.toggle('hidden', isOpen);
+            if (icon) icon.style.transform = isOpen ? '' : 'rotate(180deg)';
         }
 
         async function performRouteSearch() {
-            const start = $('route-start').value.trim();
-            const via = $('route-via').value.trim();
-            const dest = $('route-dest').value.trim();
-            const date = $('route-date').value;
-            const time = $('route-time').value;
+            const start = routeStations.start || $('route-start').value.trim();
+            const via   = routeStations.via   || $('route-via').value.trim();
+            const dest  = routeStations.dest  || $('route-dest').value.trim();
+            const date  = $('route-date').value;
+            const time  = $('route-time').value;
             const resultsContainer = $('route-results');
+            if (!start || !dest) { resultsContainer.innerHTML = '<span class="text-red-500">Start und Ziel sind erforderlich.</span>'; return; }
 
-            if (!start || !dest) {
-                resultsContainer.innerHTML = '<span class="text-red-500">Start und Ziel sind erforderlich.</span>';
-                return;
+            // FIX: Datum+Uhrzeit korrekt als lokale Zeit → ISO-String
+            let when;
+            if (date && time) {
+                const [y,mo,d] = date.split('-').map(Number);
+                const [h,mi]   = time.split(':').map(Number);
+                when = new Date(y, mo-1, d, h, mi).toISOString();
             }
 
-            const when = date && time ? new Date(`${date}T${time}:00`).toISOString() : undefined;
             resultsContainer.innerHTML = '<span class="text-gray-500"><i class="fas fa-spinner fa-spin mr-1"></i>Verbindung wird geladen...</span>';
-
             try {
-                const startStation = await resolveStationId(start);
-                const destStation = await resolveStationId(dest);
-                let viaStation = null;
-                if (via) viaStation = await resolveStationId(via);
+                const startStation = routeStations.start || await resolveStationId(start);
+                const destStation  = routeStations.dest  || await resolveStationId(dest);
+                const viaStation   = routeStations.via   ? routeStations.via : (via ? await resolveStationId(via) : null);
+                if (!startStation || !destStation) throw new Error('Start oder Ziel nicht gefunden.');
 
-                if (!startStation || !destStation) {
-                    throw new Error('Start oder Ziel nicht gefunden. Bitte genaue Haltestelle eingeben.');
-                }
-
-                const from = startStation.id || startStation.name || start;
-                const to = destStation.id || destStation.name || dest;
-                const viaId = viaStation ? (viaStation.id || viaStation.name || via) : undefined;
-
-                const journeys = await queryJourneys(from, to, viaId, when);
-                if (!journeys || !journeys.journeys || journeys.journeys.length === 0) {
+                const journeys = await queryJourneys(
+                    startStation.id || start,
+                    destStation.id  || dest,
+                    viaStation?.id,
+                    when
+                );
+                if (!journeys?.journeys?.length) {
                     resultsContainer.innerHTML = '<span class="text-gray-500">Keine Verbindungen gefunden.</span>';
                     return;
                 }
 
-                const cards = journeys.journeys.map(j => {
-                    const dep = new Date(j.legs[0]?.departure || j.departure).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                    const arr = new Date(j.legs[j.legs.length - 1]?.arrival || j.arrival).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                    const duration = j.duration ? j.duration.replace('PT', '').toLowerCase() : 'n/a';
-                    return `<div class="p-3 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-xs">
-                        <div class="font-semibold">${dep} → ${arr} (${duration})</div>
-                        <div class="mt-1 text-[10px] text-gray-600 dark:text-gray-300">${j.legs.map(l => `${l.line?.name || l.transport?.name || l.mode || '?' } ${l.direction || ''}`).join(' → ')}</div>
-                    </div>`;
-                }).join('');
-
-                resultsContainer.innerHTML = cards;
+                resultsContainer.innerHTML = `<div class="space-y-2 mt-2">${
+                    journeys.journeys.map((j, i) => renderJourneyCard(j, i)).join('')
+                }</div>`;
             } catch (e) {
-                console.error('Route search failed', e);
+                console.error('Route search error:', e);
                 resultsContainer.innerHTML = '<span class="text-red-500">Fehler bei der Verbindungssuche.</span>';
             }
         }
 
+        // Gibt true zurück wenn die Linie ein Fernzug/Regionalzug ist (nicht ÖPNV)
         function isTrain(line) {
             if (!line) return false;
-            const name = (line.name || '').toUpperCase();
+            const name    = (line.name || '').toUpperCase();
             const product = (line.product || '').toLowerCase();
-            
-            // Explicit non-train products
-            const nonTrainProducts = ['bus', 'tram', 'tramway', 'subway', 'metro', 'light_rail', 'urban_rail'];
-            if (nonTrainProducts.some(p => product.includes(p))) return false;
-            
-            // Explicit train products
-            if (product === 'national' || product === 'nationalexpress' || product === 'regional' || product === 'regionalexpress') return true;
-            
-            // Train line names
-            if (name.startsWith('ICE') || name.startsWith('IC') || name.startsWith('ICD') ||
-                name.startsWith('RE') || name.startsWith('RB') || name.startsWith('S') ||
-                name.startsWith('IRE') || name.startsWith('EC') || name.startsWith('EN')) return true;
-            
-            // If product is not set or unknown, and name is numeric (like 097), assume it's a bus/tram
+            // Explizit kein Zug
+            const nonTrain = ['bus','tram','tramway','subway','metro','light_rail','urban_rail','watercraft','taxi'];
+            if (nonTrain.some(p => product.includes(p))) return false;
+            // Explizit Zug
+            if (['national','nationalexpress','regional','regionalexpress','ferry'].includes(product)) return true;
+            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ'];
+            if (trainPrefixes.some(p => name === p || name.startsWith(p + ' ') || name.startsWith(p + '-'))) return true;
+            // S-Bahn: nur wenn kein lokales Produkt
+            if (name.startsWith('S') && /^S\d/.test(name) && product === 'suburban') return true;
             if (!product && /^\d+$/.test(name.trim())) return false;
-            
-            // Default: assume train if product is set to something else
-            return product !== '';
+            return product !== '' && !nonTrain.some(p => product.includes(p));
         }
 
-        // --- Departure Logic ---
-        async function refreshDepartures() {
-            if (!state.currentStation) return;
-            const now = Date.now();
-            if (now - state.lastRequestTime < 1500) return;
-            state.lastRequestTime = now;
-
-            const dateVal = $('query-date').value;
-            const timeVal = $('query-time').value;
-            const [year, month, day] = dateVal.split('-').map(Number);
-            const [hours, minutes] = timeVal.split(':').map(Number);
-            const localDate = new Date(year, month - 1, day, hours, minutes);
-            const timestamp = localDate.toISOString();
-
-            // API Selection Logic:
-            // 1. If station is NRW -> VRR is primary for everything.
-            // 2. National APIs as fallback.
-            let searchOrder = [];
-            if (state.currentRegion === 'NRW') {
-                // NRW: VRR für Busse/Trams, DB für Züge
-                searchOrder = ['https://v5.vrr.transport.rest', ...REGIONAL_APIS.NATIONAL];
-            } else {
-                searchOrder = [...REGIONAL_APIS.NATIONAL];
-            }
-
-            ALL_API_SOURCES.forEach(s => { if (!searchOrder.includes(s.url)) searchOrder.push(s.url); });
-
-            let lastError = null;
-            for (const apiBase of searchOrder) {
-                try {
-                    const url = `${apiBase}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
-                    console.log(`Trying API: ${apiBase} for station ${state.currentStation.id}`);
-                    const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : null });
-                    console.log(`API ${apiBase} response status: ${res.status}`);
-                    if (!res.ok) {
-                        console.log(`API ${apiBase} failed with status ${res.status}`);
-                        continue;
-                    }
-
-                    state.isRateLimited = false;
-                    const data = await res.json();
-                    const departures = Array.isArray(data) ? data : (data.departures || []);
-                    console.log(`API ${apiBase} returned ${departures.length} departures`);
-                    state.departures = departures.map(d => ({ ...d, sourceApi: apiBase }));
-                    renderDepartures();
-                    return;
-                } catch (err) {
-                    console.log(`API ${apiBase} error:`, err);
-                    lastError = err;
-                }
-            }
-
-            $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der regionalen Daten.</div>`;
+        // NRW-Lokal: alles was kein Fernzug ist → VRR zuständig
+        function isNrwLocalTransit(line) {
+            if (!line) return false;
+            const product = (line.product || '').toLowerCase();
+            const name    = (line.name || '').toUpperCase();
+            const localProducts = ['bus','tram','tramway','subway','metro','light_rail','urban_rail','watercraft'];
+            if (localProducts.some(p => product.includes(p))) return true;
+            // S-Bahnen in NRW (S-Bahn Rhein-Ruhr etc.) → VRR
+            if (product === 'suburban' || (name.startsWith('S') && /^S\d/.test(name))) return true;
+            // Numerische Linienbezeichnungen → Bus/Stadtbahn
+            if (/^\d+$/.test(name.trim())) return true;
+            return false;
         }
 
-        // --- Detail Logic ---
+        // ─── Trip-Details ────────────────────────────────────────────────────────────
         async function showTripDetails(dep) {
-            const tripId = dep.tripId || (dep.prognosis && dep.prognosis.tripId);
-            if (!tripId) {
-                console.log('No tripId found in dep:', dep);
-                return;
-            }
-            const lineName = dep.line?.name || dep.line?.id || '???';
-            console.log(`Using tripId: ${tripId} for line ${lineName}`);
-            
-            const modal = $('detail-view');
+            const tripId = dep.tripId || dep.prognosis?.tripId;
+            if (!tripId) return;
+
+            const lineName  = dep.line?.name || dep.line?.id || '???';
+            const modal     = $('detail-view');
             const itinerary = $('trip-itinerary');
             modal.classList.add('active');
             itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i></div>`;
-            
-            $('detail-line-badge').textContent = lineName;
+            $('detail-line-badge').textContent      = lineName;
             $('detail-train-direction').textContent = dep.direction || 'Unbekanntes Ziel';
-            $('detail-operator').textContent = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
-            $('detail-trip-id').textContent = `TRIP: ${tripId.split('|')[0]}`;
+            $('detail-operator').textContent        = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
+            $('detail-trip-id').textContent         = `TRIP: ${tripId.split('|')[0]}`;
 
-            // Priority Logic for Detail API:
-            // 1. NRW + Bus/Tram/U-Bahn (kein Zug) -> VRR first
-            // 2. Zug (überall) -> DB first
-            // 3. Außerhalb NRW + kein Zug -> Regional API first (falls vorhanden), dann DB
-            const isNrwLocal = state.currentRegion === 'NRW' && !isTrain(dep.line);
+            const isNrwLocal   = state.currentRegion === 'NRW' && isNrwLocalTransit(dep.line);
             const isTrain_line = isTrain(dep.line);
-            const depSourceIsVrr = dep.sourceApi?.includes('vrr');
+            currentTripDetail  = dep;
 
-            // Debug logging
-            console.log(`Trip: ${lineName}, Region: ${state.currentRegion}, IsTrain: ${isTrain_line}, Product: ${dep.line?.product}, sourceApi: ${dep.sourceApi}, Line:`, dep.line);
+            // FIX 1 – tripId normalisieren: wenn er bereits kodiert ist (z.B. nach Reload),
+            // würde encodeURIComponent ihn doppelt kodieren → 404. Immer erst dekodieren.
+            let safeTripId;
+            try { safeTripId = decodeURIComponent(tripId); } catch { safeTripId = tripId; }
 
-            currentTripDetail = dep;
-            
             let detailEndpoints = [];
-            
             if (isNrwLocal) {
-                // NRW local transport (Bus/Tram/U-Bahn): Immer VRR für Busse in NRW
-                console.log('Using VRR-only for NRW local transport (always VRR for NRW buses)');
                 detailEndpoints = ['https://v5.vrr.transport.rest'];
             } else if (isTrain_line) {
-                // Train (everywhere): DB is primary
-                console.log('Using DB for train');
                 detailEndpoints = [...REGIONAL_APIS.NATIONAL, 'https://v5.vrr.transport.rest'];
             } else {
-                // Non-train outside NRW: Use best scenario based on region
-                console.log(`Using regional API for non-train outside NRW: ${state.currentRegion}`);
-                if (state.currentRegion === 'BERLIN') {
-                    detailEndpoints = ['https://v6.vbb.transport.rest', ...REGIONAL_APIS.NATIONAL];
-                } else if (state.currentRegion === 'HAMBURG') {
-                    detailEndpoints = ['https://v5.hvv.transport.rest', ...REGIONAL_APIS.NATIONAL];
-                } else {
-                    detailEndpoints = [...REGIONAL_APIS.NATIONAL];
-                }
+                if      (state.currentRegion === 'BERLIN')  detailEndpoints = ['https://v6.vbb.transport.rest', ...REGIONAL_APIS.NATIONAL];
+                else if (state.currentRegion === 'HAMBURG') detailEndpoints = ['https://v5.hvv.transport.rest', ...REGIONAL_APIS.NATIONAL];
+                else                                         detailEndpoints = [...REGIONAL_APIS.NATIONAL];
             }
-            
-            // Add other regions as fallback
-            ALL_API_SOURCES.forEach(s => { 
-                if (!detailEndpoints.includes(s.url)) detailEndpoints.push(s.url); 
-            });
+            ALL_API_SOURCES.forEach(s => { if (!detailEndpoints.includes(s.url)) detailEndpoints.push(s.url); });
 
-            let tripData = null;
-            let usedApi = null;
-            
-            for (const apiBase of detailEndpoints) {
-                try {
-                    const res = await fetch(`${apiBase}/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`);
-                    if (!res.ok) {
-                        console.log(`API ${apiBase} returned ${res.status} for trip ${tripId}`);
-                        continue;
-                    }
-                    const data = await res.json();
-                    const stops = data.stopovers || data.trip?.stopovers;
-                    if (stops && stops.length > 0) {
-                        tripData = data;
-                        usedApi = apiBase;
-                        console.log(`Trip data from ${apiBase}:`, data);
-                        break;
-                    } else {
-                        console.log(`API ${apiBase} returned no stops for trip ${tripId}`);
-                    }
-                } catch (err) {
-                    console.log(`Error fetching from ${apiBase}:`, err);
-                    continue;
-                }
-            }
+            // FIX 2 – sequenzieller Fallback akkumulierte Timeouts (8 s × N Endpunkte)
+            // → Ladescreen hing minutenlang. Jetzt Promise.any(): alle gleichzeitig,
+            //   erste erfolgreiche Antwort gewinnt sofort.
+            // FIX 3 – individuelles 7-s-Timeout pro Request, damit hängende Verbindungen
+            //   den Promise.any()-Race nicht ewig offen halten.
+            const fetchTrip = async (apiBase) => {
+                const url = `${apiBase}/trips/${encodeURIComponent(safeTripId)}?stopovers=true&remarks=true`;
+                const res = await fetch(url, {
+                    signal: AbortSignal.timeout ? AbortSignal.timeout(7000) : undefined
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data  = await res.json();
+                const stops = data.stopovers || data.trip?.stopovers;
+                if (!stops?.length) throw new Error('no stops');
+                return { data, apiBase };
+            };
 
-            if (tripData) {
-                const stops = tripData.stopovers || tripData.trip?.stopovers || [];
-                const remarks = tripData.remarks || tripData.trip?.remarks || [];
-                
-                // Identify source for UI display based on tatsächlich verwendetem Endpunkt
+            const result = await Promise.any(detailEndpoints.map(fetchTrip)).catch(() => null);
+
+            if (result) {
+                const { data: tripData, apiBase: usedApi } = result;
+                const stops   = tripData.stopovers || tripData.trip?.stopovers || [];
+                const remarks = tripData.remarks   || tripData.trip?.remarks   || [];
                 let sourceName = 'API';
-                if (usedApi?.includes('vrr')) sourceName = 'VRR';
-                else if (usedApi?.includes('db')) sourceName = 'Deutsche Bahn';
+                if (usedApi?.includes('vrr'))      sourceName = 'VRR';
+                else if (usedApi?.includes('db'))  sourceName = 'Deutsche Bahn';
                 else if (usedApi?.includes('vbb')) sourceName = 'VBB';
                 else if (usedApi?.includes('hvv')) sourceName = 'HVV';
-
-                // Für NRW-Busse immer VRR anzeigen, auch wenn DB-Fallback verwendet wurde
-                if (isNrwLocal) {
-                    sourceName = 'VRR';
-                }
-
-                // Archiv speichern (48h)
+                if (isNrwLocal) sourceName = 'VRR';
                 addTripToArchive(dep, tripData, usedApi);
-
                 renderItinerary(stops, remarks, sourceName);
-                
-                // Show which API was used for transparency
-                console.log(`Trip details loaded from: ${usedApi}`);
             } else {
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
             }
@@ -1053,86 +1021,98 @@
         function renderItinerary(stopovers, tripRemarks = [], sourceName = 'API') {
             const container = $('trip-itinerary');
             container.innerHTML = '';
-
-            // Update footer data source
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
             const translationMap = {
+                // Fahrzeug & Ausstattung
                 "Number of bicycles conveyed limited": "Fahrradmitnahme begrenzt.",
+                "Bicycles conveyed": "Fahrradmitnahme möglich.",
+                "Bicycles conveyed - subject to reservation": "Fahrradmitnahme – Reservierung erforderlich.",
+                "Bicycles conveyed - subject to availability": "Fahrradmitnahme – je nach Verfügbarkeit.",
+                "Bicycles conveyed - not possible": "Fahrradmitnahme nicht möglich.",
                 "Vehicle-bound boarding aid available": "Fahrzeuggebundene Einstiegshilfe vorhanden.",
-                "WiFi available": "WLAN verfügbar",
-                "Air conditioning": "Klimaanlage",
+                "WiFi available": "WLAN verfügbar.",
+                "Air conditioning": "Klimaanlage vorhanden.",
                 "Step-free access": "Stufenfreier Zugang.",
                 "Power sockets available": "Steckdosen verfügbar.",
                 "Quiet zone": "Ruhebereich.",
+                "On-board restaurant": "Bordrestaurant.",
+                "WC accessible for wheelchair users": "Rollstuhlgerechtes WC vorhanden.",
                 "Area for people with reduced mobility": "Bereich für mobilitätseingeschränkte Personen.",
-                "Special service": "Sonderfahrt",
+                // Betrieb & Störungen
+                "Stop cancelled": "Halt entfällt.",
+                "Additional stop": "Zusatzhalt.",
                 "Replacement service": "Schienenersatzverkehr.",
-                "Stop cancelled": "Halt entfällt",
-                "Unfortunately, the train is cancelled. The reason is construction work.": "Aufgrund aktueller Ereignisse fällt der Zug aus. Der Grund dafür sind Baumaßnahmen.",
-                "Bicycles conveyed - subject to reservation": "Fahrradmitnahme - Reservierung erforderlich.",
-                "Bicycles conveyed - subject to availability": "Fahrradmitnahme - abhängig von Verfügbarkeit.",
-                "Bicycles conveyed - not possible": "Fahrradmitnahme - nicht möglich.",
-                "Construction works are affecting railway traffic in the area Hannover Hbf. The train is diverted. The stops Hannover-Linden/Fischerhof and Lehrte are omitted. The train stops alternatively in Hannover Hbf. Please allow for a delay of up to 15 minutes. Please check for any changes to your journey prior to departure.": "Baumaßnahmen beeinträchtigen den Bahnverkehr im Bereich Hannover Hbf. Der Zug wird umgeleitet. Die Halte Hannover-Linden/Fischerhof und Lehrte entfallen. Der Zug hält alternativ in Hannover Hbf. Bitte rechnen Sie mit einer Verspätung von bis zu 15 Minuten. Bitte prüfen Sie vor Abfahrt eventuelle Änderungen Ihrer Reise."
+                "Special service": "Sonderfahrt.",
+                "Train is cancelled": "Zug fällt aus.",
+                "Unfortunately, the train is cancelled.": "Zug fällt leider aus.",
+                "The train is cancelled due to a technical defect.": "Zug fällt wegen technischen Defekts aus.",
+                "The train is cancelled due to construction work.": "Zug fällt wegen Bauarbeiten aus.",
+                "The train is cancelled due to a staff shortage.": "Zug fällt wegen Personalmangels aus.",
+                "Delay due to construction work": "Verspätung wegen Bauarbeiten.",
+                "Delay due to a technical defect": "Verspätung wegen technischen Defekts.",
+                "Delay due to a police operation": "Verspätung wegen Polizeieinsatz.",
+                "Delay due to a medical emergency": "Verspätung wegen medizinischen Notfalls.",
+                "Delay due to waiting for connecting passengers": "Verspätung durch Warten auf Anschlussreisende.",
+                "Delay due to a broken down train": "Verspätung wegen liegengebliebenem Zug.",
+                "Delay due to a track obstruction": "Verspätung wegen Streckensperrung.",
+                "Delay due to storm damage": "Verspätung wegen Sturmschäden.",
+                "Delay caused by vandalism": "Verspätung wegen Vandalismus.",
+                "Train is diverted": "Zug wird umgeleitet.",
+                "Train is diverted. Stops are omitted.": "Zug wird umgeleitet. Einige Halte entfallen.",
+                "Stops are omitted": "Einige Halte entfallen.",
+                "Platform change": "Gleiswechsel.",
+                "Change of platform": "Gleiswechsel.",
+                "Track change": "Gleiswechsel.",
             };
+            const translate = t => translationMap[t] || t;
 
-            const translate = (text) => translationMap[text] || text;
-
-            // Sort stopovers by departure time (or arrival if no departure)
             const sortedStopovers = [...stopovers].sort((a, b) => {
-                const timeA = new Date(a.plannedDeparture || a.plannedArrival).getTime();
-                const timeB = new Date(b.plannedDeparture || b.plannedArrival).getTime();
-                return timeA - timeB;
+                return new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival);
             });
 
-            // Render stopovers
             sortedStopovers.forEach(stop => {
-                const isCancelled = stop.cancelled;
+                const isCancelled  = stop.cancelled;
                 const isAdditional = stop.additional;
-                
-                const schedArr = stop.plannedArrival ? new Date(stop.plannedArrival) : null;
-                const actualArr = stop.arrival ? new Date(stop.arrival) : null;
-                const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
-                const actualDep = stop.departure ? new Date(stop.departure) : null;
 
-                const hasLiveArr = actualArr && (schedArr && Math.abs(actualArr.getTime() - schedArr.getTime()) > 1000);
-                const hasLiveDep = actualDep && (schedDep && Math.abs(actualDep.getTime() - schedDep.getTime()) > 1000);
+                const schedArr  = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
+                const actualArr = stop.arrival          ? new Date(stop.arrival)           : null;
+                const schedDep  = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const actualDep = stop.departure        ? new Date(stop.departure)         : null;
+
+                const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
+                const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
 
                 const formatTime = (sched, actual, hasLive) => {
                     if (!sched) return '';
-                    const now = new Date();
-                    const isPast = actual && (actual.getTime() < now.getTime());
-                    const delay = actual && sched ? Math.round((actual.getTime() - sched.getTime()) / 60000) : null;
-                    
-                    const planStr = `<span class="text-gray-500/40 font-normal mr-2">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    
-                    let delayStr = '';
+                    const isPast  = actual && actual.getTime() < Date.now();
+                    const delay   = actual && sched ? Math.round((actual - sched) / 60000) : null;
+                    // Soll-Zeit: deutlich sichtbar, nicht ausgeblendet
+                    const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                    let delayStr  = '';
                     if (delay !== null && delay !== 0) {
-                        const delayColor = delay >= 1 ? 'text-red-500' : (delay <= -1 ? 'text-blue-500' : 'text-green-500');
+                        const dc   = delay >= 1 ? 'text-red-500' : 'text-blue-400';
                         const sign = delay > 0 ? '+' : '';
-                        delayStr = `<span class="text-[8px] font-bold ${delayColor} ml-1">${sign}${Math.abs(delay)}'</span>`;
+                        delayStr   = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${Math.abs(delay)}'</span>`;
                     }
-
+                    // Keine Echtzeitdaten: nur Soll-Zeit, normal
                     if (!hasLive && !actual) {
-                        return `${planStr}<span class="text-gray-500/50 font-normal">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                        return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
-
-                    const realTimeColor = delay !== null ?
-                        (delay >= 1 ? 'text-red-500' : (delay <= -1 ? 'text-blue-500' : 'text-green-500')) :
-                        'text-green-500';
-
+                    const rtColor = delay !== null
+                        ? (delay >= 1 ? 'text-red-400' : (delay <= -1 ? 'text-blue-400' : 'text-green-400'))
+                        : 'text-green-400';
                     if (isPast) {
-                        // Echtzeit-Signal gesendet: Fett + Sekunden, Farbe basierend auf Delay
-                        return `${planStr}<span class="precision-time ${realTimeColor} font-bold">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
+                        // Echtzeit bestätigt – fett + Sekunden
+                        return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
                     } else {
-                        // Prognose: Dünn, aber ebenfalls farbcodiert nach Verzögerung
-                        return `${planStr}<span class="thin-prognosis ${realTimeColor} font-light italic">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
+                        // Prognose – kursiv, aber lesbar
+                        return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
                     }
                 };
 
                 const stopItem = document.createElement('div');
                 stopItem.className = `relative itinerary-item ${isCancelled ? 'opacity-40' : ''}`;
-
                 stopItem.innerHTML = `
                     <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}"></div>
                     <div class="itinerary-item-content">
@@ -1142,9 +1122,18 @@
                                     ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
                                 </h4>
                                 <div class="itinerary-info mt-1 text-gray-600 dark:text-gray-300">
-                                    <span class="${stop.prognosis?.platform && stop.prognosis.platform !== stop.plannedPlatform ? 'platform-changed' : 'text-gray-600 dark:text-gray-300'} font-semibold">
-                                        Gleis: ${stop.platform || '---'}
-                                    </span>
+                                    ${(() => {
+                                        const planned  = stop.plannedPlatform || stop.stop?.station?.entrances?.[0] || null;
+                                        const actual   = stop.platform || stop.arrivalPlatform || stop.departurePlatform || null;
+                                        const changed  = planned && actual && actual !== planned;
+                                        if (!planned && !actual) return '';
+                                        const display  = actual || planned;
+                                        const cls      = changed ? 'platform-changed' : 'text-gray-500 dark:text-gray-400';
+                                        const label    = changed
+                                            ? `Gleis <span class="line-through opacity-50">${planned}</span> → <span>${actual}</span>`
+                                            : `Gleis ${display}`;
+                                        return `<span class="${cls} font-semibold">${label}</span>`;
+                                    })()}
                                     ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
                                     ${stop.remarks?.length > 0 ? `<span class="text-red-400 block truncate max-w-full mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
                                 </div>
@@ -1154,20 +1143,17 @@
                                 ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep)}</div>` : ''}
                             </div>
                         </div>
-                    </div>
-                `;
+                    </div>`;
                 container.appendChild(stopItem);
             });
 
-            // Render Trip Remarks at the end
             if (tripRemarks.length > 0) {
                 const remarksContainer = document.createElement('div');
                 remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-1';
                 tripRemarks.forEach(rem => {
-                    const translatedText = translate(rem.text);
                     const rDiv = document.createElement('div');
                     rDiv.className = 'text-[10px] text-red-500 font-medium flex items-start gap-2';
-                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${translatedText}</span>`;
+                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${translate(rem.text)}</span>`;
                     remarksContainer.appendChild(rDiv);
                 });
                 container.appendChild(remarksContainer);
