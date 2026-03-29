@@ -13,35 +13,36 @@
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
         
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; }
-        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; color: var(--text); outline: none; }
+        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; color: var(--text); outline: none; width: 100%; box-sizing: border-box; }
         input:focus { border-color: var(--db-red); }
 
         #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 6000; display: none; border-radius: 12px; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; }
+        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .dd-item:hover { background: var(--hover); }
 
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; }
         .line-badge { background: var(--db-red); color: white; font-weight: 900; padding: 3px 7px; border-radius: 5px; font-size: 13px; margin-bottom: 4px; display: inline-block; }
-        .cancelled { text-decoration: line-through; opacity: 0.6; }
+        .is-cancelled { text-decoration: line-through; opacity: 0.5; }
         
-        .remarks { font-size: 11px; color: var(--red); margin-top: 4px; display: block; font-weight: 600; }
-        .platform-badge { font-size: 11px; background: var(--border); padding: 2px 5px; border-radius: 4px; margin-top: 5px; display: inline-block; }
+        .remarks { font-size: 11px; color: var(--red); margin-top: 4px; display: block; font-weight: 600; line-height: 1.2; }
+        .platform-badge { font-size: 11px; background: var(--border); padding: 2px 6px; border-radius: 4px; margin-top: 5px; display: inline-block; font-weight: bold; }
 
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); }
+        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
         
-        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 90px 1fr 60px; gap: 10px; border-bottom: 1px solid var(--border); align-items: center; }
-        .t-plan { font-size: 10px; color: var(--sub); text-decoration: line-through; }
-        .t-act { font-weight: bold; font-size: 14px; }
+        .stop-row { padding: 14px 20px; display: grid; grid-template-columns: 110px 1fr 60px; gap: 12px; border-bottom: 1px solid var(--border); align-items: center; }
+        .t-plan { font-size: 10px; color: var(--sub); text-decoration: line-through; display: block; }
+        .t-act { font-weight: bold; font-size: 14px; font-variant-numeric: tabular-nums; }
         .v-delay { color: var(--red); }
         .v-ontime { color: var(--green); }
-        .status-tag { font-size: 9px; padding: 2px 4px; border-radius: 3px; font-weight: bold; text-transform: uppercase; }
+        .tag { font-size: 9px; padding: 2px 4px; border-radius: 3px; font-weight: bold; margin-top: 3px; display: inline-block; }
     </style>
 </head>
 <body data-theme="dark">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer;">🌙</span>
+    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 20px;">🌙</span>
 </div>
 
 <div class="search-area">
@@ -50,14 +51,17 @@
     <div style="display:flex; gap:8px;">
         <input type="date" id="date_inp">
         <input type="time" id="time_inp">
-        <button style="background:var(--db-red); color:white; border:none; border-radius:10px; padding:0 15px; font-weight:bold;" onclick="setNow()">Jetzt</button>
+        <button style="background:var(--db-red); color:white; border:none; border-radius:10px; padding:0 20px; font-weight:bold; cursor:pointer;" onclick="setNow()">Jetzt</button>
     </div>
 </div>
 
 <div id="results"></div>
 
 <div id="ov_trip" class="ov">
-    <div class="ov-bar"><span id="ov_title"></span><span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span></div>
+    <div class="ov-bar">
+        <span id="ov_title" style="font-weight:bold; font-size:18px;"></span>
+        <span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span>
+    </div>
     <div id="trip_content"></div>
 </div>
 
@@ -69,32 +73,43 @@
         const n = new Date();
         document.getElementById('date_inp').value = n.toISOString().split('T')[0];
         document.getElementById('time_inp').value = n.toTimeString().slice(0,5);
+        if(activeId) loadDeps();
     }
 
     async function doSearch() {
-        const q = document.getElementById('inp').value;
-        if(q.length < 3) return;
+        const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
+        if(q.length < 3) { dd.style.display = 'none'; return; }
+        
         dd.style.display = 'block';
-        dd.innerHTML = '...';
+        dd.innerHTML = '<div style="padding:10px; opacity:0.5;">Suche...</div>';
         
-        const results = await Promise.allSettled([
-            fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json()),
-            fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json())
-        ]);
-        
-        let html = '';
-        results.forEach((res, i) => {
-            if(res.status === 'fulfilled') {
-                const data = Array.isArray(res.value) ? res.value : (res.value.stations || res.value.stops || []);
-                data.forEach(l => {
-                    html += `<div class="dd-item" onclick="pick('${l.id}','${l.name}','${i==0?APIS.DB:APIS.VRR}')">
-                        <span>${l.name}</span><small>${i==0?'DB':'VRR'}</small>
-                    </div>`;
+        try {
+            // Wir suchen parallel in beiden APIs
+            const fetches = Object.entries(APIS).map(([key, url]) => 
+                fetch(`${url}/locations?query=${encodeURIComponent(q)}&results=5`)
+                .then(r => r.json())
+                .then(data => ({ key, data: Array.isArray(data) ? data : (data.stations || data.stops || []) }))
+                .catch(() => ({ key, data: [] }))
+            );
+
+            const results = await Promise.all(fetches);
+            let html = '';
+            
+            results.forEach(res => {
+                res.data.forEach(l => {
+                    if (l.id && l.name) {
+                        html += `<div class="dd-item" onclick="pick('${l.id}','${l.name.replace(/'/g, "\\'")}','${APIS[res.key]}')">
+                            <span>${l.name}</span><small style="opacity:0.5; background:var(--border); padding:2px 4px; border-radius:4px; font-size:9px;">${res.key}</small>
+                        </div>`;
+                    }
                 });
-            }
-        });
-        dd.innerHTML = html;
+            });
+
+            dd.innerHTML = html || '<div style="padding:10px;">Keine Station gefunden</div>';
+        } catch(e) { 
+            dd.innerHTML = '<div style="padding:10px;">Fehler bei der Suche</div>';
+        }
     }
 
     function pick(id, name, api) {
@@ -106,77 +121,100 @@
 
     async function loadDeps() {
         const res = document.getElementById('results');
-        res.innerHTML = "Lade...";
-        const when = `${document.getElementById('date_inp').value}T${document.getElementById('time_inp').value}`;
+        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Abfahrten...</div>";
+        const d = document.getElementById('date_inp').value;
+        const t = document.getElementById('time_inp').value;
+        const when = d && t ? `${d}T${t}` : "";
         
         try {
-            const data = await fetch(`${activeApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60&when=${when}&remarks=true`).then(r => r.json());
-            const deps = data.departures || data;
+            const data = await fetch(`${activeApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60${when ? '&when='+when : ''}&remarks=true`).then(r => r.json());
+            const deps = data.departures || data || [];
             
+            if(deps.length === 0) { res.innerHTML = "<div style='padding:20px;'>Keine Abfahrten gefunden.</div>"; return; }
+
             res.innerHTML = deps.map(d => {
-                const isCancelled = d.cancelled;
-                const delay = Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 60000);
-                const reasons = (d.remarks || []).filter(r => r.type === 'warning').map(r => r.text);
+                const isCancelled = d.cancelled === true;
+                const pTime = d.plannedWhen || d.when;
+                const rTime = d.when || d.plannedWhen;
+                const delay = Math.round((new Date(rTime) - new Date(pTime)) / 60000);
+                const reasons = (d.remarks || []).filter(r => r.type === 'warning' || r.type === 'status').map(r => r.text);
+                const platformLabel = activeApi.includes('vrr') ? 'Steig ' : 'Gl. ';
                 
                 return `
                 <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
-                    <div style="flex:1">
+                    <div style="flex:1; padding-right:10px;">
                         <span class="line-badge">${d.line.name}</span>
-                        <div class="${isCancelled ? 'cancelled' : ''}" style="font-weight:bold">${d.direction}</div>
-                        ${isCancelled ? '<span class="remarks">⚠️ Fahrt fällt aus</span>' : ''}
+                        <div class="${isCancelled ? 'is-cancelled' : ''}" style="font-weight:bold">${d.direction}</div>
+                        ${isCancelled ? '<span class="remarks">✕ FAHRT FÄLLT AUS</span>' : ''}
                         ${reasons.map(r => `<span class="remarks">⚠️ ${r}</span>`).join('')}
                     </div>
-                    <div style="text-align:right">
-                        <div style="font-size:12px; opacity:0.6">${fTime(d.plannedWhen)}</div>
-                        <div class="t-act ${delay > 0 ? 'v-delay' : 'v-ontime'}">${isCancelled ? '--:--' : fTime(d.when)}</div>
-                        <div class="platform-badge">${d.platform ? (activeApi.includes('vrr') ? 'Steig ' : 'Gl. ') + d.platform : '--'}</div>
+                    <div style="text-align:right; min-width:80px;">
+                        <div style="font-size:12px; opacity:0.6">${fTime(pTime)}</div>
+                        <div class="t-act ${delay > 0 ? 'v-delay' : 'v-ontime'}">${isCancelled ? '--:--' : fTime(rTime)}</div>
+                        <div class="platform-badge">${d.platform ? platformLabel + d.platform : '--'}</div>
                     </div>
                 </div>`;
             }).join('');
-        } catch(e) { res.innerHTML = "Fehler."; }
+        } catch(e) { res.innerHTML = "<div style='padding:20px;'>Fehler beim Laden der Abfahrten.</div>"; }
     }
 
     async function loadTrip(tid, line, api) {
-        if(!tid) return;
+        if(!tid) { alert("Keine Fahrt-ID verfügbar."); return; }
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "Lade Verlauf...";
+        cont.innerHTML = "<div style='padding:20px; opacity:0.5;'>Fahrtverlauf wird geladen...</div>";
         
         try {
             const trip = await fetch(`${api}/trips/${encodeURIComponent(tid)}`).then(r => r.json());
-            const stops = trip.stopovers || trip.trip.stopovers;
-            document.getElementById('ov_title').innerText = line;
+            const stops = trip.stopovers || (trip.trip && trip.trip.stopovers) || [];
+            document.getElementById('ov_title').innerText = "Fahrtverlauf " + line;
             
             cont.innerHTML = stops.map(s => {
-                const arrDel = Math.round((new Date(s.arrival) - new Date(s.plannedArrival)) / 60000);
-                const depDel = Math.round((new Date(s.departure) - new Date(s.plannedDeparture)) / 60000);
+                const isStopCancelled = s.cancelled === true;
                 
+                const renderStopTimes = (planned, actual, label) => {
+                    if(!planned) return '';
+                    const dly = Math.round((new Date(actual || planned) - new Date(planned)) / 60000);
+                    return `<div>
+                        <span class="t-plan">${fTime(planned)}</span>
+                        <span class="t-act ${dly > 0 ? 'v-delay' : 'v-ontime'}">${fTime(actual || planned)}</span>
+                        <small style="font-size:9px; color:var(--sub)"> ${label}</small>
+                    </div>`;
+                };
+
                 return `
-                <div class="stop-row ${s.cancelled ? 'cancelled' : ''}">
-                    <div style="display:flex; flex-direction:column; font-size:11px;">
-                        ${s.plannedArrival ? `<div><span class="t-plan">${fTime(s.plannedArrival)}</span> <span class="${arrDel>0?'v-delay':'v-ontime'}">${fTime(s.arrival)}</span></div>` : ''}
-                        ${s.plannedDeparture ? `<div><span class="t-plan">${fTime(s.plannedDeparture)}</span> <span class="${depDel>0?'v-delay':'v-ontime'}">${fTime(s.departure)}</span></div>` : ''}
+                <div class="stop-row ${isStopCancelled ? 'is-cancelled' : ''}">
+                    <div style="display:flex; flex-direction:column; line-height:1.3;">
+                        ${renderStopTimes(s.plannedArrival, s.arrival, 'AN')}
+                        ${renderStopTimes(s.plannedDeparture, s.departure, 'AB')}
                     </div>
                     <div>
-                        <div style="font-weight:bold">${s.stop.name}</div>
-                        ${s.cancelled ? '<b style="color:var(--red); font-size:10px;">HALT ENTFÄLLT</b>' : ''}
-                        ${s.additional ? '<b style="color:var(--green); font-size:10px;">ZUSATZHALT</b>' : ''}
+                        <div style="font-weight:bold; font-size:14px;">${s.stop.name}</div>
+                        ${isStopCancelled ? '<span class="tag" style="background:var(--red); color:white;">HALT ENTFÄLLT</span>' : ''}
+                        ${s.additional ? '<span class="tag" style="background:var(--green); color:white;">ZUSATZHALT</span>' : ''}
                     </div>
-                    <div style="font-size:12px; text-align:right">${s.platform || ''}</div>
+                    <div style="font-size:12px; text-align:right; font-weight:bold; color:var(--sub)">${s.platform || ''}</div>
                 </div>`;
             }).join('');
-        } catch(e) { cont.innerHTML = "Trip-Daten nicht verfügbar."; }
+        } catch(e) { cont.innerHTML = "<div style='padding:20px;'>Verlauf zurzeit nicht verfügbar.</div>"; }
     }
 
-    function fTime(iso) { return iso ? new Date(iso).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : ''; }
+    function fTime(iso) { 
+        if(!iso) return '';
+        const d = new Date(iso);
+        return d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}); 
+    }
+    
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
+    
     function toggleTheme() {
         const d = document.body;
         const isDark = d.getAttribute('data-theme') === 'dark';
         d.setAttribute('data-theme', isDark ? 'light' : 'dark');
         document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
     }
+    
     setNow();
 </script>
 </body>
