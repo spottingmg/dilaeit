@@ -86,36 +86,50 @@
         if(activeId) loadDeps();
     }
 
-    async function doSearch() {
-        const q = document.getElementById('inp').value.trim();
-        const dd = document.getElementById('dropdown');
-        if (q.length < 3) { dd.style.display = 'none'; return; }
+  async function doSearch() {
+    const q = document.getElementById('inp').value.trim();
+    const dd = document.getElementById('dropdown');
+    if (q.length < 3) { dd.style.display = 'none'; return; }
+    
+    if (searchController) searchController.abort();
+    searchController = new AbortController();
+    
+    dd.style.display = 'block';
+    dd.innerHTML = "<div style='padding:10px; opacity:0.5;'>Suche...</div>";
+    
+    try {
+        const results = await Promise.allSettled([
+            fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json()),
+            fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json())
+        ]);
         
-        if (searchController) searchController.abort();
-        searchController = new AbortController();
+        let merged = [];
+        results.forEach((res, i) => { 
+            if(res.status === "fulfilled") {
+                // WICHTIG: Prüfen, ob die Daten direkt ein Array sind oder in einem Unterobjekt stecken
+                const data = Array.isArray(res.value) ? res.value : (res.value.stations || res.value.stops || []);
+                const sourceLabel = i === 0 ? 'DB' : 'VRR';
+                merged = [...merged, ...data.map(l => ({...l, src: sourceLabel}))]; 
+            }
+        });
         
-        dd.style.display = 'block';
-        dd.innerHTML = "<div style='padding:10px; opacity:0.5;'>Suche...</div>";
-        
-        try {
-            const results = await Promise.allSettled([
-                fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json()),
-                fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json())
-            ]);
-            
-            let merged = [];
-            results.forEach((res, i) => { 
-                if(res.status === "fulfilled") {
-                    const data = Array.isArray(res.value) ? res.value : [];
-                    merged = [...merged, ...data.map(l => ({...l, src: i === 0 ? 'DB' : 'VRR'}))]; 
-                }
-            });
-            
-            dd.innerHTML = merged.map(l => `<div class="dd-item" onclick="pick('${l.id}', '${l.name}', '${APIS[l.src]}')"><span>${l.name}</span> <small style="opacity:0.5">${l.src}</small></div>`).join('') || "<div style='padding:10px;'>Nichts gefunden</div>";
-        } catch(e) { 
-            if(e.name !== 'AbortError') dd.style.display = 'none'; 
+        if (merged.length === 0) {
+            dd.innerHTML = "<div style='padding:10px;'>Nichts gefunden</div>";
+        } else {
+            dd.innerHTML = merged.map(l => `
+                <div class="dd-item" onclick="pick('${l.id}', '${l.name}', '${APIS[l.src]}')">
+                    <span>${l.name}</span> 
+                    <small style="opacity:0.5; background: #3a3a3c; padding: 2px 5px; border-radius: 4px; font-size: 10px;">${l.src}</small>
+                </div>
+            `).join('');
+        }
+    } catch(e) { 
+        if(e.name !== 'AbortError') {
+            console.error(e);
+            dd.style.display = 'none';
         }
     }
+}
 
     function pick(id, name, api) {
         activeId = id; activeApi = api;
