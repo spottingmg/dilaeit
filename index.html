@@ -704,16 +704,25 @@
             for (const apiBase of searchOrder) {
                 try {
                     const url = `${apiBase}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
-                    const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : null });
-                    if (!res.ok) continue;
+                    console.log(`Trying API: ${apiBase} for station ${state.currentStation.id}`);
+                    const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : null });
+                    console.log(`API ${apiBase} response status: ${res.status}`);
+                    if (!res.ok) {
+                        console.log(`API ${apiBase} failed with status ${res.status}`);
+                        continue;
+                    }
 
                     state.isRateLimited = false;
                     const data = await res.json();
                     const departures = Array.isArray(data) ? data : (data.departures || []);
+                    console.log(`API ${apiBase} returned ${departures.length} departures`);
                     state.departures = departures.map(d => ({ ...d, sourceApi: apiBase }));
                     renderDepartures();
                     return;
-                } catch (err) { lastError = err; }
+                } catch (err) {
+                    console.log(`API ${apiBase} error:`, err);
+                    lastError = err;
+                }
             }
 
             $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der regionalen Daten.</div>`;
