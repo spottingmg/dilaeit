@@ -2,75 +2,88 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | GitHub Edition</title>
+    <title>dilaeit | V6 Final Logic</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
-        body { font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
-        input { width: 100%; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: white; font-size: 16px; box-sizing: border-box; outline: none; }
-        #dropdown { background: var(--card); border-radius: 12px; border: 1px solid var(--border); margin-top: 5px; display: none; }
-        .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
-        .row { padding: 15px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
-        .line { background: var(--db-red); color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
-        .delay { color: var(--red); }
-        .ontime { color: var(--green); }
-        #status { font-size: 10px; color: #888; margin-top: 10px; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { color: var(--db-red); font-weight: 900; margin: 0; text-transform: lowercase; }
+        .search-area { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; position: relative; }
+        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: white; font-size: 16px; outline: none; width: 100%; box-sizing: border-box; }
+        #dropdown { position: absolute; top: 55px; left: 0; right: 0; background: var(--card); border-radius: 12px; z-index: 100; border: 1px solid var(--border); display: none; max-height: 200px; overflow-y: auto; }
+        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        
+        .row { background: var(--card); padding: 14px; border-radius: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; border: 1px solid var(--border); cursor: pointer; }
+        .line-badge { background: var(--db-red); color: white; padding: 3px 7px; border-radius: 5px; font-weight: 800; font-size: 12px; }
+        .dest { font-weight: 600; margin-top: 4px; }
+        
+        .time-box { text-align: right; }
+        .plan { font-size: 11px; color: var(--sub); font-weight: 300; line-height: 1.2; }
+        .actual { font-size: 17px; }
+        .v-green { color: var(--green); }
+        .v-red { color: var(--red); }
+
+        /* Overlay Fahrtverlauf */
+        #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:1000; overflow-y:auto; padding:20px; }
+        .ov-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:0; background:var(--bg); padding:10px 0; }
+        .stop-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); align-items: center; }
+        .stop-times { display: flex; gap: 10px; align-items: center; }
+        .prog { font-weight: 300; font-size: 13px; line-height: 1.2; }
+        .has-seconds { font-weight: 900; } /* Sekunden fett */
+        
+        #archive-section { margin-top: 30px; border-top: 1px solid var(--border); padding-top: 10px; }
     </style>
 </head>
 <body>
 
-<h1 style="color:var(--db-red); margin: 0 0 20px 0;">dilaeit</h1>
+<div class="header">
+    <h1>dilaeit</h1>
+    <div style="font-size: 12px; color: var(--sub);" id="api-status">V6 Live</div>
+</div>
 
-<input type="text" id="inp" placeholder="Station (z.B. Köln Hbf)" oninput="debounceSearch()" autocomplete="off">
-<div id="dropdown"></div>
+<div class="search-area">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
+    <div id="dropdown"></div>
+    <div style="display: flex; gap: 8px;">
+        <input type="date" id="sel_date" style="flex:1">
+        <input type="time" id="sel_time" style="flex:1">
+    </div>
+</div>
 
-<div id="status">Bereit für GitHub Test...</div>
-<div id="results" style="margin-top:20px"></div>
+<div id="results"></div>
+
+<div id="ov">
+    <div class="ov-header">
+        <h2 id="ov-title" style="margin:0; font-size:18px;">Fahrtverlauf</h2>
+        <span onclick="closeOv()" style="font-size:30px; cursor:pointer;">×</span>
+    </div>
+    <div id="ov-content"></div>
+</div>
+
+<div id="archive-section">
+    <div style="font-size:12px; color:var(--sub); margin-bottom:10px;">ARCHIV (48H)</div>
+    <div id="archive-content"></div>
+</div>
 
 <script>
-    const API_BASE = "https://eu.transitous.org";
+    const API = "https://v6.db.transport.rest";
     let timer;
 
-    async function fetchViaProxy(url, isPost = false, body = null) {
-        // Wir nutzen den AllOrigins JSON-Wrapper, der auf GitHub am stabilsten läuft
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-        
-        try {
-            const response = await fetch(proxyUrl);
-            const data = await response.json();
-            // AllOrigins packt die Antwort in ein "contents" Feld als String
-            return JSON.parse(data.contents);
-        } catch (e) {
-            document.getElementById('status').innerText = "Proxy-Fehler: " + e.message;
-            throw e;
-        }
-    }
+    const n = new Date();
+    document.getElementById('sel_date').value = n.toISOString().split('T')[0];
+    document.getElementById('sel_time').value = n.toTimeString().slice(0,5);
+
+    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
 
     async function doSearch() {
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if(q.length < 2) { dd.style.display = 'none'; return; }
-
+        const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=5`);
+        const data = await res.json();
+        dd.innerHTML = data.map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">${s.name}</div>`).join('');
         dd.style.display = 'block';
-        dd.innerHTML = '<div class="dd-item">Suche...</div>';
-
-        try {
-            // Wir nutzen die GET-Schnittstelle für den Guesser
-            const data = await fetchViaProxy(`${API_BASE}/guesser?input=${encodeURIComponent(q)}`);
-            
-            if(!data.guesses || data.guesses.length === 0) {
-                dd.innerHTML = '<div class="dd-item">Keine Treffer</div>';
-                return;
-            }
-
-            dd.innerHTML = data.guesses.map(g => `
-                <div class="dd-item" onclick="pick('${g.id}', '${g.name}')">
-                    <strong>${g.name}</strong>
-                </div>
-            `).join('');
-        } catch(e) {
-            dd.innerHTML = '<div class="dd-item">Fehler beim Laden.</div>';
-        }
     }
 
     function pick(id, name) {
@@ -80,35 +93,100 @@
     }
 
     async function loadBoard(id) {
-        const res = document.getElementById('results');
-        res.innerHTML = "Lade Abfahrten...";
-        const now = Math.floor(Date.now() / 1000);
+        const resDiv = document.getElementById('results');
+        resDiv.innerHTML = "Lade...";
+        const d = document.getElementById('sel_date').value;
+        const t = document.getElementById('sel_time').value;
+        const iso = new Date(`${d}T${t}`).toISOString();
 
-        try {
-            // Wir nutzen hier den direkten STB-Endpunkt als GET (viele Proxies mögen kein POST)
-            const data = await fetchViaProxy(`${API_BASE}/stb/stop_board?stop_id=${id}&time=${now}&direction=Departure&event_count=15`);
+        const res = await fetch(`${API}/stops/${id}/departures?when=${iso}&duration=60`);
+        const deps = await res.json();
+        
+        resDiv.innerHTML = (deps.departures || deps).map(d => {
+            const plan = new Date(d.plannedWhen);
+            const act = d.when ? new Date(d.when) : plan;
+            const delay = d.delay ? Math.round(d.delay / 60) : 0;
+            const timeStr = act.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
             
-            res.innerHTML = data.content.entries.map(e => {
-                const delay = Math.round((e.event.time - e.event.schedule_time) / 60);
-                const time = new Date(e.event.schedule_time * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-                return `
-                <div class="row">
+            return `
+                <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name || 'Zug'}')">
                     <div>
-                        <span class="line">${e.line_id || 'Zug'}</span>
-                        <div style="margin-top:5px; font-weight:bold">${e.direction}</div>
+                        <span class="line-badge">${d.line?.name || 'Zug'}</span>
+                        <div class="dest">${d.direction}</div>
                     </div>
-                    <div style="text-align:right">
-                        <div style="font-size:12px; opacity:0.5">${time}</div>
-                        <div class="${delay > 0 ? 'delay' : 'ontime'}">${delay > 0 ? '+' + delay : 'Pünktlich'}</div>
+                    <div class="time-box">
+                        <div class="plan">${plan.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'})}</div>
+                        <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}">${timeStr}</div>
                     </div>
                 </div>`;
-            }).join('');
-        } catch(e) {
-            res.innerHTML = "Abfahrten konnten nicht geladen werden.";
-        }
+        }).join('');
     }
 
-    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 500); }
+    async function openTrip(tripId, lineName) {
+        const ov = document.getElementById('ov');
+        const cont = document.getElementById('ov-content');
+        document.getElementById('ov-title').innerText = lineName;
+        ov.style.display = 'block';
+        cont.innerHTML = "Lade Verlauf...";
+
+        const res = await fetch(`${API}/trips/${encodeURIComponent(tripId)}`);
+        const data = await res.json();
+        
+        cont.innerHTML = data.trip.stopovers.map(s => {
+            const formatTime = (iso) => {
+                if(!iso) return { hm: '--:--', s: '00', full: '--:--' };
+                const dt = new Date(iso);
+                const hm = dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+                const sec = dt.toLocaleTimeString('de-DE', {second:'2-digit'});
+                return { hm, s: sec, full: hm + (sec !== '00' ? ':' + sec : '') };
+            };
+
+            const pAn = formatTime(s.plannedArrival);
+            const pAb = formatTime(s.plannedDeparture);
+            const aAn = formatTime(s.arrival || s.plannedArrival);
+            const aAb = formatTime(s.departure || s.plannedDeparture);
+            
+            const delAn = s.arrivalDelay ? Math.round(s.arrivalDelay/60) : 0;
+            const delAb = s.departureDelay ? Math.round(s.departureDelay/60) : 0;
+
+            const isSecAn = pAn.s !== '00' || aAn.s !== '00';
+            const isSecAb = pAb.s !== '00' || aAb.s !== '00';
+
+            return `
+                <div class="stop-row">
+                    <div class="stop-times">
+                        <div class="plan">${pAn.hm}<br>${pAb.hm}</div>
+                        <div class="prog">
+                            <div class="${delAn >= 1 ? 'v-red' : 'v-green'} ${isSecAn ? 'has-seconds' : ''}">${aAn.full}</div>
+                            <div class="${delAb >= 1 ? 'v-red' : 'v-green'} ${isSecAb ? 'has-seconds' : ''}">${aAb.full}</div>
+                        </div>
+                    </div>
+                    <div style="font-weight:600; font-size:14px;">${s.stop.name}</div>
+                </div>`;
+        }).join('');
+        
+        addToArchive(tripId, lineName, new Date().toLocaleTimeString());
+    }
+
+    function addToArchive(id, name, time) {
+        let arc = JSON.parse(localStorage.getItem('dilaeit_arc') || '[]');
+        arc.unshift({id, name, time, ts: Date.now()});
+        const limit = Date.now() - (48*3600*1000);
+        arc = arc.filter((v,i,a) => a.findIndex(t=>(t.id===v.id))===i && v.ts > limit);
+        localStorage.setItem('dilaeit_arc', JSON.stringify(arc.slice(0,10)));
+        renderArchive();
+    }
+
+    function renderArchive() {
+        const arc = JSON.parse(localStorage.getItem('dilaeit_arc') || '[]');
+        document.getElementById('archive-content').innerHTML = arc.map(a => `
+            <div class="row" style="padding:10px; margin-bottom:5px; font-size:13px;">
+                <strong>${a.name}</strong> <span style="opacity:0.5">${a.time.slice(0,5)}</span>
+            </div>`).join('');
+    }
+
+    function closeOv() { document.getElementById('ov').style.display='none'; }
+    renderArchive();
 </script>
 </body>
 </html>
