@@ -2,63 +2,114 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit|Dein Verspätungsmonitor</title>
+    <title>dilaeit | MOTIS Ultra-Stable</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
         :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
         [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; }
-        .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
+        .header { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--bg); z-index: 1000; }
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
-        .search-area { padding: 0 20px 20px; position: relative; }
-        input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; color: var(--text); outline: none; width: 100%; box-sizing: border-box; }
-        #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 6000; display: none; border-radius: 12px; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
-        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
-        .dd-item:hover { background: var(--border); }
+        .search-area { padding: 0 20px 20px; }
+        .input-group { display: flex; flex-direction: column; gap: 10px; position: relative; }
+        input, .dt-select { flex: 1; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-size: 16px; outline: none; }
+        #dropdown { position: absolute; top: 58px; left: 0; right: 0; background: var(--card); border: 1px solid var(--border); border-radius: 12px; display: none; z-index: 5000; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-        .line-badge { background: var(--db-red); color: white; font-weight: 800; padding: 3px 8px; border-radius: 6px; font-size: 12px; margin-bottom: 4px; display: inline-block; }
-        .v-delay { color: var(--red); }
+        .line-badge { background: var(--db-red); color: white; font-weight: 800; padding: 3px 8px; border-radius: 6px; font-size: 12px; }
+        .v-delay { color: var(--red); font-weight: 700; }
         .v-ontime { color: var(--green); }
-        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); }
-        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 115px 1fr; gap: 15px; border-bottom: 1px solid var(--border); }
-        .t-plan { font-size: 10px; color: var(--sub); display: block; }
-        .t-act { font-size: 15px; font-variant-numeric: tabular-nums; }
+        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 10000; overflow-y: auto; }
+        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
     </style>
 </head>
 <body data-theme="dark">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size:20px;">🌙</span>
+    <span onclick="toggleTheme()" id="tglIcon" style="cursor:pointer; font-size: 18px;">🌙</span>
 </div>
 
 <div class="search-area">
-    <input type="text" id="inp" placeholder="Station (Transitous/MOTIS)..." oninput="debounceSearch()">
-    <div id="dropdown"></div>
+    <div class="input-group">
+        <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
+        <div id="dropdown"></div>
+        <div style="display: flex; gap: 10px;">
+            <input type="date" id="sel_date" class="dt-select">
+            <input type="time" id="sel_time" class="dt-select">
+        </div>
+    </div>
 </div>
 
 <div id="results"></div>
 
 <div id="ov_trip" class="ov">
-    <div class="ov-bar"><span id="ov_title" style="font-weight:bold;"></span><span onclick="closeOv()" style="cursor:pointer; font-size:22px;">✕</span></div>
+    <div class="ov-bar">
+        <span id="ov_title" style="font-weight:bold">Fahrtverlauf</span>
+        <span onclick="closeOv()" style="cursor:pointer; font-size:24px">✕</span>
+    </div>
     <div id="trip_content"></div>
 </div>
 
 <script>
-    const API = "https://eu.transitous.org";
+    const API_URL = "https://eu.transitous.org";
+    // Liste von verschiedenen Proxies zur Ausfallsicherheit
+    const PROXIES = [
+        "https://api.allorigins.win/raw?url=",
+        "https://corsproxy.io/?",
+        "https://thingproxy.freeboard.io/fetch/",
+        "https://api.codetabs.com/v1/proxy?quest="
+    ];
+
     let timer;
+    const now = new Date();
+    document.getElementById('sel_date').value = now.toISOString().split('T')[0];
+    document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
+
+    // Diese Funktion probiert alle Proxies durch, bis einer geht
+    async function smartFetch(endpoint, method = "GET", body = null) {
+        let lastError;
+        for (const proxy of PROXIES) {
+            try {
+                const targetUrl = proxy + encodeURIComponent(API_URL + endpoint);
+                const options = {
+                    method: method,
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
+                };
+                if (body) options.body = JSON.stringify(body);
+
+                const response = await fetch(targetUrl, options);
+                if (response.ok) return await response.json();
+            } catch (e) {
+                lastError = e;
+                continue; 
+            }
+        }
+        throw new Error("Alle Verbindungswege blockiert.");
+    }
 
     async function doSearch() {
-        const q = document.getElementById('inp').value;
-        if(q.length < 3) return;
+        const q = document.getElementById('inp').value.trim();
+        const dd = document.getElementById('dropdown');
+        if(q.length < 2) { dd.style.display = 'none'; return; }
+        
+        dd.style.display = 'block';
+        dd.innerHTML = '<div class="dd-item">Suche läuft...</div>';
+
         try {
-            const r = await fetch(`${API}/guesser?input=${encodeURIComponent(q)}`);
-            const data = await r.json();
-            const dd = document.getElementById('dropdown');
-            dd.style.display = 'block';
-            dd.innerHTML = data.guesses.map(g => `<div class="dd-item" onclick="pick('${g.id}', '${g.name}')">${g.name}</div>`).join('');
-        } catch(e) {}
+            const data = await smartFetch(`/guesser?input=${encodeURIComponent(q)}`);
+            if (!data.guesses || data.guesses.length === 0) {
+                dd.innerHTML = '<div class="dd-item">Nichts gefunden.</div>';
+                return;
+            }
+            dd.innerHTML = data.guesses.map(g => `
+                <div class="dd-item" onclick="pick('${g.id}', '${g.name.replace(/'/g, "\\'")}')">
+                    <strong>${g.name}</strong><br>
+                    <small style="opacity:0.5">${g.id.split('_')[0]}</small>
+                </div>`).join('');
+        } catch(e) {
+            dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Verbindung fehlgeschlagen. Versuche es erneut.</div>';
+        }
     }
 
     function pick(id, name) {
@@ -69,112 +120,67 @@
 
     async function loadBoard(id) {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Board...</div>";
-        
-        const body = {
-            destination: { type: "Module", target: "/stb/stop_board" },
-            content_type: "StationBoardRequest",
-            content: {
-                stop_id: id,
-                time: Math.floor(Date.now() / 1000),
-                direction: "Departure",
-                event_count: 25
-            }
-        };
-
-        const r = await fetch(`${API}/`, { method: "POST", body: JSON.stringify(body) });
-        const data = await r.json();
-        
-        res.innerHTML = data.content.entries.map(e => {
-            const plan = e.event.schedule_time;
-            const act = e.event.time;
-            const diff = act - plan;
-            const isReal = e.event.reason === "Is"; 
-            
-            // Erst ab 60 Sek Verspätung rot, Verfrühung (negatives diff) bleibt grün
-            const colorClass = diff >= 60 ? "v-delay" : "v-ontime";
-            const weight = isReal ? '900' : '400';
-
-            return `
-            <div class="row" onclick="loadTrip('${e.trip_id.id}', '${e.trip_id.station_id}', ${e.trip_id.train_nr}, '${e.line_id}')">
-                <div style="flex:1">
-                    <span class="line-badge">${e.line_id || 'Zug'}</span>
-                    <div style="font-weight:bold;">${e.direction}</div>
-                </div>
-                <div style="text-align:right">
-                    <div class="t-plan">${fTime(plan, false)}</div>
-                    <div class="t-act ${colorClass}" style="font-weight:${weight}">
-                        ${fTime(act, false)}
-                    </div>
-                </div>
-            </div>`;
-        }).join('');
-    }
-
-    async function loadTrip(tripId, stationId, trainNr, line) {
-        document.getElementById('ov_trip').style.display = 'block';
-        const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Echtzeit-Verlauf...</div>";
-
-        const body = {
-            destination: { type: "Module", target: "/trip_details" },
-            content_type: "TripDetailsRequest",
-            content: { trip_id: { id: tripId, station_id: stationId, train_nr: trainNr } }
-        };
+        res.innerHTML = "<div style='padding:20px'>Lade Abfahrten...</div>";
+        const ts = Math.floor(new Date(document.getElementById('sel_date').value + 'T' + document.getElementById('sel_time').value).getTime() / 1000);
 
         try {
-            const r = await fetch(`${API}/`, { method: "POST", body: JSON.stringify(body) });
-            const data = await r.json();
-            document.getElementById('ov_title').innerText = line || "Fahrtverlauf";
+            const data = await smartFetch('/', 'POST', {
+                destination: { type: "Module", target: "/stb/stop_board" },
+                content_type: "StationBoardRequest",
+                content: { stop_id: id, time: ts, direction: "Departure", event_count: 30 }
+            });
             
-            cont.innerHTML = data.content.trip.stop_overs.map(s => {
-                const render = (type) => {
-                    const ev = s[type];
-                    if(!ev) return '';
-                    const isReal = ev.reason === "Is";
-                    const plan = ev.schedule_time;
-                    const act = ev.time;
-                    const diff = act - plan;
-                    
-                    const color = diff >= 60 ? "v-delay" : "v-ontime";
-                    const weight = isReal ? '900' : '400';
-
-                    return `<div>
-                        <span class="t-plan">${type==='arrival'?'AN':'AB'} ${fTime(plan, false)}</span>
-                        <span class="t-act ${color}" style="font-weight:${weight}">
-                            ${fTime(act, isReal)}
-                        </span>
-                    </div>`;
-                };
-
+            res.innerHTML = data.content.entries.map(e => {
+                const plan = e.event.schedule_time;
+                const act = e.event.time;
+                const delay = Math.round((act - plan) / 60);
                 return `
-                <div class="stop-row">
-                    <div>${render('arrival')}${render('departure')}</div>
+                <div class="row" onclick="loadTrip('${e.trip_id.id}', '${e.trip_id.station_id}', ${e.trip_id.train_nr}, '${e.line_id || e.direction}')">
                     <div>
-                        <div style="font-weight:bold; font-size:14px;">${s.stop.name}</div>
-                        <div style="font-size:11px; color:var(--sub)">Gleis ${s.arrival?.track || s.departure?.track || '--'}</div>
+                        <span class="line-badge">${e.line_id || 'Zug'}</span>
+                        <div style="font-weight:bold; margin-top:4px;">${e.direction}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <span style="font-size:12px; opacity:0.5">${fTime(plan)}</span><br>
+                        <span class="${delay > 0 ? 'v-delay' : 'v-ontime'}">${fTime(act)}</span>
                     </div>
                 </div>`;
             }).join('');
-        } catch(e) { cont.innerHTML = "<div style='padding:20px;'>Verlauf nicht verfügbar.</div>"; }
+        } catch(e) { res.innerHTML = "<div style='padding:20px'>Fehler beim Laden.</div>"; }
     }
 
-    function fTime(ts, showSec) {
-        const d = new Date(ts * 1000);
-        const h = String(d.getHours()).padStart(2, '0');
-        const m = String(d.getMinutes()).padStart(2, '0');
-        if(!showSec) return `${h}:${m}`;
-        const s = String(d.getSeconds()).padStart(2, '0');
-        return `${h}:${m}:${s}`;
+    async function loadTrip(tripId, stationId, trainNr, title) {
+        document.getElementById('ov_trip').style.display = 'block';
+        document.getElementById('ov_title').innerText = title;
+        const cont = document.getElementById('trip_content');
+        cont.innerHTML = "<div style='padding:20px'>Lade Verlauf...</div>";
+
+        try {
+            const data = await smartFetch('/', 'POST', {
+                destination: { type: "Module", target: "/trip_details" },
+                content_type: "TripDetailsRequest",
+                content: { trip_id: { id: tripId, station_id: stationId, train_nr: trainNr } }
+            });
+            cont.innerHTML = data.content.trip.stop_overs.map(s => `
+                <div style="padding:15px 20px; border-bottom:1px solid var(--border); display:grid; grid-template-columns: 85px 1fr; align-items:center;">
+                    <div style="font-size:12px;">
+                        ${s.arrival ? 'an ' + fTime(s.arrival.time) : ''}<br>
+                        ${s.departure ? 'ab ' + fTime(s.departure.time) : ''}
+                    </div>
+                    <div style="font-weight:bold">${s.stop.name}</div>
+                </div>
+            `).join('');
+        } catch(e) { cont.innerHTML = "Fehler im Verlauf."; }
     }
 
-    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
+    function fTime(ts) { return new Date(ts * 1000).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}); }
+    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 450); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     function toggleTheme() {
         const b = document.body;
         const isDark = b.getAttribute('data-theme') === 'dark';
         b.setAttribute('data-theme', isDark ? 'light' : 'dark');
-        document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
+        document.getElementById('tglIcon').innerText = isDark ? '☀️' : '🌙';
     }
 </script>
 </body>
