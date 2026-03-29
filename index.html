@@ -27,17 +27,21 @@
         .line-badge { background: var(--db-red); color: white; font-weight: 900; padding: 3px 7px; border-radius: 5px; font-size: 13px; margin-bottom: 4px; display: inline-block; }
         .line-badge.local { background: var(--border); color: var(--text); }
         
-        .t-plan { color: var(--sub); font-size: 12px; text-decoration: line-through; }
+        .t-plan { color: var(--sub); font-size: 12px; }
+        .t-plan.del { text-decoration: line-through; }
         .t-act { font-size: 18px; font-weight: 700; }
         .v-delay { color: var(--red); }
         .v-ontime { color: var(--green); }
 
-        /* Overlay & Trip Details */
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
-        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 80px 1fr 50px; gap: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
-        .time-group { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
-        .arr-label { font-size: 10px; color: var(--sub); text-transform: uppercase; }
+        
+        /* Trip Detail Grid */
+        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 100px 1fr 50px; gap: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+        .time-group { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; line-height: 1.2; }
+        .t-trip-plan { font-size: 11px; color: var(--sub); text-decoration: line-through; display: block; }
+        .t-trip-act { font-weight: bold; font-size: 13px; }
+        .arr-label { font-size: 9px; color: var(--sub); text-transform: uppercase; margin-right: 2px; }
         .remarks { font-size: 12px; color: var(--red); margin-top: 4px; display: block; font-weight: 500; }
     </style>
 </head>
@@ -83,31 +87,18 @@
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
-
         if (searchController) searchController.abort();
         searchController = new AbortController();
-
         dd.style.display = 'block';
         dd.innerHTML = "<div style='padding:10px; opacity:0.5;'>Suche...</div>";
-
         try {
             const results = await Promise.allSettled([
                 fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json()),
                 fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`, {signal: searchController.signal}).then(r => r.json())
             ]);
-
             let merged = [];
-            results.forEach((res, i) => {
-                if(res.status === "fulfilled") {
-                    merged = [...merged, ...res.value.map(l => ({...l, src: i === 0 ? 'DB' : 'VRR'}))];
-                }
-            });
-
-            dd.innerHTML = merged.map(l => `
-                <div class="dd-item" onclick="pick('${l.id}', '${l.name}', '${APIS[l.src]}')">
-                    <span>${l.name}</span> <small style="opacity:0.5">${l.src}</small>
-                </div>
-            `).join('') || "<div style='padding:10px;'>Nichts gefunden</div>";
+            results.forEach((res, i) => { if(res.status === "fulfilled") merged = [...merged, ...res.value.map(l => ({...l, src: i === 0 ? 'DB' : 'VRR'}))]; });
+            dd.innerHTML = merged.map(l => `<div class="dd-item" onclick="pick('${l.id}', '${l.name}', '${APIS[l.src]}')"><span>${l.name}</span> <small style="opacity:0.5">${l.src}</small></div>`).join('') || "<div style='padding:10px;'>Nichts gefunden</div>";
         } catch(e) { if(e.name !== 'AbortError') dd.style.display = 'none'; }
     }
 
@@ -122,23 +113,26 @@
         const res = document.getElementById('results');
         res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Abfahrten...</div>";
         const when = `${document.getElementById('date_inp').value}T${document.getElementById('time_inp').value}`;
-
         try {
             const data = await fetch(`${activeApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60&when=${when}&remarks=true`).then(r => r.json());
             const deps = data.departures || data || [];
             res.innerHTML = deps.map(d => {
+                const isCancelled = d.cancelled === true;
                 const delay = Math.round((new Date(d.when || d.plannedWhen) - new Date(d.plannedWhen)) / 60000);
                 const remarkTxt = (d.remarks || []).filter(r => r.type === 'warning').map(r => r.text).join(' • ');
+                // Nur durchstreichen bei Verspätung/Ausfall
+                const planClass = (delay !== 0 || isCancelled) ? "t-plan del" : "t-plan";
+                
                 return `
                     <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
                         <div style="flex:1">
                             <span class="line-badge ${['bus','tram'].includes(d.line.mode)?'local':''}">${d.line.name}</span>
-                            <div style="font-weight:bold">${d.direction}</div>
+                            <div style="font-weight:bold; ${isCancelled ? 'text-decoration:line-through; opacity:0.5' : ''}">${d.direction}</div>
                             ${remarkTxt ? `<span class="remarks">${remarkTxt}</span>` : ''}
                         </div>
                         <div style="text-align:right">
-                            <div class="t-plan">${fTime(d.plannedWhen)}</div>
-                            <div class="t-act ${delay > 0 ? 'v-delay' : 'v-ontime'}">${fTime(d.when || d.plannedWhen)}</div>
+                            <div class="${planClass}">${fTime(d.plannedWhen)}</div>
+                            ${!isCancelled ? `<div class="t-act ${delay > 0 ? 'v-delay' : 'v-ontime'}">${fTime(d.when || d.plannedWhen)}</div>` : '<div class="v-delay" style="font-size:14px; font-weight:bold;">Fällt aus</div>'}
                             <small style="font-weight:bold">${d.platform ? 'Pl. ' + d.platform : ''}</small>
                         </div>
                     </div>
@@ -156,16 +150,28 @@
             const trip = await fetch(`${api}/trips/${encodeURIComponent(tid)}`).then(r => r.json());
             const stops = trip.stopovers || (trip.trip && trip.trip.stopovers) || [];
             document.getElementById('ov_title').innerText = line;
-            cont.innerHTML = stops.map(s => `
-                <div class="stop-row" style="${s.cancelled ? 'opacity:0.3' : ''}">
-                    <div class="time-group">
-                        ${s.arrival ? `<span><small class="arr-label">An</small> ${fTime(s.arrival)}</span>` : ''}
-                        ${s.departure ? `<span><small class="arr-label">Ab</small> ${fTime(s.departure)}</span>` : ''}
+            cont.innerHTML = stops.map(s => {
+                const renderTime = (type, plan, act) => {
+                    if(!plan && !act) return '';
+                    const hasDelay = plan && act && (new Date(plan).getTime() !== new Date(act).getTime());
+                    return `
+                        <div style="margin-bottom: 4px;">
+                            ${hasDelay ? `<span class="t-trip-plan">${fTime(plan)}</span>` : ''}
+                            <span class="t-trip-act ${hasDelay ? 'v-delay' : 'v-ontime'}"><small class="arr-label">${type}</small>${fTime(act || plan)}</span>
+                        </div>
+                    `;
+                };
+                return `
+                    <div class="stop-row" style="${s.cancelled ? 'opacity:0.3' : ''}">
+                        <div class="time-group">
+                            ${renderTime('An', s.plannedArrival, s.arrival)}
+                            ${renderTime('Ab', s.plannedDeparture, s.departure)}
+                        </div>
+                        <div style="font-weight:600">${s.stop.name}</div>
+                        <div style="text-align:right; font-size:11px; color:var(--sub)">${s.platform || ''}</div>
                     </div>
-                    <div style="font-weight:600">${s.stop.name}</div>
-                    <div style="text-align:right; font-size:11px; color:var(--sub)">${s.platform || ''}</div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         } catch(e) { cont.innerHTML = "Trip-Daten nicht verfügbar."; }
     }
 
