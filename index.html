@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV Echtzeit</title>
+    <title>dilaeit - ÖPNV in Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -49,6 +49,17 @@
 
         .trip-item {
             border-bottom: 1px solid rgba(156, 163, 175, 0.1);
+        }
+
+        /* Compact Itinerary */
+        #trip-itinerary {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .itinerary-item {
+            padding: 0.25rem 0;
         }
 
         .cancelled {
@@ -371,43 +382,53 @@
                 container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
                 container.classList.remove('hidden');
 
-                // Define search sequence: [Preferred API, Fallback 1, Fallback 2]
-                let searchSequence = [getApiBase()];
+                // APIs to try
+                const endpoints = [
+                    'https://v6.db.transport.rest',
+                    'https://v5.db.transport.rest',
+                    'https://v5.vrr.transport.rest'
+                ];
                 
-                // If query looks like NRW, prioritize VRR API
-                if (isNRWStation({ name: query })) {
-                    searchSequence = [VRR_API, ...API_ENDPOINTS];
-                } else {
-                    searchSequence = [...API_ENDPOINTS, VRR_API];
-                }
+                let resultsFound = false;
 
-                let lastError = null;
-                for (const baseUrl of searchSequence) {
+                // Try each endpoint
+                for (const baseUrl of endpoints) {
                     try {
-                        const res = await fetch(`${baseUrl}/locations?query=${encodeURIComponent(query)}&results=15&stops=true&addresses=false&poi=false`);
+                        console.log(`Searching on: ${baseUrl}`);
+                        const res = await fetch(`${baseUrl}/locations?query=${encodeURIComponent(query)}&results=15`);
                         
                         if (!res.ok) {
-                            if (res.status === 429 || res.status >= 500) continue; 
-                            throw new Error(`API ${res.status}`);
+                            console.warn(`Search failed on ${baseUrl}: ${res.status}`);
+                            continue;
                         }
                         
                         const data = await res.json();
+                        // v6 returns array, v5 returns array, some return {results: []}
                         const results = Array.isArray(data) ? data : (data.results || []);
-                        renderSearchResults(results);
-                        return; 
+                        
+                        if (results && results.length > 0) {
+                            const validResults = results.filter(r => r.name && (r.id || r.extId));
+                            if (validResults.length > 0) {
+                                console.log(`Found ${validResults.length} stations on ${baseUrl}`);
+                                renderSearchResults(validResults);
+                                resultsFound = true;
+                                break; 
+                            }
+                        }
                     } catch (err) {
-                        lastError = err;
-                        console.warn(`Search failed on ${baseUrl}, trying next...`, err);
+                        console.error(`Fetch error on ${baseUrl}:`, err);
                     }
                 }
 
-                container.innerHTML = `
-                    <div class="px-5 py-4 text-sm text-red-500 italic space-y-2">
-                        <div>Suche fehlgeschlagen: ${lastError.message === 'Failed to fetch' ? 'Server nicht erreichbar' : lastError.message}</div>
-                        <p class="text-[10px] text-gray-400">Tipp: Versuche es mit einem genaueren Namen oder warte kurz.</p>
-                    </div>
-                `;
-            }, 500); // Debounce to 500ms
+                if (!resultsFound) {
+                    container.innerHTML = `
+                        <div class="px-5 py-4 text-sm text-red-500 italic space-y-2">
+                            <div>Keine Station gefunden.</div>
+                            <p class="text-[10px] text-gray-400">Tipp: Probiere es mit einem anderen Suchbegriff.</p>
+                        </div>
+                    `;
+                }
+            }, 300);
         }
 
         function renderSearchResults(results) {
@@ -476,61 +497,75 @@
             if (!state.currentStation) return;
             
             const now = Date.now();
-            if (now - state.lastRequestTime < 2000) return;
+            if (now - state.lastRequestTime < 1500) return; // Slightly faster cooldown
             state.lastRequestTime = now;
 
             const date = $('query-date').value;
             const time = $('query-time').value;
             const timestamp = `${date}T${time}:00`;
 
-            const isVRR = isNRWStation(state.currentStation);
-            const apiBase = getApiBase(isVRR);
-
-            try {
-                const url = `${apiBase}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=35&remarks=true`;
-                const res = await fetch(url);
-                
-                if (res.status === 429 || (res.status === 500 && (await res.clone().text()).includes('Too Many Requests'))) {
-                    if (!isVRR) switchApiEndpoint();
-                    state.isRateLimited = true;
-                    throw new Error('Limit erreicht. Bitte kurz warten.');
-                }
-
-                if (!res.ok) {
-                    if (!isVRR) switchApiEndpoint();
-                    const errText = await res.text();
-                    throw new Error(`API ${res.status}: ${errText.substring(0, 50)}`);
-                }
-
-                state.isRateLimited = false;
-                const data = await res.json();
-                state.departures = Array.isArray(data) ? data : (data.departures || []);
-                renderDepartures();
-            } catch (err) {
-                console.error('Departures fetch failed:', err);
-                
-                let errorHtml = `
-                    <div class="py-20 text-center space-y-4">
-                        <p class="text-red-500 font-bold">Fehler beim Laden der Daten.</p>
-                        <p class="text-[10px] text-gray-500 mono opacity-50">${err.message}</p>
-                `;
-
-                if (state.isRateLimited) {
-                    errorHtml += `
-                        <p class="text-xs text-orange-500">Die API ist momentan überlastet. Warte kurz...</p>
-                        <p class="text-[10px] text-gray-400">Automatischer Versuch in 10s</p>
-                    `;
-                    setTimeout(() => { 
-                        state.isRateLimited = false; 
-                        if (state.currentStation) refreshDepartures(); 
-                    }, 10000);
-                } else {
-                    errorHtml += `<button onclick="refreshDepartures()" class="px-4 py-2 bg-zinc-800 rounded-lg text-xs hover:bg-zinc-700 transition-colors">Erneut versuchen</button>`;
-                }
-
-                errorHtml += `</div>`;
-                $('departures-list').innerHTML = errorHtml;
+            // Prepare endpoints to try
+            let endpointsToTry = [];
+            if (isNRWStation(state.currentStation)) {
+                endpointsToTry = [VRR_API, ...API_ENDPOINTS];
+            } else {
+                endpointsToTry = [...API_ENDPOINTS, VRR_API];
             }
+
+            let lastError = null;
+            for (const apiBase of endpointsToTry) {
+                try {
+                    const url = `${apiBase}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
+                    const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : null });
+                    
+                    if (res.status === 429 || (res.status === 500 && (await res.clone().text()).includes('Too Many Requests'))) {
+                        continue; // Try next API
+                    }
+
+                    if (!res.ok) {
+                        continue; // Try next API
+                    }
+
+                    state.isRateLimited = false;
+                const data = await res.json();
+                const departures = Array.isArray(data) ? data : (data.departures || []);
+                
+                // Tag each departure with the API that provided it
+                state.departures = departures.map(d => ({ ...d, sourceApi: apiBase }));
+                
+                renderDepartures();
+                return; // Success!
+                } catch (err) {
+                    console.warn(`Departure fetch failed on ${apiBase}:`, err);
+                    lastError = err;
+                }
+            }
+
+            // If all failed
+            console.error('All departure fetch attempts failed:', lastError);
+            state.isRateLimited = (lastError?.message?.includes('Limit') || false);
+            
+            let errorHtml = `
+                <div class="py-20 text-center space-y-4">
+                    <p class="text-red-500 font-bold">Fehler beim Laden der Daten.</p>
+                    <p class="text-[10px] text-gray-500 mono opacity-50">${lastError?.message === 'Failed to fetch' ? 'Serververbindung fehlgeschlagen' : lastError?.message}</p>
+            `;
+
+            if (state.isRateLimited) {
+                errorHtml += `
+                    <p class="text-xs text-orange-500">System überlastet. Warte kurz...</p>
+                    <p class="text-[10px] text-gray-400">Automatischer Versuch in 10s</p>
+                `;
+                setTimeout(() => { 
+                    state.isRateLimited = false; 
+                    if (state.currentStation) refreshDepartures(); 
+                }, 10000);
+            } else {
+                errorHtml += `<button onclick="refreshDepartures()" class="px-6 py-3 bg-zinc-800 rounded-xl text-sm font-bold hover:bg-zinc-700 transition-colors shadow-lg">Erneut versuchen</button>`;
+            }
+
+            errorHtml += `</div>`;
+            $('departures-list').innerHTML = errorHtml;
         }
 
         function renderDepartures() {
@@ -543,35 +578,43 @@
             }
 
             state.departures.forEach(dep => {
-                if (!dep.when) return;
+                // In transport.rest APIs:
+                // dep.plannedWhen: original scheduled time
+                // dep.when: current best estimate (real-time if available)
+                const scheduledTime = dep.plannedWhen ? new Date(dep.plannedWhen) : (dep.when ? new Date(dep.when) : null);
+                const actualTime = dep.when ? new Date(dep.when) : scheduledTime;
                 
-                const scheduled = new Date(dep.when);
-                const actual = dep.prognosis?.when ? new Date(dep.prognosis.when) : (dep.prognosis?.departure || scheduled);
-                const delay = Math.round((new Date(actual).getTime() - scheduled.getTime()) / 60000);
-                
+                if (!scheduledTime) return;
+
+                const delay = Math.round((actualTime.getTime() - scheduledTime.getTime()) / 60000);
                 const isCancelled = dep.cancelled;
-                const lineName = dep.line?.name || dep.line?.id || '???';
-                const direction = dep.direction || 'Unbekanntes Ziel';
+                // Consider it real-time if either a prognosis exists OR the time differs from plan
+                const hasRealtime = !!dep.prognosis || (dep.plannedWhen && dep.when && dep.plannedWhen !== dep.when);
                 
                 let timeColorClass = 'text-gray-400';
-                if (dep.prognosis) {
+                if (hasRealtime) {
                     timeColorClass = delay > 0 ? 'text-red-500' : 'text-green-500';
                 }
 
+                const lineName = dep.line?.name || dep.line?.id || '???';
+                const direction = dep.direction || 'Unbekanntes Ziel';
+                
                 const item = document.createElement('div');
                 item.className = `trip-item py-4 flex items-center gap-5 hover:bg-gray-50 dark:hover:bg-zinc-900/30 cursor-pointer transition-colors px-2 rounded-xl ${isCancelled ? 'opacity-40' : ''}`;
                 
                 item.innerHTML = `
                     <div class="w-16 flex flex-col justify-center">
+                        <!-- Planzeit oben (Weiß, Fett) -->
                         <div class="text-lg font-bold mono text-white leading-none ${isCancelled ? 'line-through text-gray-500' : ''}">
-                            ${scheduled.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                            ${scheduledTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
                         </div>
-                        ${!isCancelled && dep.prognosis ? `
+                        
+                        <!-- Echtzeit/Prognose darunter (Farbig, ohne Sekunden) -->
+                        ${!isCancelled ? `
                             <div class="text-xs font-bold mt-1 ${timeColorClass}">
-                                ${delay > 0 ? '+' + delay : (delay < 0 ? delay : 'pünktlich')}
+                                ${hasRealtime ? (delay > 0 ? '+' + delay : (delay < 0 ? delay : actualTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }))) : ''}
                             </div>
-                        ` : ''}
-                        ${isCancelled ? '<div class="text-[10px] text-red-500 font-bold uppercase mt-1">Fällt aus</div>' : ''}
+                        ` : '<div class="text-[10px] text-red-500 font-bold uppercase mt-1">Fällt aus</div>'}
                     </div>
                     
                     <div class="flex-1 min-w-0">
@@ -599,7 +642,11 @@
 
         // --- Detail Logic ---
         async function showTripDetails(dep) {
-            if (!dep.tripId) return;
+            const tripId = dep.tripId || (dep.prognosis && dep.prognosis.tripId);
+            if (!tripId) {
+                console.error('No tripId found for departure:', dep);
+                return;
+            }
             
             const modal = $('detail-view');
             const itinerary = $('trip-itinerary');
@@ -611,28 +658,65 @@
             $('detail-line-badge').textContent = lineName;
             $('detail-train-direction').textContent = dep.direction || 'Unbekanntes Ziel';
             $('detail-operator').textContent = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
-            $('detail-trip-id').textContent = `TRIP: ${dep.tripId.split('|')[0]}`;
+            $('detail-trip-id').textContent = `TRIP: ${tripId.split('|')[0]}`;
 
-            const isVRR = isNRWStation(state.currentStation);
-            const apiBase = getApiBase(isVRR);
+            // Try the same API that provided the departure first
+            const endpoints = dep.sourceApi ? [dep.sourceApi, ...API_ENDPOINTS, VRR_API] : [...API_ENDPOINTS, VRR_API];
+            
+            let tripData = null;
+            let lastError = null;
 
-            try {
-                const res = await fetch(`${apiBase}/trips/${encodeURIComponent(dep.tripId)}?stopovers=true&remarks=true`);
-                if (!res.ok) {
-                    if (!isVRR) switchApiEndpoint();
-                    throw new Error(`Details API ${res.status}`);
+            for (const apiBase of endpoints) {
+                try {
+                    console.log(`Fetching trip details from: ${apiBase} for tripId: ${tripId}`);
+                    // Ensure tripId is properly encoded for the specific API
+                    const res = await fetch(`${apiBase}/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`);
+                    
+                    if (!res.ok) {
+                        console.warn(`Trip details failed on ${apiBase}: ${res.status}`);
+                        continue;
+                    }
+                    
+                    tripData = await res.json();
+                    if (tripData && (tripData.stopovers || tripData.trip)) {
+                        console.log(`Successfully loaded trip details from ${apiBase}`);
+                        break;
+                    }
+                } catch (err) {
+                    console.error(`Error fetching trip from ${apiBase}:`, err);
+                    lastError = err;
                 }
-                const trip = await res.json();
-                renderItinerary(trip.stopovers || [], trip.remarks || []);
-            } catch (err) {
-                console.error('Trip details failed', err);
-                itinerary.innerHTML = `<p class="py-10 text-center text-red-500 text-sm">Details konnten nicht geladen werden.<br><span class="text-[10px] opacity-50">${err.message}</span></p>`;
+            }
+
+            if (tripData) {
+                renderItinerary(tripData.stopovers || tripData.trip?.stopovers || [], tripData.remarks || tripData.trip?.remarks || []);
+            } else {
+                itinerary.innerHTML = `
+                    <div class="py-20 text-center space-y-4">
+                        <p class="text-red-500 font-bold">Fahrtverlauf konnte nicht geladen werden.</p>
+                        <p class="text-[10px] text-gray-500 mono opacity-50">${lastError ? lastError.message : 'Keine Daten von den APIs erhalten'}</p>
+                        <p class="text-[10px] text-gray-400">Mögliche Ursache: Die Trip-ID ist für diesen Server ungültig oder abgelaufen.</p>
+                    </div>
+                `;
             }
         }
 
         function renderItinerary(stopovers, tripRemarks = []) {
             const container = $('trip-itinerary');
             container.innerHTML = '';
+
+            const translationMap = {
+                "Number of bicycles conveyed limited": "Fahrradmitnahme begrenzt",
+                "Vehicle-bound boarding aid available": "Fahrzeuggebundene Einstiegshilfe vorhanden",
+                "WiFi available": "WLAN verfügbar",
+                "Air conditioning": "Klimaanlage",
+                "Step-free access": "Stufenfreier Zugang",
+                "Power sockets available": "Steckdosen verfügbar",
+                "Quiet zone": "Ruhebereich",
+                "Area for people with reduced mobility": "Bereich für mobilitätseingeschränkte Personen"
+            };
+
+            const translate = (text) => translationMap[text] || text;
 
             // Render stopovers
             stopovers.forEach(stop => {
@@ -652,19 +736,23 @@
                     const now = new Date();
                     const isPast = actual && (actual.getTime() < now.getTime());
                     
+                    const planStr = `<span class="text-gray-500/40 font-normal mr-2">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                    
                     if (!hasLive && !actual) {
-                        return `<span class="text-gray-500/50 font-normal">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                        return `${planStr}<span class="text-gray-500/50 font-normal">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
 
                     if (isPast) {
-                        return `<span class="precision-time text-green-500 font-bold">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
+                        // Echtzeit-Signal gesendet: Fett + Sekunden
+                        return `${planStr}<span class="precision-time text-green-500 font-bold">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
                     } else {
-                        return `<span class="thin-prognosis text-green-500/70 font-light italic">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                        // Prognose: Dünn, ohne Sekunden
+                        return `${planStr}<span class="thin-prognosis text-green-500/70 font-light italic">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
                 };
 
                 const stopItem = document.createElement('div');
-                stopItem.className = `relative flex items-start gap-6 ${isCancelled ? 'opacity-40' : ''}`;
+                stopItem.className = `relative itinerary-item flex items-start gap-6 ${isCancelled ? 'opacity-40' : ''}`;
                 
                 const indicator = document.createElement('div');
                 indicator.className = `absolute left-[13px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 
@@ -673,21 +761,21 @@
 
                 stopItem.innerHTML += `
                     <div class="flex-1 min-w-0">
-                        <div class="flex justify-between items-start gap-4">
+                        <div class="flex justify-between items-center gap-4">
                             <div>
                                 <h4 class="font-bold text-sm ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''}">
                                     ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
                                 </h4>
-                                <div class="text-[10px] mono mt-0.5 flex items-center gap-2">
+                                <div class="text-[10px] mono flex items-center gap-2">
                                     <span class="${stop.prognosis?.platform && stop.prognosis.platform !== stop.plannedPlatform ? 'platform-changed' : 'text-gray-500'}">
                                         ${stop.platform ? 'GLEIS ' + stop.platform : '---'}
                                     </span>
-                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 truncate max-w-[150px]"><i class="fas fa-exclamation-triangle mr-1"></i>${stop.remarks[0].text}</span>` : ''}
+                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 truncate max-w-[150px]"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
                                 </div>
                             </div>
-                            <div class="text-right mono text-[10px] leading-relaxed shrink-0">
-                                ${schedArr ? `<div class="flex items-center justify-end gap-2"><span class="text-gray-600">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr)}</div>` : ''}
-                                ${schedDep ? `<div class="flex items-center justify-end gap-2"><span class="text-gray-600">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep)}</div>` : ''}
+                            <div class="text-right mono text-[10px] leading-tight shrink-0">
+                                ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr)}</div>` : ''}
+                                ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep)}</div>` : ''}
                             </div>
                         </div>
                     </div>
@@ -698,11 +786,12 @@
             // Render Trip Remarks at the end
             if (tripRemarks.length > 0) {
                 const remarksContainer = document.createElement('div');
-                remarksContainer.className = 'mt-10 pt-6 border-t border-gray-100 dark:border-zinc-900 space-y-2';
+                remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-1';
                 tripRemarks.forEach(rem => {
+                    const translatedText = translate(rem.text);
                     const rDiv = document.createElement('div');
-                    rDiv.className = 'text-xs text-red-500 font-medium flex items-start gap-2';
-                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${rem.text}</span>`;
+                    rDiv.className = 'text-[10px] text-red-500 font-medium flex items-start gap-2';
+                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${translatedText}</span>`;
                     remarksContainer.appendChild(rDiv);
                 });
                 container.appendChild(remarksContainer);
