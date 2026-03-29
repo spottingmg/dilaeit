@@ -2,27 +2,38 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | V6 Realtime Logic</title>
+    <title>dilaeit | V6 Ultra Realtime</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
         :root { --db-red: #c50014; --bg: #000000; --card: #1c1c1e; --text: #ffffff; --sub: #8e8e93; --border: #2c2c2e; --green: #30d158; --red: #ff453a; --orange: #ff9f0a; }
         body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; -webkit-font-smoothing: antialiased; }
         h1 { color: var(--db-red); font-weight: 900; margin: 0; text-transform: lowercase; font-size: 28px; }
+        
+        /* Eingabefelder */
+        .input-container { position: relative; margin-bottom: 15px; }
         input { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; color: white; font-size: 17px; width: 100%; box-sizing: border-box; outline: none; }
-        #dropdown { position: absolute; top: 60px; left: 0; right: 0; background: #2c2c2e; border-radius: 14px; z-index: 2000; display: none; max-height: 300px; overflow-y: auto; }
-        .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        
+        /* Dropdown Fix */
+        #dropdown { position: absolute; top: 60px; left: 0; right: 0; background: #2c2c2e; border-radius: 14px; z-index: 2000; display: none; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border); }
+        .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; color: white; }
+        .dd-item:last-child { border: none; }
+
+        /* Ergebnis-Zeilen */
         .row { background: var(--card); padding: 16px; border-radius: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); cursor: pointer; }
         .line-badge { background: var(--db-red); color: white; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 13px; }
-        .time-box { text-align: right; min-width: 110px; font-variant-numeric: tabular-nums; }
+        .time-box { text-align: right; min-width: 115px; font-variant-numeric: tabular-nums; }
         .plan { font-size: 11px; color: var(--sub); margin-bottom: 2px; }
-        .actual { font-size: 19px; font-weight: 300; }
+        .actual { font-size: 19px; }
+        
         /* Sekunden-Logik */
-        .sec-thin { opacity: 0.5; font-weight: 300; font-size: 15px; }
+        .sec-thin { opacity: 0.4; font-weight: 300; font-size: 15px; }
         .sec-bold { opacity: 1; font-weight: 900; font-size: 17px; color: inherit; }
         
         .v-green { color: var(--green); }
         .v-red { color: var(--red); }
         .platform { font-size: 11px; font-weight: 900; background: var(--border); color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
+        
+        /* Overlay */
         #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:3000; padding:20px; overflow-y:auto; }
         .stop-row { display: grid; grid-template-columns: 120px 1fr; gap: 15px; padding: 12px 0; border-bottom: 1px solid var(--border); }
         .passed { opacity: 0.3; }
@@ -35,17 +46,21 @@
     <div style="font-size: 10px; color: var(--sub); font-weight: 700;">V6 ULTRA REALTIME</div>
 </div>
 
-<div style="position:relative; margin-bottom:15px;">
-    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()">
+<div class="input-container">
+    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
     <div id="dropdown"></div>
+    <div style="display: flex; gap: 8px; margin-top:8px;">
+        <input type="date" id="sel_date" style="flex:1.5; font-size: 14px; padding: 12px;">
+        <input type="time" id="sel_time" style="flex:1; font-size: 14px; padding: 12px;">
+    </div>
 </div>
 
 <div id="results"></div>
 
 <div id="ov">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h2 id="ov-title" style="margin:0;"></h2>
-        <span onclick="closeOv()" style="font-size:40px; cursor:pointer;">&times;</span>
+        <h2 id="ov-title" style="margin:0; font-size: 20px;"></h2>
+        <span onclick="closeOv()" style="font-size:40px; cursor:pointer; line-height:1;">&times;</span>
     </div>
     <div id="ov-content"></div>
 </div>
@@ -54,7 +69,11 @@
     const API = "https://v6.vrr.transport.rest";
     let timer;
 
-    // Zeit-Formatierer mit Logik für Fett/Dünn
+    // Zeit-Setup Initialisierung
+    const now = new Date();
+    document.getElementById('sel_date').value = now.toISOString().split('T')[0];
+    document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
+
     function formatTimeHTML(date, isRealtime) {
         const h = date.getHours().toString().padStart(2, '0');
         const m = date.getMinutes().toString().padStart(2, '0');
@@ -66,14 +85,18 @@
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
 
     async function doSearch() {
-        const q = document.getElementById('inp').value;
-        if(q.length < 2) return;
+        const q = document.getElementById('inp').value.trim();
+        const dd = document.getElementById('dropdown');
+        if(q.length < 2) { dd.style.display = 'none'; return; }
+        
         try {
-            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=5`);
+            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=10`);
             const data = await res.json();
-            const dd = document.getElementById('dropdown');
-            dd.style.display = 'block';
-            dd.innerHTML = data.map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`).join('');
+            if(data.length > 0) {
+                dd.style.display = 'block';
+                dd.innerHTML = data.filter(s => s.type === 'stop' || s.type === 'station')
+                    .map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`).join('');
+            }
         } catch(e) { console.error("Search Error"); }
     }
 
@@ -85,9 +108,14 @@
 
     async function loadBoard(id) {
         const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='padding:40px; text-align:center;'>Lade Echtzeitdaten...</div>";
+        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5;'>Lade...</div>";
+        
+        const d = document.getElementById('sel_date').value;
+        const t = document.getElementById('sel_time').value;
+        const iso = new Date(`${d}T${t}`).toISOString();
+
         try {
-            const res = await fetch(`${API}/stops/${encodeURIComponent(id)}/departures?duration=60`);
+            const res = await fetch(`${API}/stops/${encodeURIComponent(id)}/departures?when=${iso}&duration=60`);
             const data = await res.json();
             const deps = data.departures || data;
 
@@ -95,10 +123,8 @@
                 const plan = new Date(d.plannedWhen);
                 const act = new Date(d.when || d.plannedWhen);
                 const delay = d.delay !== null ? Math.round(d.delay / 60) : 0;
-                
-                // Farblogik: Verfrühung (delay <= 0) = Grün, Verspätung >= 1 = Rot
                 const colorClass = delay >= 1 ? 'v-red' : 'v-green';
-                const isRealtime = d.when !== null; // Signal vorhanden?
+                const isRealtime = d.when !== null;
 
                 return `
                     <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name}', '${d.direction}')">
@@ -127,14 +153,14 @@
         try {
             const res = await fetch(`${API}/trips/${encodeURIComponent(tripId)}`);
             const data = await res.json();
-            const now = new Date();
+            const nowTime = new Date();
 
             document.getElementById('ov-content').innerHTML = data.trip.stopovers.map(s => {
                 const pTime = new Date(s.plannedDeparture || s.plannedArrival);
                 const aTime = new Date(s.departure || s.arrival || pTime);
                 const delay = s.departureDelay !== undefined ? Math.round(s.departureDelay / 60) : 0;
-                const isRealtime = s.departure !== null;
-                const isPassed = aTime < now;
+                const isRealtime = (s.departure !== null && s.departure !== undefined);
+                const isPassed = aTime < nowTime;
 
                 return `
                     <div class="stop-row ${isPassed ? 'passed' : ''}">
@@ -150,7 +176,7 @@
                         </div>
                     </div>`;
             }).join('');
-        } catch(e) { document.getElementById('ov-content').innerHTML = "Fehler."; }
+        } catch(e) { document.getElementById('ov-content').innerHTML = "Fehler im Verlauf."; }
     }
 
     function closeOv() { document.getElementById('ov').style.display = 'none'; }
