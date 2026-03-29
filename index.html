@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV Echtzeit</title>
+    <title>dilaeit - ÖPNV in Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -427,11 +427,19 @@
                 const timeoutId = setTimeout(() => controller.abort(), 10000);
 
                 try {
-                    // DB-only Suche (National) für Stationsfindung, flüssiger
-                    const dbSources = REGIONAL_APIS.NATIONAL.map(url => ({ url, region: 'NATIONAL' }));
-                    const searchPromises = dbSources.map(async (source) => {
+                    // Suche über DB und VRR für NRW-Stationen
+                    const userRegion = detectRegion(query);
+                    let searchOrder = [];
+                    if (userRegion === 'NRW') {
+                        searchOrder = [...REGIONAL_APIS.NATIONAL, ...REGIONAL_APIS.NRW];
+                    } else {
+                        searchOrder = [...REGIONAL_APIS.NATIONAL];
+                    }
+                    searchOrder = [...new Set(searchOrder)];
+
+                    const searchPromises = searchOrder.map(async (url) => {
                         try {
-                            const res = await fetch(`${source.url}/locations?query=${encodeURIComponent(query)}&results=20`, {
+                            const res = await fetch(`${url}/locations?query=${encodeURIComponent(query)}&results=20`, {
                                 signal: controller.signal
                             });
                             
@@ -651,10 +659,18 @@
             if (nonTrainProducts.some(p => product.includes(p))) return false;
             
             // Explicit train products
-            return product === 'national' || product === 'nationalexpress' || product === 'regional' || product === 'regionalexpress' ||
-                   name.startsWith('ICE') || name.startsWith('IC') || name.startsWith('ICD') ||
-                   name.startsWith('RE') || name.startsWith('RB') || name.startsWith('S') ||
-                   name.startsWith('IRE') || name.startsWith('EC') || name.startsWith('EN');
+            if (product === 'national' || product === 'nationalexpress' || product === 'regional' || product === 'regionalexpress') return true;
+            
+            // Train line names
+            if (name.startsWith('ICE') || name.startsWith('IC') || name.startsWith('ICD') ||
+                name.startsWith('RE') || name.startsWith('RB') || name.startsWith('S') ||
+                name.startsWith('IRE') || name.startsWith('EC') || name.startsWith('EN')) return true;
+            
+            // If product is not set or unknown, and name is numeric (like 097), assume it's a bus/tram
+            if (!product && /^\d+$/.test(name.trim())) return false;
+            
+            // Default: assume train if product is set to something else
+            return product !== '';
         }
 
         // --- Departure Logic ---
@@ -728,18 +744,14 @@
             const depSourceIsVrr = dep.sourceApi?.includes('vrr');
 
             // Debug logging
-            console.log(`Trip: ${lineName}, Region: ${state.currentRegion}, IsTrain: ${isTrain_line}, Product: ${dep.line?.product}, sourceApi: ${dep.sourceApi}`);
+            console.log(`Trip: ${lineName}, Region: ${state.currentRegion}, IsTrain: ${isTrain_line}, Product: ${dep.line?.product}, sourceApi: ${dep.sourceApi}, Line:`, dep.line);
             
             let detailEndpoints = [];
             
-            if (isNrwLocal && depSourceIsVrr) {
-                // NRW local transport with VRR-based departure -> VRR exclusively
-                console.log('Using VRR-only for NRW local transport (departure source VRR)');
+            if (isNrwLocal) {
+                // NRW local transport (Bus/Tram/U-Bahn): Immer VRR für Busse in NRW
+                console.log('Using VRR-only for NRW local transport (always VRR for NRW buses)');
                 detailEndpoints = ['https://v5.vrr.transport.rest'];
-            } else if (isNrwLocal) {
-                // NRW local transport (Bus/Tram/U-Bahn): VRR is primary, DB fallback
-                console.log('Using VRR for NRW local transport (fallback DB allowed)');
-                detailEndpoints = ['https://v5.vrr.transport.rest', ...REGIONAL_APIS.NATIONAL];
             } else if (isTrain_line) {
                 // Train (everywhere): DB is primary
                 console.log('Using DB for train');
@@ -789,12 +801,8 @@
                 else if (usedApi?.includes('vbb')) sourceName = 'VBB';
                 else if (usedApi?.includes('hvv')) sourceName = 'HVV';
 
-                // Mark NRWr Local situations where DB-Fallback genutzt wird
-                if (isNrwLocal && usedApi?.includes('db')) {
-                    sourceName = depSourceIsVrr ? 'Deutsche Bahn (VRR-Fallback)' : 'Deutsche Bahn';
-                }
-
-                if (isNrwLocal && usedApi?.includes('vrr')) {
+                // Für NRW-Busse immer VRR anzeigen, auch wenn DB-Fallback verwendet wurde
+                if (isNrwLocal) {
                     sourceName = 'VRR';
                 }
 
