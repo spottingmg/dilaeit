@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV in Echtzeit</title>
+    <title>dilaeit - ÖPNV Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -272,10 +272,19 @@
         }
 
         function isNRWStation(station) {
-            // Simple heuristic: check if station is in VRR area or common NRW prefixes
             if (!station || !station.name) return false;
-            const nrwCities = ['Düsseldorf', 'Duisburg', 'Essen', 'Bochum', 'Dortmund', 'Gelsenkirchen', 'Mönchengladbach', 'Wuppertal', 'Oberhausen', 'Krefeld', 'Hagen', 'Hamm', 'Mülheim', 'Leverkusen', 'Solingen', 'Neuss', 'Herne'];
-            return nrwCities.some(city => station.name.includes(city));
+            const name = station.name.toLowerCase();
+            const nrwKeywords = [
+                'düsseldorf', 'duisburg', 'essen', 'bochum', 'dortmund', 'gelsenkirchen', 
+                'mönchengladbach', 'wuppertal', 'oberhausen', 'krefeld', 'hagen', 'hamm', 
+                'mülheim', 'leverkusen', 'solingen', 'neuss', 'herne', 'rheydt', 'viersen',
+                'korschenbroich', 'kleinenbroich', 'büttgen', 'jüchen', 'erkelenz', 'hückelhoven',
+                'baal', 'wassenberg', 'wegberg'
+            ];
+            const nrwPrefixes = ['mg', 'dus', 'e ', 'do ', 'w ', 'k ', 'bn '];
+            
+            return nrwKeywords.some(k => name.includes(k)) || 
+                   nrwPrefixes.some(p => name.startsWith(p));
         }
 
         function switchApiEndpoint() {
@@ -357,23 +366,48 @@
             clearTimeout(state.searchTimer);
             state.searchTimer = setTimeout(async () => {
                 state.lastSearchQuery = query;
-                try {
-                    // Show a small loading state if possible (optional)
-                    const res = await fetch(`${getApiBase()}/locations?query=${encodeURIComponent(query)}&results=10&stops=true&addresses=false&poi=false`);
-                    if (res.status === 429 || res.status === 500) switchApiEndpoint();
-                    if (!res.ok) throw new Error(`Search API ${res.status}`);
-                    
-                    const data = await res.json();
-                    // Handle both array and object responses
-                    const results = Array.isArray(data) ? data : (data.results || []);
-                    renderSearchResults(results);
-                } catch (err) {
-                    console.error('Search failed', err);
-                    const container = $('search-results');
-                    container.innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Suche fehlgeschlagen: ${err.message}</div>`;
-                    container.classList.remove('hidden');
+                
+                const container = $('search-results');
+                container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
+                container.classList.remove('hidden');
+
+                // Define search sequence: [Preferred API, Fallback 1, Fallback 2]
+                let searchSequence = [getApiBase()];
+                
+                // If query looks like NRW, prioritize VRR API
+                if (isNRWStation({ name: query })) {
+                    searchSequence = [VRR_API, ...API_ENDPOINTS];
+                } else {
+                    searchSequence = [...API_ENDPOINTS, VRR_API];
                 }
-            }, 300);
+
+                let lastError = null;
+                for (const baseUrl of searchSequence) {
+                    try {
+                        const res = await fetch(`${baseUrl}/locations?query=${encodeURIComponent(query)}&results=15&stops=true&addresses=false&poi=false`);
+                        
+                        if (!res.ok) {
+                            if (res.status === 429 || res.status >= 500) continue; 
+                            throw new Error(`API ${res.status}`);
+                        }
+                        
+                        const data = await res.json();
+                        const results = Array.isArray(data) ? data : (data.results || []);
+                        renderSearchResults(results);
+                        return; 
+                    } catch (err) {
+                        lastError = err;
+                        console.warn(`Search failed on ${baseUrl}, trying next...`, err);
+                    }
+                }
+
+                container.innerHTML = `
+                    <div class="px-5 py-4 text-sm text-red-500 italic space-y-2">
+                        <div>Suche fehlgeschlagen: ${lastError.message === 'Failed to fetch' ? 'Server nicht erreichbar' : lastError.message}</div>
+                        <p class="text-[10px] text-gray-400">Tipp: Versuche es mit einem genaueren Namen oder warte kurz.</p>
+                    </div>
+                `;
+            }, 500); // Debounce to 500ms
         }
 
         function renderSearchResults(results) {
