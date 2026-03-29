@@ -246,18 +246,42 @@
 
     <script>
         // --- Configuration & State ---
-        const API_BASE = 'https://v6.db.transport.rest';
-        const REFRESH_INTERVAL = 30000; // 30s
+        const API_ENDPOINTS = [
+            'https://v6.db.transport.rest',
+            'https://v5.db.transport.rest'
+        ];
+        const VRR_API = 'https://v5.vrr.transport.rest'; // Specialized VRR API
+        let currentEndpointIndex = 0;
+        const REFRESH_INTERVAL = 60000;
         
         let state = {
             currentStation: null,
             departures: [],
             refreshTimer: null,
             searchTimer: null,
-            lastSearchQuery: ''
+            lastSearchQuery: '',
+            isRateLimited: false,
+            lastRequestTime: 0
         };
 
         const $ = (id) => document.getElementById(id);
+
+        function getApiBase(isVRR = false) {
+            if (isVRR) return VRR_API;
+            return API_ENDPOINTS[currentEndpointIndex];
+        }
+
+        function isNRWStation(station) {
+            // Simple heuristic: check if station is in VRR area or common NRW prefixes
+            if (!station || !station.name) return false;
+            const nrwCities = ['Düsseldorf', 'Duisburg', 'Essen', 'Bochum', 'Dortmund', 'Gelsenkirchen', 'Mönchengladbach', 'Wuppertal', 'Oberhausen', 'Krefeld', 'Hagen', 'Hamm', 'Mülheim', 'Leverkusen', 'Solingen', 'Neuss', 'Herne'];
+            return nrwCities.some(city => station.name.includes(city));
+        }
+
+        function switchApiEndpoint() {
+            currentEndpointIndex = (currentEndpointIndex + 1) % API_ENDPOINTS.length;
+            console.log('Switched to API endpoint:', getApiBase());
+        }
 
         // --- Initialization ---
         function init() {
@@ -265,7 +289,12 @@
             setupDefaultDateTime();
             attachEventListeners();
             
-            // Check for saved station in URL or LocalStorage? (Optional)
+            // Only refresh when tab is visible
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && state.currentStation && !state.isRateLimited) {
+                    refreshDepartures();
+                }
+            });
         }
 
         function setupClock() {
@@ -286,6 +315,11 @@
 
         function attachEventListeners() {
             $('station-search').addEventListener('input', e => handleSearchInput(e.target.value));
+            $('station-search').addEventListener('focus', () => {
+                if ($('search-results').children.length > 0) {
+                    $('search-results').classList.remove('hidden');
+                }
+            });
             $('reset-query').addEventListener('click', () => {
                 setupDefaultDateTime();
                 if (state.currentStation) refreshDepartures();
@@ -313,21 +347,31 @@
         async function handleSearchInput(val) {
             const query = val.trim();
             if (query === state.lastSearchQuery) return;
-            state.lastSearchQuery = query;
-
+            
             if (query.length < 2) {
+                state.lastSearchQuery = query;
                 $('search-results').classList.add('hidden');
                 return;
             }
 
             clearTimeout(state.searchTimer);
             state.searchTimer = setTimeout(async () => {
+                state.lastSearchQuery = query;
                 try {
-                    const res = await fetch(`${API_BASE}/locations?query=${encodeURIComponent(query)}&results=6&stops=true&addresses=false&poi=false`);
-                    const results = await res.json();
+                    // Show a small loading state if possible (optional)
+                    const res = await fetch(`${getApiBase()}/locations?query=${encodeURIComponent(query)}&results=10&stops=true&addresses=false&poi=false`);
+                    if (res.status === 429 || res.status === 500) switchApiEndpoint();
+                    if (!res.ok) throw new Error(`Search API ${res.status}`);
+                    
+                    const data = await res.json();
+                    // Handle both array and object responses
+                    const results = Array.isArray(data) ? data : (data.results || []);
                     renderSearchResults(results);
                 } catch (err) {
                     console.error('Search failed', err);
+                    const container = $('search-results');
+                    container.innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Suche fehlgeschlagen: ${err.message}</div>`;
+                    container.classList.remove('hidden');
                 }
             }, 300);
         }
@@ -336,10 +380,16 @@
             const container = $('search-results');
             container.innerHTML = '';
             
-            const validResults = results.filter(r => r.type === 'stop' || r.type === 'station');
+            if (!Array.isArray(results)) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            const validResults = results.filter(r => r.name && (r.id || r.extId));
             
             if (validResults.length === 0) {
-                container.classList.add('hidden');
+                container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic">Keine Stationen gefunden.</div>';
+                container.classList.remove('hidden');
                 return;
             }
 
@@ -358,7 +408,10 @@
                         <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">${products.join(' • ')}</div>
                     </div>
                 `;
-                item.onclick = () => selectStation(loc);
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    selectStation(loc);
+                };
                 container.appendChild(item);
             });
 
@@ -367,6 +420,7 @@
 
         function selectStation(loc) {
             state.currentStation = loc;
+            state.isRateLimited = false; // Reset rate limit on new selection
             $('station-search').value = loc.name;
             $('search-results').classList.add('hidden');
             $('board-header').classList.remove('hidden');
@@ -376,38 +430,72 @@
             
             // Auto-refresh
             if (state.refreshTimer) clearInterval(state.refreshTimer);
-            state.refreshTimer = setInterval(refreshDepartures, REFRESH_INTERVAL);
+            state.refreshTimer = setInterval(() => {
+                if (document.visibilityState === 'visible' && !state.isRateLimited) {
+                    refreshDepartures();
+                }
+            }, REFRESH_INTERVAL);
         }
 
         // --- Departure Logic ---
         async function refreshDepartures() {
             if (!state.currentStation) return;
             
+            const now = Date.now();
+            if (now - state.lastRequestTime < 2000) return;
+            state.lastRequestTime = now;
+
             const date = $('query-date').value;
             const time = $('query-time').value;
             const timestamp = `${date}T${time}:00`;
 
+            const isVRR = isNRWStation(state.currentStation);
+            const apiBase = getApiBase(isVRR);
+
             try {
-                const url = `${API_BASE}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=30&remarks=true`;
+                const url = `${apiBase}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=35&remarks=true`;
                 const res = await fetch(url);
                 
+                if (res.status === 429 || (res.status === 500 && (await res.clone().text()).includes('Too Many Requests'))) {
+                    if (!isVRR) switchApiEndpoint();
+                    state.isRateLimited = true;
+                    throw new Error('Limit erreicht. Bitte kurz warten.');
+                }
+
                 if (!res.ok) {
+                    if (!isVRR) switchApiEndpoint();
                     const errText = await res.text();
                     throw new Error(`API ${res.status}: ${errText.substring(0, 50)}`);
                 }
 
+                state.isRateLimited = false;
                 const data = await res.json();
                 state.departures = Array.isArray(data) ? data : (data.departures || []);
                 renderDepartures();
             } catch (err) {
                 console.error('Departures fetch failed:', err);
-                $('departures-list').innerHTML = `
+                
+                let errorHtml = `
                     <div class="py-20 text-center space-y-4">
                         <p class="text-red-500 font-bold">Fehler beim Laden der Daten.</p>
                         <p class="text-[10px] text-gray-500 mono opacity-50">${err.message}</p>
-                        <button onclick="refreshDepartures()" class="px-4 py-2 bg-zinc-800 rounded-lg text-xs hover:bg-zinc-700 transition-colors">Erneut versuchen</button>
-                    </div>
                 `;
+
+                if (state.isRateLimited) {
+                    errorHtml += `
+                        <p class="text-xs text-orange-500">Die API ist momentan überlastet. Warte kurz...</p>
+                        <p class="text-[10px] text-gray-400">Automatischer Versuch in 10s</p>
+                    `;
+                    setTimeout(() => { 
+                        state.isRateLimited = false; 
+                        if (state.currentStation) refreshDepartures(); 
+                    }, 10000);
+                } else {
+                    errorHtml += `<button onclick="refreshDepartures()" class="px-4 py-2 bg-zinc-800 rounded-lg text-xs hover:bg-zinc-700 transition-colors">Erneut versuchen</button>`;
+                }
+
+                errorHtml += `</div>`;
+                $('departures-list').innerHTML = errorHtml;
             }
         }
 
@@ -424,8 +512,8 @@
                 if (!dep.when) return;
                 
                 const scheduled = new Date(dep.when);
-                const actual = dep.prognosis?.when ? new Date(dep.prognosis.when) : scheduled;
-                const delay = Math.round((actual.getTime() - scheduled.getTime()) / 60000);
+                const actual = dep.prognosis?.when ? new Date(dep.prognosis.when) : (dep.prognosis?.departure || scheduled);
+                const delay = Math.round((new Date(actual).getTime() - scheduled.getTime()) / 60000);
                 
                 const isCancelled = dep.cancelled;
                 const lineName = dep.line?.name || dep.line?.id || '???';
@@ -437,20 +525,25 @@
                 }
 
                 const item = document.createElement('div');
-                item.className = `trip-item py-5 flex items-center gap-5 hover:bg-gray-50 dark:hover:bg-zinc-900/30 cursor-pointer transition-colors px-2 rounded-xl ${isCancelled ? 'opacity-40' : ''}`;
+                item.className = `trip-item py-4 flex items-center gap-5 hover:bg-gray-50 dark:hover:bg-zinc-900/30 cursor-pointer transition-colors px-2 rounded-xl ${isCancelled ? 'opacity-40' : ''}`;
                 
                 item.innerHTML = `
-                    <div class="w-14 text-center">
-                        <div class="text-lg font-black mono ${isCancelled ? 'line-through text-gray-500' : ''}">
+                    <div class="w-16 flex flex-col justify-center">
+                        <div class="text-lg font-bold mono text-white leading-none ${isCancelled ? 'line-through text-gray-500' : ''}">
                             ${scheduled.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
                         </div>
-                        ${!isCancelled && dep.prognosis ? `<div class="text-[10px] font-bold ${timeColorClass}">${delay > 0 ? '+' + delay : (delay < 0 ? delay : 'pünktlich')}</div>` : ''}
+                        ${!isCancelled && dep.prognosis ? `
+                            <div class="text-xs font-bold mt-1 ${timeColorClass}">
+                                ${delay > 0 ? '+' + delay : (delay < 0 ? delay : 'pünktlich')}
+                            </div>
+                        ` : ''}
+                        ${isCancelled ? '<div class="text-[10px] text-red-500 font-bold uppercase mt-1">Fällt aus</div>' : ''}
                     </div>
                     
                     <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 mb-1">
+                        <div class="flex items-center gap-2 mb-0.5">
                             <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic uppercase">${lineName}</span>
-                            <span class="font-bold text-sm truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${direction}</span>
+                            <span class="font-bold text-base truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${direction}</span>
                         </div>
                         <div class="flex items-center gap-3 text-[10px] mono">
                             <span class="${dep.prognosis && dep.prognosis.platform !== dep.platform ? 'platform-changed' : 'text-gray-500'}">
@@ -460,7 +553,7 @@
                         </div>
                     </div>
 
-                    <div class="text-gray-300">
+                    <div class="text-gray-500">
                         <i class="fas fa-chevron-right text-xs"></i>
                     </div>
                 `;
@@ -486,21 +579,28 @@
             $('detail-operator').textContent = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
             $('detail-trip-id').textContent = `TRIP: ${dep.tripId.split('|')[0]}`;
 
+            const isVRR = isNRWStation(state.currentStation);
+            const apiBase = getApiBase(isVRR);
+
             try {
-                const res = await fetch(`${API_BASE}/trips/${encodeURIComponent(dep.tripId)}?stopovers=true&remarks=true`);
-                if (!res.ok) throw new Error(`Details API ${res.status}`);
+                const res = await fetch(`${apiBase}/trips/${encodeURIComponent(dep.tripId)}?stopovers=true&remarks=true`);
+                if (!res.ok) {
+                    if (!isVRR) switchApiEndpoint();
+                    throw new Error(`Details API ${res.status}`);
+                }
                 const trip = await res.json();
-                renderItinerary(trip.stopovers || []);
+                renderItinerary(trip.stopovers || [], trip.remarks || []);
             } catch (err) {
                 console.error('Trip details failed', err);
                 itinerary.innerHTML = `<p class="py-10 text-center text-red-500 text-sm">Details konnten nicht geladen werden.<br><span class="text-[10px] opacity-50">${err.message}</span></p>`;
             }
         }
 
-        function renderItinerary(stopovers) {
+        function renderItinerary(stopovers, tripRemarks = []) {
             const container = $('trip-itinerary');
             container.innerHTML = '';
 
+            // Render stopovers
             stopovers.forEach(stop => {
                 const isCancelled = stop.cancelled;
                 const isAdditional = stop.additional;
@@ -510,26 +610,21 @@
                 const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
                 const actualDep = stop.departure ? new Date(stop.departure) : null;
 
-                const hasLiveArr = actualArr && actualArr.getTime() !== schedArr?.getTime();
-                const hasLiveDep = actualDep && actualDep.getTime() !== schedDep?.getTime();
+                const hasLiveArr = actualArr && (schedArr && Math.abs(actualArr.getTime() - schedArr.getTime()) > 1000);
+                const hasLiveDep = actualDep && (schedDep && Math.abs(actualDep.getTime() - schedDep.getTime()) > 1000);
 
-                // Precision Logic
                 const formatTime = (sched, actual, hasLive) => {
                     if (!sched) return '';
-                    
                     const now = new Date();
                     const isPast = actual && (actual.getTime() < now.getTime());
                     
-                    if (!hasLive) {
-                        // Plan-Daten: Normal, grau, ohne Sekunden
+                    if (!hasLive && !actual) {
                         return `<span class="text-gray-500/50 font-normal">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
 
                     if (isPast) {
-                        // Echtzeit-Signal gesendet: Fett + Sekunden
                         return `<span class="precision-time text-green-500 font-bold">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
                     } else {
-                        // Prognose (Zukunft): Dünn, ohne Sekunden
                         return `<span class="thin-prognosis text-green-500/70 font-light italic">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
                 };
@@ -537,7 +632,6 @@
                 const stopItem = document.createElement('div');
                 stopItem.className = `relative flex items-start gap-6 ${isCancelled ? 'opacity-40' : ''}`;
                 
-                // Status Indicator on the line
                 const indicator = document.createElement('div');
                 indicator.className = `absolute left-[13px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 
                     ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}`;
@@ -564,9 +658,21 @@
                         </div>
                     </div>
                 `;
-
                 container.appendChild(stopItem);
             });
+
+            // Render Trip Remarks at the end
+            if (tripRemarks.length > 0) {
+                const remarksContainer = document.createElement('div');
+                remarksContainer.className = 'mt-10 pt-6 border-t border-gray-100 dark:border-zinc-900 space-y-2';
+                tripRemarks.forEach(rem => {
+                    const rDiv = document.createElement('div');
+                    rDiv.className = 'text-xs text-red-500 font-medium flex items-start gap-2';
+                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${rem.text}</span>`;
+                    remarksContainer.appendChild(rDiv);
+                });
+                container.appendChild(remarksContainer);
+            }
         }
 
         init();
