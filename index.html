@@ -2,18 +2,18 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | MOTIS Ultra-Stable</title>
+    <title>dilaeit | MOTIS Final Fix</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
         :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
         [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
-        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
-        .header { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--bg); z-index: 1000; }
-        .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; }
+        .header { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; }
         .search-area { padding: 0 20px 20px; }
         .input-group { display: flex; flex-direction: column; gap: 10px; position: relative; }
         input, .dt-select { flex: 1; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-size: 16px; outline: none; }
-        #dropdown { position: absolute; top: 58px; left: 0; right: 0; background: var(--card); border: 1px solid var(--border); border-radius: 12px; display: none; z-index: 5000; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #dropdown { position: absolute; top: 58px; left: 0; right: 0; background: var(--card); border: 1px solid var(--border); border-radius: 12px; display: none; z-index: 5000; max-height: 250px; overflow-y: auto; }
         .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .line-badge { background: var(--db-red); color: white; font-weight: 800; padding: 3px 8px; border-radius: 6px; font-size: 12px; }
@@ -21,6 +21,7 @@
         .v-ontime { color: var(--green); }
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 10000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; }
+        #debug { font-size: 10px; color: #666; padding: 0 20px; }
     </style>
 </head>
 <body data-theme="dark">
@@ -40,7 +41,7 @@
         </div>
     </div>
 </div>
-
+<div id="debug"></div>
 <div id="results"></div>
 
 <div id="ov_trip" class="ov">
@@ -53,39 +54,36 @@
 
 <script>
     const API_URL = "https://eu.transitous.org";
-    // Liste von verschiedenen Proxies zur Ausfallsicherheit
-    const PROXIES = [
-        "https://api.allorigins.win/raw?url=",
-        "https://corsproxy.io/?",
-        "https://thingproxy.freeboard.io/fetch/",
-        "https://api.codetabs.com/v1/proxy?quest="
-    ];
-
     let timer;
+
     const now = new Date();
     document.getElementById('sel_date').value = now.toISOString().split('T')[0];
     document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
 
-    // Diese Funktion probiert alle Proxies durch, bis einer geht
-    async function smartFetch(endpoint, method = "GET", body = null) {
-        let lastError;
-        for (const proxy of PROXIES) {
-            try {
-                const targetUrl = proxy + encodeURIComponent(API_URL + endpoint);
-                const options = {
-                    method: method,
-                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-                };
-                if (body) options.body = JSON.stringify(body);
+    function log(msg) { document.getElementById('debug').innerText = msg; }
 
-                const response = await fetch(targetUrl, options);
-                if (response.ok) return await response.json();
-            } catch (e) {
-                lastError = e;
-                continue; 
-            }
+    async function callMOTIS(endpoint, method = "GET", body = null) {
+        // Wir nutzen einen extrem simplen Proxy für maximale Kompatibilität
+        const proxy = "https://corsproxy.io/?";
+        const url = proxy + encodeURIComponent(API_URL + endpoint);
+        
+        try {
+            const options = {
+                method: method,
+                headers: { 
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            };
+            if (body) options.body = JSON.stringify(body);
+
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            return await response.json();
+        } catch (e) {
+            console.error(e);
+            throw e;
         }
-        throw new Error("Alle Verbindungswege blockiert.");
     }
 
     async function doSearch() {
@@ -94,21 +92,30 @@
         if(q.length < 2) { dd.style.display = 'none'; return; }
         
         dd.style.display = 'block';
-        dd.innerHTML = '<div class="dd-item">Suche läuft...</div>';
+        dd.innerHTML = '<div class="dd-item">Suche...</div>';
+        log("Sende Guesser-Anfrage...");
 
         try {
-            const data = await smartFetch(`/guesser?input=${encodeURIComponent(q)}`);
-            if (!data.guesses || data.guesses.length === 0) {
+            // Wir schicken den Guesser als POST-Request (oft stabiler bei Transitous)
+            const data = await callMOTIS('/', 'POST', {
+                destination: { type: "Module", target: "/guesser" },
+                content_type: "StationGuesserRequest",
+                content: { input: q, guess_count: 8 }
+            });
+            
+            const guesses = data.content.guesses || [];
+            if (guesses.length === 0) {
                 dd.innerHTML = '<div class="dd-item">Nichts gefunden.</div>';
                 return;
             }
-            dd.innerHTML = data.guesses.map(g => `
+            dd.innerHTML = guesses.map(g => `
                 <div class="dd-item" onclick="pick('${g.id}', '${g.name.replace(/'/g, "\\'")}')">
-                    <strong>${g.name}</strong><br>
-                    <small style="opacity:0.5">${g.id.split('_')[0]}</small>
+                    <strong>${g.name}</strong>
                 </div>`).join('');
+            log("Suche erfolgreich.");
         } catch(e) {
-            dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Verbindung fehlgeschlagen. Versuche es erneut.</div>';
+            dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Verbindungsfehler.</div>';
+            log("Fehler: " + e.message);
         }
     }
 
@@ -120,14 +127,14 @@
 
     async function loadBoard(id) {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px'>Lade Abfahrten...</div>";
+        res.innerHTML = "<div style='padding:20px'>Lade Board...</div>";
         const ts = Math.floor(new Date(document.getElementById('sel_date').value + 'T' + document.getElementById('sel_time').value).getTime() / 1000);
 
         try {
-            const data = await smartFetch('/', 'POST', {
+            const data = await callMOTIS('/', 'POST', {
                 destination: { type: "Module", target: "/stb/stop_board" },
                 content_type: "StationBoardRequest",
-                content: { stop_id: id, time: ts, direction: "Departure", event_count: 30 }
+                content: { stop_id: id, time: ts, direction: "Departure", event_count: 20 }
             });
             
             res.innerHTML = data.content.entries.map(e => {
@@ -146,7 +153,7 @@
                     </div>
                 </div>`;
             }).join('');
-        } catch(e) { res.innerHTML = "<div style='padding:20px'>Fehler beim Laden.</div>"; }
+        } catch(e) { res.innerHTML = "<div style='padding:20px'>Ladefehler Board.</div>"; }
     }
 
     async function loadTrip(tripId, stationId, trainNr, title) {
@@ -156,7 +163,7 @@
         cont.innerHTML = "<div style='padding:20px'>Lade Verlauf...</div>";
 
         try {
-            const data = await smartFetch('/', 'POST', {
+            const data = await callMOTIS('/', 'POST', {
                 destination: { type: "Module", target: "/trip_details" },
                 content_type: "TripDetailsRequest",
                 content: { trip_id: { id: tripId, station_id: stationId, train_nr: trainNr } }
@@ -174,7 +181,7 @@
     }
 
     function fTime(ts) { return new Date(ts * 1000).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}); }
-    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 450); }
+    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     function toggleTheme() {
         const b = document.body;
