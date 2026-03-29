@@ -36,12 +36,11 @@
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
         
-        /* Trip Detail Grid */
         .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 100px 1fr 50px; gap: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
-        .time-group { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; line-height: 1.2; }
-        .t-trip-plan { font-size: 11px; color: var(--sub); text-decoration: line-through; display: block; }
+        .time-group { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; line-height: 1.3; }
+        .t-trip-plan { font-size: 10px; color: var(--sub); text-decoration: line-through; display: block; }
         .t-trip-act { font-weight: bold; font-size: 13px; }
-        .arr-label { font-size: 9px; color: var(--sub); text-transform: uppercase; margin-right: 2px; }
+        .arr-label { font-size: 9px; color: var(--sub); text-transform: uppercase; margin-right: 3px; }
         .remarks { font-size: 12px; color: var(--red); margin-top: 4px; display: block; font-weight: 500; }
     </style>
 </head>
@@ -120,8 +119,9 @@
                 const isCancelled = d.cancelled === true;
                 const delay = Math.round((new Date(d.when || d.plannedWhen) - new Date(d.plannedWhen)) / 60000);
                 const remarkTxt = (d.remarks || []).filter(r => r.type === 'warning').map(r => r.text).join(' • ');
-                // Nur durchstreichen bei Verspätung/Ausfall
-                const planClass = (delay !== 0 || isCancelled) ? "t-plan del" : "t-plan";
+                
+                // Fix: Nur durchstreichen, wenn wirklich verspätet oder Ausfall
+                const planClass = (delay > 0 || isCancelled) ? "t-plan del" : "t-plan";
                 
                 return `
                     <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
@@ -151,16 +151,21 @@
             const stops = trip.stopovers || (trip.trip && trip.trip.stopovers) || [];
             document.getElementById('ov_title').innerText = line;
             cont.innerHTML = stops.map(s => {
+                // Hilfsfunktion für Plan- vs. Istzeit im Verlauf
                 const renderTime = (type, plan, act) => {
                     if(!plan && !act) return '';
-                    const hasDelay = plan && act && (new Date(plan).getTime() !== new Date(act).getTime());
+                    const planT = plan ? new Date(plan).getTime() : null;
+                    const actT = act ? new Date(act).getTime() : null;
+                    const hasDelay = planT && actT && planT !== actT;
+                    
                     return `
-                        <div style="margin-bottom: 4px;">
+                        <div style="margin-bottom: 2px;">
                             ${hasDelay ? `<span class="t-trip-plan">${fTime(plan)}</span>` : ''}
                             <span class="t-trip-act ${hasDelay ? 'v-delay' : 'v-ontime'}"><small class="arr-label">${type}</small>${fTime(act || plan)}</span>
                         </div>
                     `;
                 };
+
                 return `
                     <div class="stop-row" style="${s.cancelled ? 'opacity:0.3' : ''}">
                         <div class="time-group">
