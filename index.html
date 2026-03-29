@@ -7,32 +7,25 @@
     <style>
         :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --hover: #3a3a3c; }
         [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; --hover: #f2f2f7; }
-        
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
         .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
-        
         .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; }
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; color: var(--text); outline: none; width: 100%; box-sizing: border-box; }
         input:focus { border-color: var(--db-red); }
-
         #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 6000; display: none; border-radius: 12px; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .dd-item:hover { background: var(--hover); }
-
         .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; }
         .line-badge { background: var(--db-red); color: white; font-weight: 900; padding: 3px 7px; border-radius: 5px; font-size: 13px; margin-bottom: 4px; display: inline-block; }
         .is-cancelled { text-decoration: line-through; opacity: 0.5; }
-        
         .remarks { font-size: 11px; color: var(--red); margin-top: 4px; display: block; font-weight: 600; line-height: 1.2; }
         .platform-badge { font-size: 11px; background: var(--border); padding: 2px 6px; border-radius: 4px; margin-top: 5px; display: inline-block; font-weight: bold; }
-
         .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
         .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
-        
-        .stop-row { padding: 14px 20px; display: grid; grid-template-columns: 110px 1fr 60px; gap: 12px; border-bottom: 1px solid var(--border); align-items: center; }
-        .t-plan { font-size: 10px; color: var(--sub); text-decoration: line-through; display: block; }
-        .t-act { font-weight: bold; font-size: 14px; font-variant-numeric: tabular-nums; }
+        .stop-row { padding: 14px 20px; display: grid; grid-template-columns: 120px 1fr 50px; gap: 12px; border-bottom: 1px solid var(--border); align-items: center; }
+        .t-plan { font-size: 10px; color: var(--sub); display: block; line-height: 1; margin-bottom: 2px; }
+        .t-act { font-size: 15px; font-variant-numeric: tabular-nums; line-height: 1; }
         .v-delay { color: var(--red); }
         .v-ontime { color: var(--green); }
         .tag { font-size: 9px; padding: 2px 4px; border-radius: 3px; font-weight: bold; margin-top: 3px; display: inline-block; }
@@ -71,7 +64,7 @@
 
     function setNow() {
         const n = new Date();
-        document.getElementById('date_inp').value = n.toISOString().split('T')[0];
+        document.getElementById('date_inp').value = n.toLocaleDateString('en-CA');
         document.getElementById('time_inp').value = n.toTimeString().slice(0,5);
         if(activeId) loadDeps();
     }
@@ -80,36 +73,27 @@
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if(q.length < 3) { dd.style.display = 'none'; return; }
-        
         dd.style.display = 'block';
         dd.innerHTML = '<div style="padding:10px; opacity:0.5;">Suche...</div>';
-        
         try {
-            // Wir suchen parallel in beiden APIs
             const fetches = Object.entries(APIS).map(([key, url]) => 
-                fetch(`${url}/locations?query=${encodeURIComponent(q)}&results=5`)
-                .then(r => r.json())
-                .then(data => ({ key, data: Array.isArray(data) ? data : (data.stations || data.stops || []) }))
-                .catch(() => ({ key, data: [] }))
+                fetch(`${url}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.ok ? r.json() : []).catch(() => [])
             );
-
             const results = await Promise.all(fetches);
             let html = '';
-            
-            results.forEach(res => {
-                res.data.forEach(l => {
+            results.forEach((data, i) => {
+                const list = Array.isArray(data) ? data : (data.stations || data.stops || []);
+                const apiKey = Object.keys(APIS)[i];
+                list.forEach(l => {
                     if (l.id && l.name) {
-                        html += `<div class="dd-item" onclick="pick('${l.id}','${l.name.replace(/'/g, "\\'")}','${APIS[res.key]}')">
-                            <span>${l.name}</span><small style="opacity:0.5; background:var(--border); padding:2px 4px; border-radius:4px; font-size:9px;">${res.key}</small>
+                        html += `<div class="dd-item" onclick="pick('${l.id}','${l.name.replace(/'/g, "\\'")}','${APIS[apiKey]}')">
+                            <span>${l.name}</span><small style="opacity:0.5; background:var(--border); padding:2px 4px; border-radius:4px; font-size:9px;">${apiKey}</small>
                         </div>`;
                     }
                 });
             });
-
-            dd.innerHTML = html || '<div style="padding:10px;">Keine Station gefunden</div>';
-        } catch(e) { 
-            dd.innerHTML = '<div style="padding:10px;">Fehler bei der Suche</div>';
-        }
+            dd.innerHTML = html || '<div style="padding:10px;">Nichts gefunden</div>';
+        } catch(e) { dd.innerHTML = '<div style="padding:10px;">Suche fehlgeschlagen</div>'; }
     }
 
     function pick(id, name, api) {
@@ -121,100 +105,105 @@
 
     async function loadDeps() {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Abfahrten...</div>";
-        const d = document.getElementById('date_inp').value;
-        const t = document.getElementById('time_inp').value;
-        const when = d && t ? `${d}T${t}` : "";
+        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Suche Fahrten...</div>";
+        const when = `${document.getElementById('date_inp').value}T${document.getElementById('time_inp').value}`;
         
-        try {
-            const data = await fetch(`${activeApi}/stops/${encodeURIComponent(activeId)}/departures?duration=60${when ? '&when='+when : ''}&remarks=true`).then(r => r.json());
-            const deps = data.departures || data || [];
-            
-            if(deps.length === 0) { res.innerHTML = "<div style='padding:20px;'>Keine Abfahrten gefunden.</div>"; return; }
+        async function fetchFrom(api, id) {
+            try {
+                const r = await fetch(`${api}/stops/${encodeURIComponent(id)}/departures?duration=90&when=${when}&remarks=true`);
+                const data = await r.json();
+                return data.departures || data || [];
+            } catch(e) { return []; }
+        }
 
-            res.innerHTML = deps.map(d => {
-                const isCancelled = d.cancelled === true;
-                const pTime = d.plannedWhen || d.when;
-                const rTime = d.when || d.plannedWhen;
-                const delay = Math.round((new Date(rTime) - new Date(pTime)) / 60000);
-                const reasons = (d.remarks || []).filter(r => r.type === 'warning' || r.type === 'status').map(r => r.text);
-                const platformLabel = activeApi.includes('vrr') ? 'Steig ' : 'Gl. ';
-                
-                return `
-                <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
-                    <div style="flex:1; padding-right:10px;">
-                        <span class="line-badge">${d.line.name}</span>
-                        <div class="${isCancelled ? 'is-cancelled' : ''}" style="font-weight:bold">${d.direction}</div>
-                        ${isCancelled ? '<span class="remarks">✕ FAHRT FÄLLT AUS</span>' : ''}
-                        ${reasons.map(r => `<span class="remarks">⚠️ ${r}</span>`).join('')}
-                    </div>
-                    <div style="text-align:right; min-width:80px;">
-                        <div style="font-size:12px; opacity:0.6">${fTime(pTime)}</div>
-                        <div class="t-act ${delay > 0 ? 'v-delay' : 'v-ontime'}">${isCancelled ? '--:--' : fTime(rTime)}</div>
-                        <div class="platform-badge">${d.platform ? platformLabel + d.platform : '--'}</div>
-                    </div>
-                </div>`;
-            }).join('');
-        } catch(e) { res.innerHTML = "<div style='padding:20px;'>Fehler beim Laden der Abfahrten.</div>"; }
+        let deps = await fetchFrom(activeApi, activeId);
+        if (deps.length === 0) {
+            const fallbackApi = activeApi === APIS.DB ? APIS.VRR : APIS.DB;
+            deps = await fetchFrom(fallbackApi, activeId);
+            if (deps.length > 0) activeApi = fallbackApi;
+        }
+
+        if (deps.length === 0) {
+            res.innerHTML = "<div style='padding:20px;'>Keine Fahrten gefunden.</div>";
+            return;
+        }
+
+        res.innerHTML = deps.map(d => {
+            const isCancelled = d.cancelled === true;
+            const pTime = d.plannedWhen || d.when;
+            const rTime = d.when || d.plannedWhen;
+            
+            const isReal = d.prognosed === false;
+            const delayMs = new Date(rTime) - new Date(pTime);
+            
+            const actClass = delayMs >= 30000 ? 'v-delay' : 'v-ontime';
+            const weight = isReal ? '900' : '300';
+            
+            return `
+            <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
+                <div style="flex:1; padding-right:10px;">
+                    <span class="line-badge">${d.line.name}</span>
+                    <div class="${isCancelled ? 'is-cancelled' : ''}" style="font-weight:bold; font-size:15px;">${d.direction}</div>
+                    ${isCancelled ? '<span class="remarks">✕ AUSFALL</span>' : ''}
+                </div>
+                <div style="text-align:right; min-width:80px;">
+                    <div class="t-plan">${fTime(pTime, false)}</div>
+                    <div class="t-act ${actClass}" style="font-weight:${weight}">${isCancelled ? '--:--' : fTime(rTime, false)}</div>
+                    <div class="platform-badge">${d.platform || '--'}</div>
+                </div>
+            </div>`;
+        }).join('');
     }
 
     async function loadTrip(tid, line, api) {
-        if(!tid) { alert("Keine Fahrt-ID verfügbar."); return; }
+        if(!tid) return;
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:20px; opacity:0.5;'>Fahrtverlauf wird geladen...</div>";
-        
+        cont.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Verlauf...</div>";
         try {
             const trip = await fetch(`${api}/trips/${encodeURIComponent(tid)}`).then(r => r.json());
             const stops = trip.stopovers || (trip.trip && trip.trip.stopovers) || [];
-            document.getElementById('ov_title').innerText = "Fahrtverlauf " + line;
-            
+            document.getElementById('ov_title').innerText = line;
             cont.innerHTML = stops.map(s => {
                 const isStopCancelled = s.cancelled === true;
-                
-                const renderStopTimes = (planned, actual, label) => {
-                    if(!planned) return '';
-                    const dly = Math.round((new Date(actual || planned) - new Date(planned)) / 60000);
-                    return `<div>
-                        <span class="t-plan">${fTime(planned)}</span>
-                        <span class="t-act ${dly > 0 ? 'v-delay' : 'v-ontime'}">${fTime(actual || planned)}</span>
-                        <small style="font-size:9px; color:var(--sub)"> ${label}</small>
-                    </div>`;
+                const renderTime = (plan, act, label, isRealTime) => {
+                    if(!plan) return '';
+                    const dly = (new Date(act || plan) - new Date(plan));
+                    const colorClass = dly >= 30000 ? 'v-delay' : 'v-ontime';
+                    const weight = isRealTime ? '900' : '300';
+                    // Sekunden nur anzeigen, wenn isRealTime (fett) wahr ist
+                    return `<div><span class="t-plan">${fTime(plan, false)} ${label}</span><span class="t-act ${colorClass}" style="font-weight:${weight}">${fTime(act || plan, isRealTime)}</span></div>`;
                 };
-
-                return `
-                <div class="stop-row ${isStopCancelled ? 'is-cancelled' : ''}">
-                    <div style="display:flex; flex-direction:column; line-height:1.3;">
-                        ${renderStopTimes(s.plannedArrival, s.arrival, 'AN')}
-                        ${renderStopTimes(s.plannedDeparture, s.departure, 'AB')}
+                return `<div class="stop-row ${isStopCancelled ? 'is-cancelled' : ''}">
+                    <div style="line-height:1.3;">
+                        ${renderTime(s.plannedArrival, s.arrival, 'AN', s.arrivalPrognosed === false)}
+                        ${renderTime(s.plannedDeparture, s.departure, 'AB', s.departurePrognosed === false)}
                     </div>
-                    <div>
-                        <div style="font-weight:bold; font-size:14px;">${s.stop.name}</div>
-                        ${isStopCancelled ? '<span class="tag" style="background:var(--red); color:white;">HALT ENTFÄLLT</span>' : ''}
-                        ${s.additional ? '<span class="tag" style="background:var(--green); color:white;">ZUSATZHALT</span>' : ''}
-                    </div>
-                    <div style="font-size:12px; text-align:right; font-weight:bold; color:var(--sub)">${s.platform || ''}</div>
-                </div>`;
+                    <div><div style="font-weight:bold; font-size:14px;">${s.stop.name}</div>
+                    ${isStopCancelled ? '<span class="tag" style="background:var(--red); color:white;">ENTFÄLLT</span>' : ''}</div>
+                    <div style="text-align:right; font-weight:bold; color:var(--sub); font-size:12px;">${s.platform || ''}</div></div>`;
             }).join('');
-        } catch(e) { cont.innerHTML = "<div style='padding:20px;'>Verlauf zurzeit nicht verfügbar.</div>"; }
+        } catch(e) { cont.innerHTML = "<div style='padding:20px;'>Verlauf nicht verfügbar.</div>"; }
     }
 
-    function fTime(iso) { 
-        if(!iso) return '';
+    function fTime(iso, showSeconds) { 
+        if(!iso) return ''; 
         const d = new Date(iso);
-        return d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}); 
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        if(!showSeconds) return `${h}:${m}`;
+        const s = String(d.getSeconds()).padStart(2, '0');
+        return `${h}:${m}:${s}`;
     }
     
     function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
-    
     function toggleTheme() {
         const d = document.body;
         const isDark = d.getAttribute('data-theme') === 'dark';
         d.setAttribute('data-theme', isDark ? 'light' : 'dark');
         document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
     }
-    
     setNow();
 </script>
 </body>
