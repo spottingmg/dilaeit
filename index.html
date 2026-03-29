@@ -482,12 +482,7 @@
                 const timeoutId = setTimeout(() => controller.abort(), 10000);
 
                 try {
-                    const locationSources = Array.from(new Set([
-                        ...REGIONAL_APIS.NATIONAL,
-                        ...REGIONAL_APIS.NRW,
-                        ...REGIONAL_APIS.BERLIN,
-                        ...REGIONAL_APIS.HAMBURG
-                    ]));
+                    const locationSources = [...REGIONAL_APIS.NATIONAL];
 
                     const searchPromises = locationSources.map(async (sourceUrl) => {
                         try {
