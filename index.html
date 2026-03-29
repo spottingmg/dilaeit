@@ -2,209 +2,180 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | Verspätungsmonitor</title>
+    <title>dilaeit|Dein Verspätungsmonitor</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; --hover: #3a3a3c; }
-        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; --hover: #f2f2f7; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; overflow-x: hidden; }
+        :root { --db-red: #c50014; --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --sub: #a1a1a6; --border: #3a3a3c; --green: #32d74b; --red: #ff453a; }
+        [data-theme="light"] { --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --sub: #86868b; --border: #d2d2d7; --green: #008f39; --red: #ff3b30; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; transition: background 0.3s; }
         .header { background: var(--bg); padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2000; }
         .header h1 { margin: 0; font-size: 20px; font-weight: 900; color: var(--db-red); text-transform: lowercase; cursor: pointer; }
-        .search-area { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 10px; position: relative; }
+        .search-area { padding: 0 20px 20px; position: relative; }
         input { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; font-size: 16px; color: var(--text); outline: none; width: 100%; box-sizing: border-box; }
-        input:focus { border-color: var(--db-red); }
-        #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 6000; display: none; border-radius: 12px; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-        .dd-item:hover { background: var(--hover); }
-        .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; }
-        .line-badge { background: var(--db-red); color: white; font-weight: 900; padding: 3px 7px; border-radius: 5px; font-size: 13px; margin-bottom: 4px; display: inline-block; }
-        .is-cancelled { text-decoration: line-through; opacity: 0.5; }
-        .remarks { font-size: 11px; color: var(--red); margin-top: 4px; display: block; font-weight: 600; line-height: 1.2; }
-        .platform-badge { font-size: 11px; background: var(--border); padding: 2px 6px; border-radius: 4px; margin-top: 5px; display: inline-block; font-weight: bold; }
-        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
-        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
-        .stop-row { padding: 14px 20px; display: grid; grid-template-columns: 120px 1fr 50px; gap: 12px; border-bottom: 1px solid var(--border); align-items: center; }
-        .t-plan { font-size: 10px; color: var(--sub); display: block; line-height: 1; margin-bottom: 2px; }
-        .t-act { font-size: 15px; font-variant-numeric: tabular-nums; line-height: 1; }
+        #dropdown { position: absolute; left: 20px; right: 20px; top: 60px; background: var(--card); border: 1px solid var(--border); z-index: 6000; display: none; border-radius: 12px; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
+        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .dd-item:hover { background: var(--border); }
+        .row { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .line-badge { background: var(--db-red); color: white; font-weight: 800; padding: 3px 8px; border-radius: 6px; font-size: 12px; margin-bottom: 4px; display: inline-block; }
         .v-delay { color: var(--red); }
         .v-ontime { color: var(--green); }
-        .tag { font-size: 9px; padding: 2px 4px; border-radius: 3px; font-weight: bold; margin-top: 3px; display: inline-block; }
+        .ov { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100000; overflow-y: auto; }
+        .ov-bar { background: var(--card); padding: 15px 20px; display: flex; justify-content: space-between; position: sticky; top: 0; border-bottom: 1px solid var(--border); }
+        .stop-row { padding: 12px 20px; display: grid; grid-template-columns: 115px 1fr; gap: 15px; border-bottom: 1px solid var(--border); }
+        .t-plan { font-size: 10px; color: var(--sub); display: block; }
+        .t-act { font-size: 15px; font-variant-numeric: tabular-nums; }
     </style>
 </head>
 <body data-theme="dark">
 
 <div class="header">
     <h1 onclick="location.reload()">dilaeit</h1>
-    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size: 20px;">🌙</span>
+    <span onclick="toggleTheme()" id="themeIcon" style="cursor:pointer; font-size:20px;">🌙</span>
 </div>
 
 <div class="search-area">
-    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
+    <input type="text" id="inp" placeholder="Station (Transitous/MOTIS)..." oninput="debounceSearch()">
     <div id="dropdown"></div>
-    <div style="display:flex; gap:8px;">
-        <input type="date" id="date_inp">
-        <input type="time" id="time_inp">
-        <button style="background:var(--db-red); color:white; border:none; border-radius:10px; padding:0 20px; font-weight:bold; cursor:pointer;" onclick="setNow()">Jetzt</button>
-    </div>
 </div>
 
 <div id="results"></div>
 
 <div id="ov_trip" class="ov">
-    <div class="ov-bar">
-        <span id="ov_title" style="font-weight:bold; font-size:18px;"></span>
-        <span onclick="closeOv()" style="cursor:pointer; font-size:24px;">✕</span>
-    </div>
+    <div class="ov-bar"><span id="ov_title" style="font-weight:bold;"></span><span onclick="closeOv()" style="cursor:pointer; font-size:22px;">✕</span></div>
     <div id="trip_content"></div>
 </div>
 
 <script>
-    const APIS = { DB: "https://v6.db.transport.rest", VRR: "https://v6.vrr.transport.rest" };
-    let activeId = "", activeApi = "", timer;
-
-    function setNow() {
-        const n = new Date();
-        document.getElementById('date_inp').value = n.toLocaleDateString('en-CA');
-        document.getElementById('time_inp').value = n.toTimeString().slice(0,5);
-        if(activeId) loadDeps();
-    }
+    const API = "https://eu.transitous.org";
+    let timer;
 
     async function doSearch() {
-        const q = document.getElementById('inp').value.trim();
-        const dd = document.getElementById('dropdown');
-        if(q.length < 3) { dd.style.display = 'none'; return; }
-        dd.style.display = 'block';
-        dd.innerHTML = '<div style="padding:10px; opacity:0.5;">Suche...</div>';
+        const q = document.getElementById('inp').value;
+        if(q.length < 3) return;
         try {
-            const fetches = Object.entries(APIS).map(([key, url]) => 
-                fetch(`${url}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.ok ? r.json() : []).catch(() => [])
-            );
-            const results = await Promise.all(fetches);
-            let html = '';
-            results.forEach((data, i) => {
-                const list = Array.isArray(data) ? data : (data.stations || data.stops || []);
-                const apiKey = Object.keys(APIS)[i];
-                list.forEach(l => {
-                    if (l.id && l.name) {
-                        html += `<div class="dd-item" onclick="pick('${l.id}','${l.name.replace(/'/g, "\\'")}','${APIS[apiKey]}')">
-                            <span>${l.name}</span><small style="opacity:0.5; background:var(--border); padding:2px 4px; border-radius:4px; font-size:9px;">${apiKey}</small>
-                        </div>`;
-                    }
-                });
-            });
-            dd.innerHTML = html || '<div style="padding:10px;">Nichts gefunden</div>';
-        } catch(e) { dd.innerHTML = '<div style="padding:10px;">Suche fehlgeschlagen</div>'; }
+            const r = await fetch(`${API}/guesser?input=${encodeURIComponent(q)}`);
+            const data = await r.json();
+            const dd = document.getElementById('dropdown');
+            dd.style.display = 'block';
+            dd.innerHTML = data.guesses.map(g => `<div class="dd-item" onclick="pick('${g.id}', '${g.name}')">${g.name}</div>`).join('');
+        } catch(e) {}
     }
 
-    function pick(id, name, api) {
-        activeId = id; activeApi = api;
+    function pick(id, name) {
         document.getElementById('inp').value = name;
         document.getElementById('dropdown').style.display = 'none';
-        loadDeps();
+        loadBoard(id);
     }
 
-    async function loadDeps() {
+    async function loadBoard(id) {
         const res = document.getElementById('results');
-        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Suche Fahrten...</div>";
-        const when = `${document.getElementById('date_inp').value}T${document.getElementById('time_inp').value}`;
+        res.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Board...</div>";
         
-        async function fetchFrom(api, id) {
-            try {
-                const r = await fetch(`${api}/stops/${encodeURIComponent(id)}/departures?duration=90&when=${when}&remarks=true`);
-                const data = await r.json();
-                return data.departures || data || [];
-            } catch(e) { return []; }
-        }
+        const body = {
+            destination: { type: "Module", target: "/stb/stop_board" },
+            content_type: "StationBoardRequest",
+            content: {
+                stop_id: id,
+                time: Math.floor(Date.now() / 1000),
+                direction: "Departure",
+                event_count: 25
+            }
+        };
 
-        let deps = await fetchFrom(activeApi, activeId);
-        if (deps.length === 0) {
-            const fallbackApi = activeApi === APIS.DB ? APIS.VRR : APIS.DB;
-            deps = await fetchFrom(fallbackApi, activeId);
-            if (deps.length > 0) activeApi = fallbackApi;
-        }
+        const r = await fetch(`${API}/`, { method: "POST", body: JSON.stringify(body) });
+        const data = await r.json();
+        
+        res.innerHTML = data.content.entries.map(e => {
+            const plan = e.event.schedule_time;
+            const act = e.event.time;
+            const diff = act - plan;
+            const isReal = e.event.reason === "Is"; 
+            
+            // Erst ab 60 Sek Verspätung rot, Verfrühung (negatives diff) bleibt grün
+            const colorClass = diff >= 60 ? "v-delay" : "v-ontime";
+            const weight = isReal ? '900' : '400';
 
-        if (deps.length === 0) {
-            res.innerHTML = "<div style='padding:20px;'>Keine Fahrten gefunden.</div>";
-            return;
-        }
-
-        res.innerHTML = deps.map(d => {
-            const isCancelled = d.cancelled === true;
-            const pTime = d.plannedWhen || d.when;
-            const rTime = d.when || d.plannedWhen;
-            
-            const isReal = d.prognosed === false;
-            const delayMs = new Date(rTime) - new Date(pTime);
-            
-            const actClass = delayMs >= 30000 ? 'v-delay' : 'v-ontime';
-            const weight = isReal ? '900' : '300';
-            
             return `
-            <div class="row" onclick="loadTrip('${d.tripId}', '${d.line.name}', '${activeApi}')">
-                <div style="flex:1; padding-right:10px;">
-                    <span class="line-badge">${d.line.name}</span>
-                    <div class="${isCancelled ? 'is-cancelled' : ''}" style="font-weight:bold; font-size:15px;">${d.direction}</div>
-                    ${isCancelled ? '<span class="remarks">✕ AUSFALL</span>' : ''}
+            <div class="row" onclick="loadTrip('${e.trip_id.id}', '${e.trip_id.station_id}', ${e.trip_id.train_nr}, '${e.line_id}')">
+                <div style="flex:1">
+                    <span class="line-badge">${e.line_id || 'Zug'}</span>
+                    <div style="font-weight:bold;">${e.direction}</div>
                 </div>
-                <div style="text-align:right; min-width:80px;">
-                    <div class="t-plan">${fTime(pTime, false)}</div>
-                    <div class="t-act ${actClass}" style="font-weight:${weight}">${isCancelled ? '--:--' : fTime(rTime, false)}</div>
-                    <div class="platform-badge">${d.platform || '--'}</div>
+                <div style="text-align:right">
+                    <div class="t-plan">${fTime(plan, false)}</div>
+                    <div class="t-act ${colorClass}" style="font-weight:${weight}">
+                        ${fTime(act, false)}
+                    </div>
                 </div>
             </div>`;
         }).join('');
     }
 
-    async function loadTrip(tid, line, api) {
-        if(!tid) return;
+    async function loadTrip(tripId, stationId, trainNr, line) {
         document.getElementById('ov_trip').style.display = 'block';
         const cont = document.getElementById('trip_content');
-        cont.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Verlauf...</div>";
+        cont.innerHTML = "<div style='padding:20px; opacity:0.5;'>Lade Echtzeit-Verlauf...</div>";
+
+        const body = {
+            destination: { type: "Module", target: "/trip_details" },
+            content_type: "TripDetailsRequest",
+            content: { trip_id: { id: tripId, station_id: stationId, train_nr: trainNr } }
+        };
+
         try {
-            const trip = await fetch(`${api}/trips/${encodeURIComponent(tid)}`).then(r => r.json());
-            const stops = trip.stopovers || (trip.trip && trip.trip.stopovers) || [];
-            document.getElementById('ov_title').innerText = line;
-            cont.innerHTML = stops.map(s => {
-                const isStopCancelled = s.cancelled === true;
-                const renderTime = (plan, act, label, isRealTime) => {
-                    if(!plan) return '';
-                    const dly = (new Date(act || plan) - new Date(plan));
-                    const colorClass = dly >= 30000 ? 'v-delay' : 'v-ontime';
-                    const weight = isRealTime ? '900' : '300';
-                    // Sekunden nur anzeigen, wenn isRealTime (fett) wahr ist
-                    return `<div><span class="t-plan">${fTime(plan, false)} ${label}</span><span class="t-act ${colorClass}" style="font-weight:${weight}">${fTime(act || plan, isRealTime)}</span></div>`;
+            const r = await fetch(`${API}/`, { method: "POST", body: JSON.stringify(body) });
+            const data = await r.json();
+            document.getElementById('ov_title').innerText = line || "Fahrtverlauf";
+            
+            cont.innerHTML = data.content.trip.stop_overs.map(s => {
+                const render = (type) => {
+                    const ev = s[type];
+                    if(!ev) return '';
+                    const isReal = ev.reason === "Is";
+                    const plan = ev.schedule_time;
+                    const act = ev.time;
+                    const diff = act - plan;
+                    
+                    const color = diff >= 60 ? "v-delay" : "v-ontime";
+                    const weight = isReal ? '900' : '400';
+
+                    return `<div>
+                        <span class="t-plan">${type==='arrival'?'AN':'AB'} ${fTime(plan, false)}</span>
+                        <span class="t-act ${color}" style="font-weight:${weight}">
+                            ${fTime(act, isReal)}
+                        </span>
+                    </div>`;
                 };
-                return `<div class="stop-row ${isStopCancelled ? 'is-cancelled' : ''}">
-                    <div style="line-height:1.3;">
-                        ${renderTime(s.plannedArrival, s.arrival, 'AN', s.arrivalPrognosed === false)}
-                        ${renderTime(s.plannedDeparture, s.departure, 'AB', s.departurePrognosed === false)}
+
+                return `
+                <div class="stop-row">
+                    <div>${render('arrival')}${render('departure')}</div>
+                    <div>
+                        <div style="font-weight:bold; font-size:14px;">${s.stop.name}</div>
+                        <div style="font-size:11px; color:var(--sub)">Gleis ${s.arrival?.track || s.departure?.track || '--'}</div>
                     </div>
-                    <div><div style="font-weight:bold; font-size:14px;">${s.stop.name}</div>
-                    ${isStopCancelled ? '<span class="tag" style="background:var(--red); color:white;">ENTFÄLLT</span>' : ''}</div>
-                    <div style="text-align:right; font-weight:bold; color:var(--sub); font-size:12px;">${s.platform || ''}</div></div>`;
+                </div>`;
             }).join('');
         } catch(e) { cont.innerHTML = "<div style='padding:20px;'>Verlauf nicht verfügbar.</div>"; }
     }
 
-    function fTime(iso, showSeconds) { 
-        if(!iso) return ''; 
-        const d = new Date(iso);
+    function fTime(ts, showSec) {
+        const d = new Date(ts * 1000);
         const h = String(d.getHours()).padStart(2, '0');
         const m = String(d.getMinutes()).padStart(2, '0');
-        if(!showSeconds) return `${h}:${m}`;
+        if(!showSec) return `${h}:${m}`;
         const s = String(d.getSeconds()).padStart(2, '0');
         return `${h}:${m}:${s}`;
     }
-    
-    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
+
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
+    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; }
     function toggleTheme() {
-        const d = document.body;
-        const isDark = d.getAttribute('data-theme') === 'dark';
-        d.setAttribute('data-theme', isDark ? 'light' : 'dark');
+        const b = document.body;
+        const isDark = b.getAttribute('data-theme') === 'dark';
+        b.setAttribute('data-theme', isDark ? 'light' : 'dark');
         document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
     }
-    setNow();
 </script>
 </body>
 </html>
