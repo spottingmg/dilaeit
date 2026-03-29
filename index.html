@@ -50,53 +50,47 @@
     </div>
     <div id="ov-content"></div>
 </div>
-<script>
+    <script>
 const API_BASE = "https://v6.vrr.transport.rest";
-    // Eine Liste von 3 verschiedenen Proxys für maximale Stabilität
+    // Wir nutzen jetzt stabilere, unterschiedliche Dienste
     const PROXIES = [
         "https://api.allorigins.win/get?url=",
-        "https://thingproxy.freeboard.io/fetch/",
-        "https://api.codetabs.com/v1/proxy?quest="
+        "https://api.codetabs.com/v1/proxy?quest=",
+        "https://thingproxy.freeboard.io/fetch/"
     ];
     let currentProxyIdx = 0;
     let timer;
+    let lastQuery = "";
 
-    // Uhrzeit-Setup
-    const setTime = () => {
+    // Uhrzeit-Fix
+    const setInitTime = () => {
         const now = new Date();
         document.getElementById('sel_date').value = now.toISOString().split('T')[0];
         document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
     };
-    setTime();
+    setInitTime();
 
-    function formatTimeHTML(date, isRealtime) {
-        const h = date.getHours().toString().padStart(2, '0');
-        const m = date.getMinutes().toString().padStart(2, '0');
-        const s = date.getSeconds().toString().padStart(2, '0');
-        return `${h}:${m}<span class="${isRealtime ? 'sec-bold' : 'sec-thin'}">:${s}</span>`;
-    }
-
-    async function fetchSmart(url) {
-        // Versucht nacheinander alle verfügbaren Proxys
+    async function fetchWithRetry(url) {
+        let lastErr = "";
+        // Versuche alle 3 Proxys nacheinander
         for (let i = 0; i < PROXIES.length; i++) {
+            const pIdx = (currentProxyIdx + i) % PROXIES.length;
             try {
-                const pIdx = (currentProxyIdx + i) % PROXIES.length;
                 const target = PROXIES[pIdx] + encodeURIComponent(url);
-                
-                const res = await fetch(target, { signal: AbortSignal.timeout(5000) });
-                if (!res.ok) throw new Error();
+                const res = await fetch(target);
+                if (!res.ok) throw new Error("Proxy Limit");
                 
                 let data = await res.json();
-                // Spezialbehandlung für AllOrigins (Proxy Index 0)
                 if (pIdx === 0 && data.contents) data = JSON.parse(data.contents);
                 
-                currentProxyIdx = pIdx; // Merken, welcher Proxy funktioniert hat
+                currentProxyIdx = pIdx; // Bleibe bei dem, der funktioniert
                 return data;
             } catch (e) {
-                console.warn(`Proxy ${i} fehlgeschlagen...`);
+                lastErr = e.message;
+                continue;
             }
         }
-        throw new Error("Alle Proxys überlastet");
+        throw new Error(lastErr);
     }
 
     function debounceSearch() {
@@ -104,45 +98,52 @@ const API_BASE = "https://v6.vrr.transport.rest";
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         
-        if(q.length < 3) { dd.style.display = 'none'; return; }
-        
-        // Erst nach 600ms Suchen, um API-Anfragen zu sparen
+        if (q.length < 3) { dd.style.display = 'none'; return; }
+        if (q === lastQuery) return; // Verhindert unnötige Suchen
+
         timer = setTimeout(async () => {
+            lastQuery = q;
             dd.style.display = 'block';
-            dd.innerHTML = '<div class="dd-item">Suche läuft...</div>';
+            dd.innerHTML = '<div class="dd-item" style="opacity:0.5">Suche läuft...</div>';
             
             try {
-                const data = await fetchSmart(`${API_BASE}/locations?query=${q}&results=6`);
+                const data = await fetchWithRetry(`${API_BASE}/locations?query=${q}&results=5`);
                 if (!data || data.length === 0) {
-                    dd.innerHTML = '<div class="dd-item">Nichts gefunden.</div>';
+                    dd.innerHTML = '<div class="dd-item">Keine Station gefunden.</div>';
                     return;
                 }
-                dd.innerHTML = data.filter(s => s.type === 'stop' || s.type === 'station')
-                    .map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`).join('');
+                dd.innerHTML = data
+                    .filter(s => s.type === 'stop' || s.type === 'station')
+                    .map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`)
+                    .join('');
             } catch(e) {
-                dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Alle Leitungen besetzt. Bitte 5 Sek. warten.</div>';
+                dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Verbindung blockiert. 10 Sek. warten.</div>';
             }
-        }, 600);
+        }, 800); // Längere Pause spart Anfragen
     }
 
     function pick(id, name) {
         document.getElementById('inp').value = name;
         document.getElementById('dropdown').style.display = 'none';
+        window.currentStationId = id; // Speichern für Refresh
         loadBoard(id);
     }
 
     async function loadBoard(id) {
+        if(!id) return;
         const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5;'>Lade Echtzeitdaten...</div>";
+        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5;'>Verbinde...</div>";
         
-        const iso = new Date(document.getElementById('sel_date').value + 'T' + document.getElementById('sel_time').value).toISOString();
+        const d = document.getElementById('sel_date').value;
+        const t = document.getElementById('sel_time').value;
+        const iso = new Date(`${d}T${t}`).toISOString();
 
         try {
-            const data = await fetchSmart(`${API_BASE}/stops/${id}/departures?when=${iso}&duration=60`);
+            const data = await fetchWithRetry(`${API_BASE}/stops/${id}/departures?when=${iso}&duration=60`);
             const deps = data.departures || data;
             
             if(!deps || deps.length === 0) {
-                resDiv.innerHTML = "<div style='padding:20px; text-align:center;'>Keine Fahrten gefunden.</div>";
+                resDiv.innerHTML = "<div style='padding:20px; text-align:center;'>Keine Abfahrten.</div>";
                 return;
             }
 
@@ -150,6 +151,8 @@ const API_BASE = "https://v6.vrr.transport.rest";
                 const plan = new Date(d.plannedWhen);
                 const act = new Date(d.when || d.plannedWhen);
                 const delay = d.delay !== null ? Math.round(d.delay / 60) : 0;
+                const isReal = d.when !== null;
+                
                 return `
                     <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name}', '${d.direction}')">
                         <div>
@@ -158,12 +161,14 @@ const API_BASE = "https://v6.vrr.transport.rest";
                         </div>
                         <div class="time-box">
                             <div class="plan">Plan: ${plan.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                            <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}">${formatTimeHTML(act, d.when !== null)}</div>
+                            <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}">
+                                ${act.getHours().toString().padStart(2, '0')}:${act.getMinutes().toString().padStart(2, '0')}<span class="${isReal ? 'sec-bold' : 'sec-thin'}">:${act.getSeconds().toString().padStart(2, '0')}</span>
+                            </div>
                         </div>
                     </div>`;
             }).join('');
         } catch(e) { 
-            resDiv.innerHTML = "<div style='padding:20px; color:var(--red); text-align:center;'>Verbindung aktuell unterbrochen.<br><small>Bitte Seite neu laden.</small></div>"; 
+            resDiv.innerHTML = "<div style='padding:20px; color:var(--red); text-align:center;'>Proxy-Limit erreicht. <br><small>Versuche es in 30 Sek. erneut.</small></div>"; 
         }
     }
 
@@ -172,18 +177,18 @@ const API_BASE = "https://v6.vrr.transport.rest";
         const ov = document.getElementById('ov');
         ov.style.display = 'block';
         document.getElementById('ov-title').innerText = line + " → " + dir;
-        document.getElementById('ov-content').innerHTML = "Lade Verlauf...";
+        document.getElementById('ov-content').innerHTML = "Lade...";
         
         try {
-            const data = await fetchSmart(`${API_BASE}/trips/${tripId}`);
+            const data = await fetchWithRetry(`${API_BASE}/trips/${tripId}`);
             document.getElementById('ov-content').innerHTML = data.trip.stopovers.map(s => {
-                const aTime = new Date(s.departure || s.arrival || s.plannedArrival);
+                const time = new Date(s.departure || s.arrival || s.plannedArrival);
                 return `<div style="padding:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
                     <b>${s.stop.name}</b>
-                    <span style="color:var(--sub)">${aTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span> 
+                    <span>${time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                 </div>`;
             }).join('');
-        } catch(e) { document.getElementById('ov-content').innerHTML = "Verlauf nicht verfügbar."; }
+        } catch(e) { document.getElementById('ov-content').innerHTML = "Fehler beim Laden des Verlaufs."; }
     }
 
     function closeOv() { document.getElementById('ov').style.display = 'none'; }
