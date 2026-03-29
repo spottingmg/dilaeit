@@ -2,121 +2,119 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | V6 Realtime</title>
+    <title>dilaeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #000000; --card: #1c1c1e; --text: #ffffff; --sub: #8e8e93; --border: #2c2c2e; --green: #30d158; --red: #ff453a; }
-        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; -webkit-font-smoothing: antialiased; }
-        h1 { color: var(--db-red); font-weight: 900; margin: 0; text-transform: lowercase; font-size: 28px; }
-        .input-container { position: relative; margin-bottom: 15px; }
-        input { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; color: white; font-size: 17px; width: 100%; box-sizing: border-box; outline: none; transition: border 0.2s; }
-        input:focus { border-color: var(--db-red); }
-        #dropdown { position: absolute; top: 60px; left: 0; right: 0; background: #2c2c2e; border-radius: 14px; z-index: 2000; display: none; max-height: 300px; overflow-y: auto; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; color: white; }
-        .row { background: var(--card); padding: 16px; border-radius: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); }
-        .line-badge { background: var(--db-red); color: white; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 13px; }
-        .time-box { text-align: right; min-width: 115px; font-variant-numeric: tabular-nums; }
+        :root { 
+            --db-red: #c50014; --bg: #000000; --card: #1c1c1e; --text: #ffffff; 
+            --sub: #8e8e93; --border: #2c2c2e; --green: #30d158; --red: #ff453a; --orange: #ff9f0a;
+        }
+        @media (prefers-color-scheme: light) {
+            :root { --bg: #f2f2f7; --card: #ffffff; --text: #000000; --sub: #8e8e93; --border: #e5e5ea; }
+        }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; transition: 0.3s; }
+        h1 { color: var(--db-red); font-weight: 900; margin: 0; font-size: 24px; letter-spacing: -1px; }
+        
+        .search-box { display: flex; gap: 8px; margin-bottom: 10px; }
+        input { 
+            flex: 1; padding: 14px; background: var(--card); border: 1px solid var(--border); 
+            border-radius: 12px; color: var(--text); font-size: 16px; outline: none; 
+        }
+        .btn { 
+            padding: 0 20px; background: var(--db-red); border: none; border-radius: 12px; 
+            color: white; font-weight: bold; cursor: pointer;
+        }
+
+        #dropdown { 
+            background: var(--card); border-radius: 12px; border: 1px solid var(--border);
+            margin-bottom: 15px; display: none; overflow: hidden;
+        }
+        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+
+        .row { 
+            background: var(--card); padding: 15px; border-radius: 16px; margin-bottom: 10px; 
+            display: flex; justify-content: space-between; border: 1px solid var(--border);
+            position: relative; overflow: hidden;
+        }
+        .cancelled { opacity: 0.5; text-decoration: line-through; border-left: 4px solid var(--red); }
+        
+        .line-badge { background: var(--db-red); color: white; padding: 3px 8px; border-radius: 4px; font-weight: 800; font-size: 12px; }
+        .platform { font-size: 12px; background: var(--border); padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
+        .changed-plat { color: var(--red); font-weight: bold; border: 1px solid var(--red); }
+        
+        .time-box { text-align: right; min-width: 100px; }
         .plan { font-size: 11px; color: var(--sub); }
-        .actual { font-size: 19px; }
-        .sec-thin { opacity: 0.4; font-weight: 300; font-size: 15px; }
-        .sec-bold { opacity: 1; font-weight: 900; font-size: 17px; }
-        .v-green { color: var(--green); }
-        .v-red { color: var(--red); }
-        #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:3000; padding:20px; overflow-y:auto; }
+        .actual { font-size: 18px; font-variant-numeric: tabular-nums; }
+        .sec { font-size: 14px; font-weight: 900; }
+        .thin { font-weight: 300; opacity: 0.5; }
+        
+        .delay-msg { font-size: 11px; color: var(--orange); margin-top: 4px; font-weight: bold; }
+        
+        #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:9000; padding:20px; overflow-y:auto; }
+        .stop-row { 
+            padding: 12px 0; border-left: 2px solid var(--border); padding-left: 15px; 
+            position: relative; display: flex; justify-content: space-between;
+        }
+        .stop-row::before { 
+            content: ''; position: absolute; left: -6px; top: 18px; 
+            width: 10px; height: 10px; background: var(--border); border-radius: 50%; 
+        }
     </style>
 </head>
 <body>
 
-<div class="header" style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:20px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
     <h1>dilaeit</h1>
-    <div style="font-size: 10px; color: var(--sub); font-weight: 700;">V6 ULTRA REALTIME</div>
-</div>
-
-<div class="input-container">
-    <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
-    <div id="dropdown"></div>
-    <div style="display: flex; gap: 8px; margin-top:8px;">
-        <input type="date" id="sel_date">
-        <input type="time" id="sel_time">
+    <div style="display:flex; gap:5px;">
+        <input type="date" id="sel_date" style="padding:5px; font-size:12px;">
+        <input type="time" id="sel_time" style="padding:5px; font-size:12px;">
     </div>
 </div>
 
+<div class="search-box">
+    <input type="text" id="inp" placeholder="Station..." onkeypress="if(event.key==='Enter') startSearch()">
+    <button class="btn" onclick="startSearch()">🔍</button>
+</div>
+
+<div id="dropdown"></div>
 <div id="results"></div>
 
 <div id="ov">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h2 id="ov-title" style="margin:0;"></h2>
-        <span onclick="closeOv()" style="font-size:40px; cursor:pointer;">&times;</span>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 id="ov-title" style="margin:0; font-size:18px;"></h2>
+        <button onclick="closeOv()" class="btn">Schließen</button>
     </div>
+    <div id="ov-info" style="margin:10px 0; font-size:13px; color:var(--orange);"></div>
+    <hr style="border:0; border-top:1px solid var(--border); margin:15px 0;">
     <div id="ov-content"></div>
 </div>
-    <script>
-const API_BASE = "https://v6.vrr.transport.rest";
-    // Wir nutzen jetzt primär diesen Proxy, da er am stabilsten für VRR ist
+
+<script>
+    const API = "https://v6.vrr.transport.rest";
     const PROXY = "https://api.allorigins.win/get?url=";
-    let timer;
 
-    // Zeit-Setup
-    const setTime = () => {
-        const now = new Date();
-        document.getElementById('sel_date').value = now.toISOString().split('T')[0];
-        document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
-    };
-    setTime();
+    // Uhrzeit Initialisierung
+    const now = new Date();
+    document.getElementById('sel_date').value = now.toISOString().split('T')[0];
+    document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
 
-    async function fetchData(url) {
-        try {
-            const response = await fetch(PROXY + encodeURIComponent(url));
-            if (!response.ok) throw new Error("Netzwerk-Antwort war nicht ok");
-            const data = await response.json();
-            // AllOrigins gibt die Daten im Feld 'contents' als String zurück
-            return JSON.parse(data.contents);
-        } catch (error) {
-            console.error("Fehler beim Abrufen:", error);
-            throw error;
-        }
+    async function call(path) {
+        const res = await fetch(PROXY + encodeURIComponent(API + path));
+        if (!res.ok) throw new Error();
+        const json = await res.json();
+        return JSON.parse(json.contents);
     }
 
-    function debounceSearch() {
-        clearTimeout(timer);
-        const q = document.getElementById('inp').value.trim();
+    async function startSearch() {
+        const q = document.getElementById('inp').value;
         const dd = document.getElementById('dropdown');
-        
-        if (q.length < 3) {
-            dd.style.display = 'none';
-            return;
-        }
-
-        // Wir warten 800ms, um nicht zu viele Anfragen zu senden
-        timer = setTimeout(async () => {
-            dd.style.display = 'block';
-            dd.innerHTML = '<div class="dd-item" style="color:var(--sub)">Suche läuft...</div>';
-            
-            try {
-                const data = await fetchData(`${API_BASE}/locations?query=${q}&results=10`);
-                
-                if (!data || data.length === 0) {
-                    dd.innerHTML = '<div class="dd-item">Keine Station gefunden.</div>';
-                    return;
-                }
-
-                // Nur echte Stationen/Stops anzeigen
-                const stations = data.filter(item => item.type === 'stop' || item.type === 'station');
-                
-                if (stations.length === 0) {
-                    dd.innerHTML = '<div class="dd-item">Keine Haltestelle gefunden.</div>';
-                } else {
-                    dd.innerHTML = stations.map(s => `
-                        <div class="dd-item" onclick="pick('${s.id}', '${s.name}')">
-                            🚉 ${s.name} <br>
-                            <small style="color:var(--sub); font-size:10px;">${s.location?.address || 'VRR Gebiet'}</small>
-                        </div>
-                    `).join('');
-                }
-            } catch (e) {
-                dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Proxy belegt. Bitte 5 Sek. warten.</div>';
-            }
-        }, 800);
+        if(q.length < 2) return;
+        dd.style.display = 'block';
+        dd.innerHTML = '<div class="dd-item">Suche läuft...</div>';
+        try {
+            const stations = await call(`/locations?query=${q}&results=5`);
+            dd.innerHTML = stations.map(s => `<div class="dd-item" onclick="pick('${s.id}','${s.name}')">🚉 ${s.name}</div>`).join('');
+        } catch(e) { dd.innerHTML = '<div class="dd-item" style="color:red">Fehler: Proxy/API Limit erreicht</div>'; }
     }
 
     function pick(id, name) {
@@ -125,71 +123,83 @@ const API_BASE = "https://v6.vrr.transport.rest";
         loadBoard(id);
     }
 
+    function formatTime(iso, plannedIso) {
+        const d = iso ? new Date(iso) : new Date(plannedIso);
+        const h = d.getHours().toString().padStart(2, '0');
+        const m = d.getMinutes().toString().padStart(2, '0');
+        const s = d.getSeconds().toString().padStart(2, '0');
+        // Wenn Echtzeit-Sekunden vorhanden (iso != planned), dann fett mit Sekunden
+        if (iso && iso !== plannedIso) {
+            return `${h}:${m}<span class="sec">:${s}</span>`;
+        }
+        return `${h}:${m}<span class="sec thin">:00</span>`;
+    }
+
     async function loadBoard(id) {
         const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5;'>Lade Abfahrten...</div>";
-        
-        const d = document.getElementById('sel_date').value;
-        const t = document.getElementById('sel_time').value;
-        const iso = new Date(`${d}T${t}`).toISOString();
-
+        resDiv.innerHTML = "Lade...";
+        const dt = document.getElementById('sel_date').value;
+        const tm = document.getElementById('sel_time').value;
         try {
-            const data = await fetchData(`${API_BASE}/stops/${id}/departures?when=${iso}&duration=60`);
+            const data = await call(`/stops/${id}/departures?when=${dt}T${tm}:00Z&duration=60`);
             const deps = data.departures || data;
-
-            if (!deps || deps.length === 0) {
-                resDiv.innerHTML = "<div style='padding:20px; text-align:center;'>Aktuell keine Fahrten.</div>";
-                return;
-            }
-
             resDiv.innerHTML = deps.map(d => {
-                const plan = new Date(d.plannedWhen);
-                const act = new Date(d.when || d.plannedWhen);
-                const delay = d.delay !== null ? Math.round(d.delay / 60) : 0;
-                const isReal = d.when !== null;
-
+                const isCancelled = d.cancelled;
+                const delay = d.delay !== null ? Math.round(d.delay/60) : 0;
+                const plat = d.platform || d.plannedPlatform;
+                const isPlatChanged = d.platform && d.platform !== d.plannedPlatform;
+                
                 return `
-                    <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name}', '${d.direction}')">
-                        <div>
-                            <span class="line-badge">${d.line?.name || '???'}</span>
-                            <div style="font-weight:700; margin-top:8px;">${d.direction}</div>
+                    <div class="row ${isCancelled ? 'cancelled' : ''}" onclick="openTrip('${d.tripId}','${d.line.name}','${d.direction}')">
+                        <div style="max-width:65%;">
+                            <span class="line-badge">${d.line.name}</span>
+                            ${plat ? `<span class="platform ${isPlatChanged ? 'changed-plat' : ''}">Gleis ${plat}</span>` : ''}
+                            <div style="font-weight:bold; margin-top:5px; font-size:15px;">${d.direction}</div>
+                            ${d.remarks?.filter(r => r.type === 'warning').map(r => `<div class="delay-msg">⚠️ ${r.text}</div>`).join('') || ''}
                         </div>
                         <div class="time-box">
-                            <div class="plan">Plan: ${plan.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                            <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}">
-                                ${act.getHours().toString().padStart(2, '0')}:${act.getMinutes().toString().padStart(2, '0')}<span class="${isReal ? 'sec-bold' : 'sec-thin'}">:${act.getSeconds().toString().padStart(2, '0')}</span>
+                            <div class="plan">Plan: ${new Date(d.plannedWhen).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+                            <div class="actual ${delay > 0 ? 'var-red' : 'v-green'}" style="color:${delay > 0 ? 'var(--red)' : 'var(--green)'}">
+                                ${formatTime(d.when, d.plannedWhen)}
                             </div>
+                            ${delay !== 0 ? `<div style="font-size:11px; font-weight:bold;">${delay > 0 ? '+' : ''}${delay} Min</div>` : ''}
                         </div>
                     </div>`;
             }).join('');
-        } catch (e) {
-            resDiv.innerHTML = "<div style='padding:20px; color:var(--red); text-align:center;'>Fehler beim Laden. <br> Bitte kurz warten.</div>";
-        }
+        } catch(e) { resDiv.innerHTML = "Fehler beim Laden."; }
     }
 
     async function openTrip(tripId, line, dir) {
-        if (!tripId) return;
         const ov = document.getElementById('ov');
         ov.style.display = 'block';
-        document.getElementById('ov-title').innerText = line + " → " + dir;
-        document.getElementById('ov-content').innerHTML = "Lade Trip-Details...";
-
+        document.getElementById('ov-title').innerText = `${line} → ${dir}`;
+        document.getElementById('ov-content').innerHTML = "Lade Verlauf...";
         try {
-            const data = await fetchData(`${API_BASE}/trips/${tripId}`);
-            document.getElementById('ov-content').innerHTML = data.trip.stopovers.map(s => {
-                const time = new Date(s.departure || s.arrival || s.plannedArrival);
+            const t = await call(`/trips/${tripId}`);
+            document.getElementById('ov-info').innerText = t.trip.remarks?.map(r => r.text).join(' • ') || '';
+            document.getElementById('ov-content').innerHTML = t.trip.stopovers.map(s => {
+                const arr = s.arrival || s.plannedArrival;
+                const dep = s.departure || s.plannedDeparture;
+                const pArr = s.plannedArrival;
+                const plat = s.platform || s.plannedPlatform;
+                const isCanceled = s.cancelled;
+
                 return `
-                    <div style="padding:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-                        <div style="font-weight:600; max-width:70%;">${s.stop.name}</div>
-                        <div style="color:var(--sub); font-variant-numeric: tabular-nums;">${time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    <div class="stop-row" style="${isCanceled ? 'text-decoration:line-through; color:var(--red);' : ''}">
+                        <div>
+                            <b style="font-size:14px;">${s.stop.name}</b>
+                            ${plat ? `<div style="font-size:10px; color:var(--sub)">Gleis ${plat}</div>` : ''}
+                            ${s.additional ? `<div style="color:var(--orange); font-size:10px;">Zusatzhalt</div>` : ''}
+                        </div>
+                        <div style="text-align:right;">
+                            <div class="actual" style="font-size:14px;">${formatTime(dep || arr, s.plannedDeparture || s.plannedArrival)}</div>
+                        </div>
                     </div>`;
             }).join('');
-        } catch (e) {
-            document.getElementById('ov-content').innerHTML = "Verlauf momentan nicht abrufbar.";
-        }
+        } catch(e) { document.getElementById('ov-content').innerHTML = "Details nicht verfügbar."; }
     }
 
     function closeOv() { document.getElementById('ov').style.display = 'none'; }
-        </script>
+</script>
 </body>
 </html>
