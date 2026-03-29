@@ -604,12 +604,6 @@ const actualTime = dep.prognosedWhen
             const data = await res.json();
             return Array.isArray(data) ? data : (data.departures || data);
         }
-        // Initialisierung starten
-        init();
-
-    </script>
-</body>
-</html>
 async function refreshDepartures() {
     if (!state.currentStation) return;
 
@@ -1210,3 +1204,4 @@ async function refreshDepartures() {
     </script>
 </body>
 </html>
+
