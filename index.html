@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV in Echtzeit</title>
+    <title>dilaeit - ÖPNV Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -465,13 +465,13 @@
                                         name: name,
                                         id: id,
                                         sourceRegion: detectRegion(name) || 'DEUTSCHLAND', 
-                                        sourceUrl: source.url,
+                                        sourceUrl: url,
                                         score: similarity * 100
                                     };
                                 })
                                 .filter(r => r !== null);
                         } catch (e) { 
-                            console.error(`Search failed for ${source.url}:`, e);
+                            console.error(`Search failed for ${url}:`, e);
                             return []; 
                         }
                     });
@@ -722,7 +722,11 @@
         // --- Detail Logic ---
         async function showTripDetails(dep) {
             const tripId = dep.tripId || (dep.prognosis && dep.prognosis.tripId);
-            if (!tripId) return;
+            if (!tripId) {
+                console.log('No tripId found in dep:', dep);
+                return;
+            }
+            console.log(`Using tripId: ${tripId} for line ${lineName}`);
             
             const modal = $('detail-view');
             const itinerary = $('trip-itinerary');
@@ -779,15 +783,24 @@
             for (const apiBase of detailEndpoints) {
                 try {
                     const res = await fetch(`${apiBase}/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`);
-                    if (!res.ok) continue;
+                    if (!res.ok) {
+                        console.log(`API ${apiBase} returned ${res.status} for trip ${tripId}`);
+                        continue;
+                    }
                     const data = await res.json();
                     const stops = data.stopovers || data.trip?.stopovers;
                     if (stops && stops.length > 0) {
                         tripData = data;
                         usedApi = apiBase;
+                        console.log(`Trip data from ${apiBase}:`, data);
                         break;
+                    } else {
+                        console.log(`API ${apiBase} returned no stops for trip ${tripId}`);
                     }
-                } catch (err) { continue; }
+                } catch (err) {
+                    console.log(`Error fetching from ${apiBase}:`, err);
+                    continue;
+                }
             }
 
             if (tripData) {
