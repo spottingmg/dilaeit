@@ -69,7 +69,7 @@
 </div>
 
 <script>
-const API = "https://v6.vrr.transport.rest";
+const API = "https://corsproxy.io/?url=" + encodeURIComponent("https://v6.vrr.transport.rest");
     let timer;
 
     // Zeit-Setup
@@ -82,43 +82,32 @@ const API = "https://v6.vrr.transport.rest";
         timer = setTimeout(doSearch, 400); 
     }
 
-    async function doSearch() {
-        const q = document.getElementById('inp').value.trim();
-        const dd = document.getElementById('dropdown');
+  async function doSearch() {
+    const q = document.getElementById('inp').value.trim();
+    const dd = document.getElementById('dropdown');
+    if(q.length < 2) { dd.style.display = 'none'; return; }
+
+    dd.innerHTML = `<div class="dd-item" style="opacity:0.5;">Suche...</div>`;
+    dd.style.display = 'block';
+
+    try {
+        // Hier nutzen wir den Proxy-String
+        const targetUrl = `https://v6.vrr.transport.rest/locations?query=${encodeURIComponent(q)}&results=10`;
+        const res = await fetch("https://corsproxy.io/?url=" + encodeURIComponent(targetUrl));
+        const data = await res.json();
         
-        if(q.length < 2) { 
-            dd.style.display = 'none'; 
-            return; 
+        if (data && data.length > 0) {
+            dd.innerHTML = data
+                .filter(s => s.type === 'stop' || s.type === 'station')
+                .map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`)
+                .join('');
+        } else {
+            dd.innerHTML = `<div class="dd-item">Nichts gefunden</div>`;
         }
-
-        // Feedback, dass gesucht wird
-        dd.innerHTML = `<div class="dd-item" style="opacity:0.5;">Suche im Verbund...</div>`;
-        dd.style.display = 'block';
-
-        try {
-            // Abfrage mit Cache-Buster, um Browser-Hänger zu vermeiden
-            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=10`, {
-                method: 'GET',
-                mode: 'cors' // Explizit CORS anfordern
-            });
-            
-            if (!res.ok) throw new Error("Server antwortet nicht korrekt");
-            
-            const data = await res.json();
-            
-            if (data && data.length > 0) {
-                dd.innerHTML = data
-                    .filter(s => s.type === 'stop' || s.type === 'station')
-                    .map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`)
-                    .join('');
-            } else {
-                dd.innerHTML = `<div class="dd-item">Nichts gefunden</div>`;
-            }
-        } catch(e) {
-            console.error("Fehler:", e);
-            dd.innerHTML = `<div class="dd-item" style="color:var(--red);">Verbindung fehlgeschlagen (CORS?)</div>`;
-        }
+    } catch(e) {
+        dd.innerHTML = `<div class="dd-item" style="color:var(--red);">Fehler: Proxy/API Limit erreicht</div>`;
     }
+}
 
     function pick(id, name) {
         document.getElementById('inp').value = name;
@@ -126,18 +115,19 @@ const API = "https://v6.vrr.transport.rest";
         loadBoard(id);
     }
 
-    async function loadBoard(id) {
-        const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.6;'>VRR/NRW Daten werden abgerufen...</div>";
-        
-        const d = document.getElementById('sel_date').value;
-        const t = document.getElementById('sel_time').value;
-        const iso = new Date(`${d}T${t}`).toISOString();
+ async function loadBoard(id) {
+    const resDiv = document.getElementById('results');
+    resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.6;'>Lade...</div>";
+    
+    const d = document.getElementById('sel_date').value;
+    const t = document.getElementById('sel_time').value;
+    const iso = new Date(`${d}T${t}`).toISOString();
 
-        try {
-            const res = await fetch(`${API}/stops/${encodeURIComponent(id)}/departures?when=${iso}&duration=60`);
-            const data = await res.json();
-            const deps = data.departures || data;
+    try {
+        const targetUrl = `https://v6.vrr.transport.rest/stops/${encodeURIComponent(id)}/departures?when=${iso}&duration=60`;
+        const res = await fetch("https://corsproxy.io/?url=" + encodeURIComponent(targetUrl));
+        const data = await res.json();
+        const deps = data.departures || data;
 
             if (!deps || deps.length === 0) {
                 resDiv.innerHTML = "<div class='row'>Keine Abfahrten gefunden.</div>";
