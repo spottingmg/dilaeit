@@ -93,35 +93,60 @@
         if(activeId) loadDeps();
     }
 
-    async function doSearch() {
-        const q = document.getElementById('inp').value.trim();
-        const dd = document.getElementById('dropdown');
-        if (q.length < 3) { dd.style.display = 'none'; return; }
-
-        try {
-            // Parallelsuche in DB und VRR für maximale DELFI-Abdeckung
-            const results = await Promise.all([
-                fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json()),
-                fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=5`).then(r => r.json())
-            ]);
-
-            const merged = [
-                ...(results[0] || []).map(l => ({...l, source: 'DB'})),
-                ...(results[1] || []).map(l => ({...l, source: 'VRR'}))
-            ].filter(l => l.id && l.name);
-
-            dd.style.display = merged.length ? 'block' : 'none';
-            dd.innerHTML = merged.map(l => `
-                <div class="dd-item" onclick="pick('${l.id}', '${l.name.replace(/'/g, "\\'")}', '${APIS[l.source]}')">
-                    <div>
-                        <strong>${l.name}</strong><br>
-                        <small style="color:var(--sub)">${l.id}</small>
-                    </div>
-                    <span class="source-tag">${l.source}</span>
-                </div>
-            `).join('');
-        } catch(e) { console.error("Search error", e); }
+async function doSearch() {
+    const q = document.getElementById('inp').value.trim();
+    const dd = document.getElementById('dropdown');
+    
+    if (q.length < 3) { 
+        dd.style.display = 'none'; 
+        return; 
     }
+
+    // Visuelles Feedback: Zeige, dass gesucht wird
+    dd.style.display = 'block';
+    dd.innerHTML = "<div style='padding:15px; opacity:0.5; font-size:14px;'>Suche Stationen...</div>";
+
+    try {
+        // Wir nutzen Promise.allSettled statt Promise.all
+        // So stürzt die Suche nicht ab, wenn z.B. der VRR-Server gerade down ist.
+        const results = await Promise.allSettled([
+            fetch(`${APIS.DB}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json()),
+            fetch(`${APIS.VRR}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json())
+        ]);
+
+        let merged = [];
+        
+        // Ergebnisse sicher verarbeiten
+        results.forEach((result, index) => {
+            if (result.status === "fulfilled" && Array.isArray(result.value)) {
+                const sourceName = index === 0 ? 'DB' : 'VRR';
+                const items = result.value.map(l => ({...l, source: sourceName}));
+                merged = [...merged, ...items];
+            }
+        });
+
+        // Duplikate entfernen (falls DB und VRR die gleiche Station finden)
+        const unique = Array.from(new Map(merged.map(item => [item.id, item])).values());
+
+        if (unique.length === 0) {
+            dd.innerHTML = "<div style='padding:15px; font-size:14px;'>Keine Station gefunden.</div>";
+            return;
+        }
+
+        dd.innerHTML = unique.map(l => `
+            <div class="dd-item" onclick="pick('${l.id}', '${l.name.replace(/'/g, "\\'")}', '${APIS[l.source]}')">
+                <div>
+                    <strong>${l.name}</strong><br>
+                    <small style="color:var(--sub)">${l.id}</small>
+                </div>
+                <span class="source-tag">${l.source}</span>
+            </div>
+        `).join('');
+    } catch(e) { 
+        console.error("Search error", e);
+        dd.innerHTML = "<div style='padding:15px; color:var(--red);'>Suche fehlgeschlagen.</div>";
+    }
+}
 
     function pick(id, name, apiUrl) {
         activeId = id;
