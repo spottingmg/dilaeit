@@ -36,6 +36,7 @@
         .passed { opacity: 0.35; filter: grayscale(0.5); }
         .remarks { font-size: 11px; color: var(--orange); margin-top: 6px; font-weight: 400; line-height: 1.3; }
         .platform { font-size: 11px; font-weight: 900; background: var(--border); color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 5px; vertical-align: middle; }
+        .stop-row div:last-child {overflow-wrap: break-word; word-break: break-word;}
     </style>
 </head>
 <body>
@@ -78,7 +79,7 @@ const API = "https://v6.vrr.transport.rest";
 
     function debounceSearch() { 
         clearTimeout(timer); 
-        timer = setTimeout(doSearch, 300); 
+        timer = setTimeout(doSearch, 400); 
     }
 
     async function doSearch() {
@@ -90,25 +91,32 @@ const API = "https://v6.vrr.transport.rest";
             return; 
         }
 
+        // Feedback, dass gesucht wird
+        dd.innerHTML = `<div class="dd-item" style="opacity:0.5;">Suche im Verbund...</div>`;
+        dd.style.display = 'block';
+
         try {
-            // Wir suchen NRW-weit über die VRR-Schnittstelle
-            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=10`);
+            // Abfrage mit Cache-Buster, um Browser-Hänger zu vermeiden
+            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=10`, {
+                method: 'GET',
+                mode: 'cors' // Explizit CORS anfordern
+            });
+            
+            if (!res.ok) throw new Error("Server antwortet nicht korrekt");
+            
             const data = await res.json();
             
-            if (data.length > 0) {
+            if (data && data.length > 0) {
                 dd.innerHTML = data
                     .filter(s => s.type === 'stop' || s.type === 'station')
                     .map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`)
                     .join('');
-                dd.style.display = 'block';
             } else {
-                dd.style.display = 'none';
+                dd.innerHTML = `<div class="dd-item">Nichts gefunden</div>`;
             }
         } catch(e) {
-            console.error("Dropdown Fehler:", e);
-            // Kleiner Hinweis im Dropdown bei Fehlern
-            dd.innerHTML = `<div class="dd-item" style="color:red;">API nicht erreichbar</div>`;
-            dd.style.display = 'block';
+            console.error("Fehler:", e);
+            dd.innerHTML = `<div class="dd-item" style="color:var(--red);">Verbindung fehlgeschlagen (CORS?)</div>`;
         }
     }
 
@@ -120,7 +128,7 @@ const API = "https://v6.vrr.transport.rest";
 
     async function loadBoard(id) {
         const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='padding:20px; text-align:center;'>Lade Live-Daten...</div>";
+        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.6;'>VRR/NRW Daten werden abgerufen...</div>";
         
         const d = document.getElementById('sel_date').value;
         const t = document.getElementById('sel_time').value;
@@ -140,23 +148,26 @@ const API = "https://v6.vrr.transport.rest";
                 const plan = new Date(d.plannedWhen || d.when);
                 const act = d.when ? new Date(d.when) : plan;
                 const delay = d.delay !== null ? Math.round(d.delay / 60) : 0;
+                const plat = d.prognosedPlatform || d.plannedPlatform;
                 
                 return `
-                    <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name}', '${d.direction}')">
+                    <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name || 'Bahn'}', '${d.direction}')">
                         <div>
                             <span class="line-badge">${d.line?.name || '???'}</span>
-                            <div style="font-weight:700; margin-top:8px;">${d.direction}</div>
+                            <div style="font-weight:700; margin-top:8px; font-size:16px;">
+                                ${d.direction} ${plat ? `<span class="platform">${plat}</span>` : ''}
+                            </div>
                         </div>
                         <div class="time-box">
                             <div class="plan">${plan.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                            <div class="actual ${delay > 0 ? 'v-red' : 'v-green'}">
+                            <div class="actual ${delay > 0 ? 'v-red' : 'v-green'} ${d.when ? 'is-live' : ''}">
                                 ${act.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                             </div>
                         </div>
                     </div>`;
             }).join('');
-        } catch(e) {
-            resDiv.innerHTML = "<div class='row'>Fehler beim Laden der Abfahrten.</div>";
+        } catch(e) { 
+            resDiv.innerHTML = "<div class='row' style='color:var(--red)'>Fehler beim Laden der Abfahrten.</div>"; 
         }
     }
   
