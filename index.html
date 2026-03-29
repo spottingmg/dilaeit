@@ -110,7 +110,7 @@
 
     function init() {
         if (!sessionStorage.getItem('lastDate')) setNow(false); 
-        initArchive();
+        renderArchive();
         restoreSession();
     }
 
@@ -150,14 +150,13 @@
         const q = document.getElementById('inp').value.trim();
         const dd = document.getElementById('dropdown');
         if (q.length < 3) { dd.style.display = 'none'; return; }
-        
         const apiUrl = selectedSearchApi === 'VRR' ? API_VRR : API_DB;
-        
         try {
             const res = await fetch(`${apiUrl}/locations?query=${encodeURIComponent(q)}&results=10`).then(r => r.json());
-            if(res && res.length > 0) {
+            const locations = Array.isArray(res) ? res : (res.locations || []);
+            if(locations.length > 0) {
                 dd.style.display = 'block';
-                dd.innerHTML = res.map(l => `
+                dd.innerHTML = locations.map(l => `
                     <div class="dd-item" onclick="pick('${l.id}', '${l.name.replace(/'/g, "\\'")}', '${apiUrl}')">
                         <span>${l.name}</span>
                         <span class="api-tag" style="background:${selectedSearchApi === 'VRR' ? '#0a84ff' : '#3a3a3c'}; color:white;">${selectedSearchApi}</span>
@@ -207,10 +206,16 @@
     async function loadTrip(tid, line, dest, apiOrigin) {
         if(!tid) return;
         currentTripData = { tid, line, dest, apiOrigin };
-        sessionStorage.setItem('currentTrip', JSON.stringify(currentTripData));
-        saveToArchive(tid, line, dest, apiOrigin);
         document.getElementById('ov_trip').style.display = 'block';
-        document.getElementById('trip_content').innerHTML = "<div style='padding:20px; opacity:0.6;'>Lade Verlauf...</div>";
+        
+        // Versuche zuerst aus dem Cache zu laden
+        const cached = getFromArchive(tid);
+        if(cached && cached.stops) {
+            renderTripContent(cached.stops);
+        } else {
+            document.getElementById('trip_content').innerHTML = "<div style='padding:20px; opacity:0.6;'>Lade Verlauf...</div>";
+        }
+
         refreshTrip();
         clearInterval(tripTimer);
         tripTimer = setInterval(refreshTrip, 15000);
@@ -218,41 +223,52 @@
 
     async function refreshTrip() {
         if(!currentTripData) return;
-        const isTrain = currentTripData.line.match(/^(ICE|IC|EC|RE|RB|S)/i);
-        const api = isTrain ? API_DB : API_VRR;
+        const api = currentTripData.apiOrigin;
         try {
             const trip = await fetch(`${api}/trips/${encodeURIComponent(currentTripData.tid)}`).then(r => r.json());
             const stops = (trip.stopovers || (trip.trip && trip.trip.stopovers)) || [];
-            document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest}`;
-            document.getElementById('trip_content').innerHTML = stops.map(s => {
-                const pArr = s.plannedArrival ? new Date(s.plannedArrival) : null;
-                const aArr = s.arrival ? new Date(s.arrival) : pArr;
-                const pDep = s.plannedDeparture ? new Date(s.plannedDeparture) : null;
-                const aDep = s.departure ? new Date(s.departure) : pDep;
-                const isFinalArr = s.arrivalPrognosisType === 'real';
-                const isFinalDep = s.departurePrognosisType === 'real';
-                return `<div class="stop-row">
-                    <div class="stop-times">
-                        ${pArr ? `<div class="time-group"><span class="t-lbl">an</span><span class="t-plan">${fTime(pArr)}</span><span class="t-act ${isFinalArr ? 'v-final' : ''} ${getDelayClass(pArr, aArr, !!s.arrival)}">${fTime(aArr, isFinalArr)}</span></div>` : ''}
-                        ${pDep ? `<div class="time-group"><span class="t-lbl">ab</span><span class="t-plan">${fTime(pDep)}</span><span class="t-act ${isFinalDep ? 'v-final' : ''} ${getDelayClass(pDep, aDep, !!s.departure)}">${fTime(aDep, isFinalDep)}</span></div>` : ''}
-                    </div>
-                    <div class="stop-name-box">
-                        <div class="stop-name ${s.cancelled ? 'cancelled' : ''}">${s.stop.name}</div>
-                        ${s.cancelled ? '<div style="font-size:9px; color:var(--red); font-weight:bold;">HALT ENTFÄLLT</div>' : ''}
-                        ${s.additional ? '<div class="additional-halt">ZUSATZHALT</div>' : ''}
-                    </div>
-                    <div style="font-size:10px; color:var(--sub)">${s.platform ? 'Gl.' + s.platform : ''}</div>
-                </div>`;
-            }).join('');
-        } catch(e) { console.error(e); }
+            if(stops.length > 0) {
+                renderTripContent(stops);
+                // Speichere den Verlauf permanent im Archiv
+                saveToArchive(currentTripData.tid, currentTripData.line, currentTripData.dest, api, stops);
+            }
+        } catch(e) { console.error("API Fehler, nutze Cache falls vorhanden"); }
     }
 
-    function saveToArchive(tid, line, dest, api) {
+    function renderTripContent(stops) {
+        document.getElementById('ov_title').innerText = `${currentTripData.line} ➔ ${currentTripData.dest}`;
+        document.getElementById('trip_content').innerHTML = stops.map(s => {
+            const pArr = s.plannedArrival ? new Date(s.plannedArrival) : null;
+            const aArr = s.arrival ? new Date(s.arrival) : pArr;
+            const pDep = s.plannedDeparture ? new Date(s.plannedDeparture) : null;
+            const aDep = s.departure ? new Date(s.departure) : pDep;
+            const isFinalArr = s.arrivalPrognosisType === 'real';
+            const isFinalDep = s.departurePrognosisType === 'real';
+            return `<div class="stop-row">
+                <div class="stop-times">
+                    ${pArr ? `<div class="time-group"><span class="t-lbl">an</span><span class="t-plan">${fTime(pArr)}</span><span class="t-act ${isFinalArr ? 'v-final' : ''} ${getDelayClass(pArr, aArr, !!s.arrival)}">${fTime(aArr, isFinalArr)}</span></div>` : ''}
+                    ${pDep ? `<div class="time-group"><span class="t-lbl">ab</span><span class="t-plan">${fTime(pDep)}</span><span class="t-act ${isFinalDep ? 'v-final' : ''} ${getDelayClass(pDep, aDep, !!s.departure)}">${fTime(aDep, isFinalDep)}</span></div>` : ''}
+                </div>
+                <div class="stop-name-box">
+                    <div class="stop-name ${s.cancelled ? 'cancelled' : ''}">${s.stop.name}</div>
+                    ${s.cancelled ? '<div style="font-size:9px; color:var(--red); font-weight:bold;">HALT ENTFÄLLT</div>' : ''}
+                </div>
+                <div style="font-size:10px; color:var(--sub)">${s.platform ? 'Gl.' + s.platform : ''}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function saveToArchive(tid, line, dest, api, stops) {
         let arch = JSON.parse(localStorage.getItem('dilaeit_trip_arch') || '[]');
         arch = arch.filter(i => i.tid !== tid);
-        arch.unshift({ tid, line, dest, api, ts: Date.now() });
-        localStorage.setItem('dilaeit_trip_arch', JSON.stringify(arch.slice(0, 10)));
+        arch.unshift({ tid, line, dest, api, stops, ts: Date.now() });
+        localStorage.setItem('dilaeit_trip_arch', JSON.stringify(arch.slice(0, 20))); // Merkt sich die letzten 20
         renderArchive();
+    }
+
+    function getFromArchive(tid) {
+        const arch = JSON.parse(localStorage.getItem('dilaeit_trip_arch') || '[]');
+        return arch.find(i => i.tid === tid);
     }
 
     function renderArchive() {
@@ -264,6 +280,7 @@
             <div class="row" style="padding: 10px 0; border-bottom: 1px solid var(--border);" onclick="loadTrip('${i.tid}', '${i.line}', '${i.dest.replace(/'/g, "\\'")}', '${i.api}')">
                 <span style="color:var(--db-red); font-weight:bold; width:50px;">${i.line}</span>
                 <span style="flex:1; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-left:10px;">${i.dest}</span>
+                <span style="font-size:9px; opacity:0.5;">${new Date(i.ts).toLocaleDateString()}</span>
             </div>`).join('');
     }
 
@@ -279,8 +296,7 @@
         }
     }
 
-    function initArchive() { renderArchive(); }
-    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; clearInterval(tripTimer); sessionStorage.removeItem('currentTrip'); currentTripData = null; }
+    function closeOv() { document.getElementById('ov_trip').style.display = 'none'; clearInterval(tripTimer); currentTripData = null; }
     function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
     function toggleTheme() {
         const isDark = document.body.getAttribute('data-theme') === 'dark';
