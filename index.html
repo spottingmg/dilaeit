@@ -2,41 +2,27 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | V6 Ultra Realtime</title>
+    <title>dilaeit | V6 Realtime</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <style>
-        :root { --db-red: #c50014; --bg: #000000; --card: #1c1c1e; --text: #ffffff; --sub: #8e8e93; --border: #2c2c2e; --green: #30d158; --red: #ff453a; --orange: #ff9f0a; }
+        :root { --db-red: #c50014; --bg: #000000; --card: #1c1c1e; --text: #ffffff; --sub: #8e8e93; --border: #2c2c2e; --green: #30d158; --red: #ff453a; }
         body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; -webkit-font-smoothing: antialiased; }
         h1 { color: var(--db-red); font-weight: 900; margin: 0; text-transform: lowercase; font-size: 28px; }
-        
-        /* Eingabefelder */
         .input-container { position: relative; margin-bottom: 15px; }
-        input { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; color: white; font-size: 17px; width: 100%; box-sizing: border-box; outline: none; }
-        
-        /* Dropdown Fix */
-        #dropdown { position: absolute; top: 60px; left: 0; right: 0; background: #2c2c2e; border-radius: 14px; z-index: 2000; display: none; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border); }
+        input { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; color: white; font-size: 17px; width: 100%; box-sizing: border-box; outline: none; transition: border 0.2s; }
+        input:focus { border-color: var(--db-red); }
+        #dropdown { position: absolute; top: 60px; left: 0; right: 0; background: #2c2c2e; border-radius: 14px; z-index: 2000; display: none; max-height: 300px; overflow-y: auto; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         .dd-item { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; color: white; }
-        .dd-item:last-child { border: none; }
-
-        /* Ergebnis-Zeilen */
-        .row { background: var(--card); padding: 16px; border-radius: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); cursor: pointer; }
+        .row { background: var(--card); padding: 16px; border-radius: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); }
         .line-badge { background: var(--db-red); color: white; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 13px; }
         .time-box { text-align: right; min-width: 115px; font-variant-numeric: tabular-nums; }
-        .plan { font-size: 11px; color: var(--sub); margin-bottom: 2px; }
+        .plan { font-size: 11px; color: var(--sub); }
         .actual { font-size: 19px; }
-        
-        /* Sekunden-Logik */
         .sec-thin { opacity: 0.4; font-weight: 300; font-size: 15px; }
-        .sec-bold { opacity: 1; font-weight: 900; font-size: 17px; color: inherit; }
-        
+        .sec-bold { opacity: 1; font-weight: 900; font-size: 17px; }
         .v-green { color: var(--green); }
         .v-red { color: var(--red); }
-        .platform { font-size: 11px; font-weight: 900; background: var(--border); color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
-        
-        /* Overlay */
         #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:3000; padding:20px; overflow-y:auto; }
-        .stop-row { display: grid; grid-template-columns: 120px 1fr; gap: 15px; padding: 12px 0; border-bottom: 1px solid var(--border); }
-        .passed { opacity: 0.3; }
     </style>
 </head>
 <body>
@@ -50,8 +36,8 @@
     <input type="text" id="inp" placeholder="Station suchen..." oninput="debounceSearch()" autocomplete="off">
     <div id="dropdown"></div>
     <div style="display: flex; gap: 8px; margin-top:8px;">
-        <input type="date" id="sel_date" style="flex:1.5; font-size: 14px; padding: 12px;">
-        <input type="time" id="sel_time" style="flex:1; font-size: 14px; padding: 12px;">
+        <input type="date" id="sel_date">
+        <input type="time" id="sel_time">
     </div>
 </div>
 
@@ -59,17 +45,23 @@
 
 <div id="ov">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h2 id="ov-title" style="margin:0; font-size: 20px;"></h2>
-        <span onclick="closeOv()" style="font-size:40px; cursor:pointer; line-height:1;">&times;</span>
+        <h2 id="ov-title" style="margin:0;"></h2>
+        <span onclick="closeOv()" style="font-size:40px; cursor:pointer;">&times;</span>
     </div>
     <div id="ov-content"></div>
 </div>
 
 <script>
-    const API = "https://v6.vrr.transport.rest";
+    const API_BASE = "https://v6.vrr.transport.rest";
+    // Proxy-Liste für Ausfallsicherheit
+    const PROXIES = [
+        "https://api.allorigins.win/get?url=",
+        "https://thingproxy.freeboard.io/fetch/"
+    ];
+    let currentProxyIdx = 0;
     let timer;
 
-    // Zeit-Setup Initialisierung
+    // Uhrzeit setzen
     const now = new Date();
     document.getElementById('sel_date').value = now.toISOString().split('T')[0];
     document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
@@ -78,26 +70,45 @@
         const h = date.getHours().toString().padStart(2, '0');
         const m = date.getMinutes().toString().padStart(2, '0');
         const s = date.getSeconds().toString().padStart(2, '0');
-        const secClass = isRealtime ? 'sec-bold' : 'sec-thin';
-        return `${h}:${m}<span class="${secClass}">:${s}</span>`;
+        return `${h}:${m}<span class="${isRealtime ? 'sec-bold' : 'sec-thin'}">:${s}</span>`;
     }
 
-    function debounceSearch() { clearTimeout(timer); timer = setTimeout(doSearch, 400); }
-
-    async function doSearch() {
-        const q = document.getElementById('inp').value.trim();
-        const dd = document.getElementById('dropdown');
-        if(q.length < 2) { dd.style.display = 'none'; return; }
-        
+    async function fetchSmart(url) {
+        // Wir versuchen es erst mit Proxy 1, dann mit Proxy 2
         try {
-            const res = await fetch(`${API}/locations?query=${encodeURIComponent(q)}&results=10`);
-            const data = await res.json();
-            if(data.length > 0) {
-                dd.style.display = 'block';
-                dd.innerHTML = data.filter(s => s.type === 'stop' || s.type === 'station')
-                    .map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`).join('');
+            const target = PROXIES[currentProxyIdx] + encodeURIComponent(url);
+            const res = await fetch(target);
+            if (!res.ok) throw new Error();
+            const json = await res.json();
+            // AllOrigins Spezialfall: Daten stecken in .contents
+            return currentProxyIdx === 0 ? JSON.parse(json.contents) : json;
+        } catch (e) {
+            console.warn("Proxy " + currentProxyIdx + " fehlgeschlagen, wechsle...");
+            currentProxyIdx = (currentProxyIdx + 1) % PROXIES.length;
+            const target = PROXIES[currentProxyIdx] + encodeURIComponent(url);
+            const res = await fetch(target);
+            const json = await res.json();
+            return currentProxyIdx === 0 ? JSON.parse(json.contents) : json;
+        }
+    }
+
+    function debounceSearch() {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+            const q = document.getElementById('inp').value.trim();
+            const dd = document.getElementById('dropdown');
+            if(q.length < 2) { dd.style.display = 'none'; return; }
+            
+            dd.style.display = 'block';
+            dd.innerHTML = '<div class="dd-item">Suche...</div>';
+            
+            try {
+                const data = await fetchSmart(`${API_BASE}/locations?query=${q}&results=5`);
+                dd.innerHTML = data.map(s => `<div class="dd-item" onclick="pick('${s.id}', '${s.name}')">🚉 ${s.name}</div>`).join('');
+            } catch(e) {
+                dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Verbindung hakt. Bitte nochmal tippen.</div>';
             }
-        } catch(e) { console.error("Search Error"); }
+        }, 500);
     }
 
     function pick(id, name) {
@@ -108,24 +119,17 @@
 
     async function loadBoard(id) {
         const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5;'>Lade...</div>";
+        resDiv.innerHTML = "<div style='padding:40px; text-align:center; opacity:0.5;'>Lade Echtzeitdaten...</div>";
         
-        const d = document.getElementById('sel_date').value;
-        const t = document.getElementById('sel_time').value;
-        const iso = new Date(`${d}T${t}`).toISOString();
+        const iso = new Date(document.getElementById('sel_date').value + 'T' + document.getElementById('sel_time').value).toISOString();
 
         try {
-            const res = await fetch(`${API}/stops/${encodeURIComponent(id)}/departures?when=${iso}&duration=60`);
-            const data = await res.json();
+            const data = await fetchSmart(`${API_BASE}/stops/${id}/departures?when=${iso}&duration=60`);
             const deps = data.departures || data;
-
             resDiv.innerHTML = deps.map(d => {
                 const plan = new Date(d.plannedWhen);
                 const act = new Date(d.when || d.plannedWhen);
                 const delay = d.delay !== null ? Math.round(d.delay / 60) : 0;
-                const colorClass = delay >= 1 ? 'v-red' : 'v-green';
-                const isRealtime = d.when !== null;
-
                 return `
                     <div class="row" onclick="openTrip('${d.tripId}', '${d.line?.name}', '${d.direction}')">
                         <div>
@@ -134,49 +138,27 @@
                         </div>
                         <div class="time-box">
                             <div class="plan">Plan: ${plan.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                            <div class="actual ${colorClass}">
-                                ${formatTimeHTML(act, isRealtime)}
-                            </div>
+                            <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}">${formatTimeHTML(act, d.when !== null)}</div>
                         </div>
                     </div>`;
             }).join('');
-        } catch(e) { resDiv.innerHTML = "Fehler beim Laden."; }
+        } catch(e) { resDiv.innerHTML = "<div style='padding:20px; color:var(--red)'>Fehler beim Laden.</div>"; }
     }
 
-    async function openTrip(tripId, lineName, direction) {
-        if(!tripId) return;
+    async function openTrip(tripId, line, dir) {
         const ov = document.getElementById('ov');
         ov.style.display = 'block';
-        document.getElementById('ov-title').innerText = lineName + " → " + direction;
-        document.getElementById('ov-content').innerHTML = "Lade Verlauf...";
-
+        document.getElementById('ov-title').innerText = line + " → " + dir;
         try {
-            const res = await fetch(`${API}/trips/${encodeURIComponent(tripId)}`);
-            const data = await res.json();
-            const nowTime = new Date();
-
+            const data = await fetchSmart(`${API_BASE}/trips/${tripId}`);
             document.getElementById('ov-content').innerHTML = data.trip.stopovers.map(s => {
-                const pTime = new Date(s.plannedDeparture || s.plannedArrival);
-                const aTime = new Date(s.departure || s.arrival || pTime);
-                const delay = s.departureDelay !== undefined ? Math.round(s.departureDelay / 60) : 0;
-                const isRealtime = (s.departure !== null && s.departure !== undefined);
-                const isPassed = aTime < nowTime;
-
-                return `
-                    <div class="stop-row ${isPassed ? 'passed' : ''}">
-                        <div class="time-box" style="text-align:left;">
-                            <div class="actual ${delay >= 1 ? 'v-red' : 'v-green'}" style="font-size:16px;">
-                                ${formatTimeHTML(aTime, isRealtime)}
-                            </div>
-                            <div class="plan">Plan: ${pTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                        </div>
-                        <div>
-                            <div style="font-weight:700;">${s.stop.name}</div>
-                            ${s.plannedPlatform ? `<span class="platform">${s.plannedPlatform}</span>` : ''}
-                        </div>
-                    </div>`;
+                const aTime = new Date(s.departure || s.arrival || s.plannedArrival);
+                return `<div style="padding:10px; border-bottom:1px solid var(--border)">
+                    <span style="color:var(--sub)">${aTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span> 
+                    <b style="margin-left:10px">${s.stop.name}</b>
+                </div>`;
             }).join('');
-        } catch(e) { document.getElementById('ov-content').innerHTML = "Fehler im Verlauf."; }
+        } catch(e) { document.getElementById('ov-content').innerHTML = "Fehler."; }
     }
 
     function closeOv() { document.getElementById('ov').style.display = 'none'; }
