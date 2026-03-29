@@ -2,192 +2,574 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit | V8 PRO</title>
+    <title>dilaeit - ÖPNV in Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { 
-            --db-red: #c50014; --bg: #000000; --card: #1c1c1e; --text: #ffffff; 
-            --sub: #8e8e93; --border: #2c2c2e; --green: #30d158; --red: #ff453a; --orange: #ff9f0a;
-        }
-        @media (prefers-color-scheme: light) {
-            :root { --bg: #f2f2f7; --card: #ffffff; --text: #000000; --sub: #8e8e93; --border: #e5e5ea; }
-        }
-        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
         
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        h1 { color: var(--db-red); font-weight: 900; margin: 0; font-size: 26px; }
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f3f4f6;
+            --text-primary: #111827;
+            --text-secondary: #4b5563;
+            --accent: #ef4444;
+            --success: #22c55e;
+            --error: #ef4444;
+            --warning: #f59e0b;
+        }
 
-        .search-area { display: flex; gap: 8px; margin-bottom: 10px; }
-        input[type="text"] { flex: 1; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-size: 16px; outline: none; }
-        .search-btn { background: var(--db-red); border: none; padding: 0 20px; border-radius: 12px; color: white; cursor: pointer; font-size: 18px; }
+        .dark {
+            --bg-primary: #121212;
+            --bg-secondary: #1e1e1e;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+        }
 
-        .dt-picker { display: flex; gap: 5px; margin-bottom: 15px; }
-        .dt-picker input { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 8px; font-size: 12px; flex: 1; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
+            -webkit-tap-highlight-color: transparent;
+        }
 
-        #dropdown { background: var(--card); border: 1px solid var(--border); border-radius: 12px; display: none; margin-bottom: 15px; max-height: 250px; overflow-y: auto; }
-        .dd-item { padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
 
-        .row { background: var(--card); padding: 16px; border-radius: 16px; margin-bottom: 12px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; }
-        .cancelled { opacity: 0.4; border-left: 4px solid var(--red); }
-        .line-info { display: flex; flex-direction: column; gap: 5px; max-width: 65%; }
-        .line-badge { background: var(--db-red); color: white; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 13px; width: fit-content; }
-        .direction { font-weight: 700; font-size: 16px; margin-top: 4px; }
-        .platform { font-size: 12px; color: var(--orange); font-weight: 600; }
-        .reason { font-size: 11px; color: var(--orange); margin-top: 5px; line-height: 1.3; }
+        .search-container {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background-color: var(--bg-primary);
+            padding: 1rem 0;
+        }
 
-        .time-area { text-align: right; min-width: 100px; }
-        .plan-time { font-size: 11px; color: var(--sub); }
-        .real-time { font-size: 20px; font-variant-numeric: tabular-nums; margin-bottom: 2px; }
-        .sec-bold { font-weight: 900; }
-        .sec-thin { font-weight: 300; opacity: 0.5; font-size: 15px; }
-        .delay-info { font-size: 12px; font-weight: 800; }
+        .trip-item {
+            border-bottom: 1px solid rgba(156, 163, 175, 0.1);
+        }
 
-        #ov { display:none; position:fixed; inset:0; background:var(--bg); z-index:9999; padding:20px; overflow-y:auto; }
-        .stop-row { display: flex; justify-content: space-between; padding: 12px 0; border-left: 2px solid var(--border); padding-left: 15px; position: relative; }
-        .stop-row::after { content: ''; position: absolute; left: -6px; top: 18px; width: 10px; height: 10px; background: var(--border); border-radius: 50%; }
-        .add-stop { color: var(--orange); font-size: 10px; font-weight: bold; }
+        .cancelled {
+            color: #9ca3af !important;
+            text-decoration: line-through;
+        }
+
+        .realtime-on-time {
+            color: var(--success);
+        }
+
+        .realtime-delay {
+            color: var(--error);
+        }
+
+        .platform-changed {
+            color: #f97316; /* Orange */
+            font-weight: bold;
+        }
+
+        .detail-view {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-primary);
+            z-index: 100;
+            overflow-y: auto;
+        }
+
+        .detail-view.active {
+            display: block;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 3px;
+        }
+
+        .search-as-you-type-results {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .thin-prognosis {
+            font-weight: 300;
+        }
+
+        .precision-time {
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .itinerary-line {
+            position: absolute;
+            left: 19px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: #374151;
+            z-index: 0;
+        }
     </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        zinc: {
+                            950: '#09090b'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
 </head>
-<body>
+<body class="dark transition-colors duration-300">
+    <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
+            <div class="flex items-center gap-6">
+                <div class="flex flex-col items-end text-xs mono text-gray-500">
+                    <span id="current-date">--.--.----</span>
+                    <span id="current-time" class="text-sm font-bold text-gray-300">--:--:--</span>
+                </div>
+                <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform">
+                    <i class="fas fa-moon dark:hidden"></i>
+                    <i class="fas fa-sun hidden dark:block text-yellow-500"></i>
+                </button>
+            </div>
+        </header>
 
-<div class="header">
-    <h1>dilaeit</h1>
-    <div class="dt-picker">
-        <input type="date" id="sel_date">
-        <input type="time" id="sel_time">
+        <!-- Search Section -->
+        <div class="search-container space-y-4">
+            <div class="relative group">
+                <input 
+                    type="text" 
+                    id="station-search" 
+                    placeholder="Haltestelle suchen..." 
+                    autocomplete="off"
+                    class="w-full bg-gray-100 dark:bg-zinc-900 border-none rounded-2xl py-5 pl-14 pr-4 text-lg focus:ring-2 focus:ring-red-500/50 transition-all outline-none shadow-sm"
+                >
+                <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
+                
+                <!-- Search Results Overlay -->
+                <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results">
+                    <!-- Results injected here -->
+                </div>
+            </div>
+
+            <!-- Query Filters -->
+            <div class="flex gap-3 items-center overflow-x-auto pb-2 no-scrollbar">
+                <div class="flex items-center bg-gray-100 dark:bg-zinc-900 rounded-xl px-3 py-2 gap-2">
+                    <i class="far fa-calendar text-gray-400 text-xs"></i>
+                    <input type="date" id="query-date" class="bg-transparent border-none text-xs outline-none focus:ring-0 w-28">
+                </div>
+                <div class="flex items-center bg-gray-100 dark:bg-zinc-900 rounded-xl px-3 py-2 gap-2">
+                    <i class="far fa-clock text-gray-400 text-xs"></i>
+                    <input type="time" id="query-time" class="bg-transparent border-none text-xs outline-none focus:ring-0 w-20">
+                </div>
+                <button id="reset-query" class="px-4 py-2 bg-gray-100 dark:bg-zinc-900 rounded-xl text-xs font-medium hover:text-red-500 transition-colors">Jetzt</button>
+            </div>
+        </div>
+
+        <!-- Board Content -->
+        <div id="board-container" class="mt-8 space-y-6">
+            <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
+                <div>
+                    <h2 id="station-display-name" class="text-2xl font-bold tracking-tight"></h2>
+                    <p id="board-type" class="text-xs text-gray-500 uppercase tracking-widest mt-1">Abfahrtstafel</p>
+                </div>
+                <div id="refresh-indicator" class="text-[10px] text-gray-500 mono flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                    LIVE REFRESH
+                </div>
+            </div>
+
+            <div id="departures-list" class="divide-y divide-gray-100 dark:divide-zinc-900">
+                <!-- Empty State -->
+                <div class="flex flex-col items-center justify-center py-32 text-gray-500 space-y-6 opacity-40">
+                    <div class="relative">
+                        <i class="fas fa-train text-7xl"></i>
+                        <i class="fas fa-search absolute -bottom-2 -right-2 text-2xl"></i>
+                    </div>
+                    <p class="text-sm font-medium">Suche nach einer Station, um Live-Abfahrten zu sehen.</p>
+                </div>
+            </div>
+        </div>
     </div>
-</div>
 
-<div class="search-area">
-    <input type="text" id="inp" placeholder="Haltestelle suchen..." onkeypress="if(event.key==='Enter') startSearch()">
-    <button class="search-btn" onclick="startSearch()">🔍</button>
-</div>
+    <!-- Detail View Modal -->
+    <div id="detail-view" class="detail-view">
+        <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen flex flex-col">
+            <header class="flex items-center gap-6 mb-10">
+                <button id="close-detail" class="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-zinc-900 flex items-center justify-center hover:scale-105 transition-transform">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <div class="flex-1">
+                    <div class="flex items-center gap-3">
+                        <span id="detail-line-badge" class="px-3 py-1 rounded-lg text-xs font-black bg-red-600 text-white italic">--</span>
+                        <h2 id="detail-train-direction" class="text-xl font-bold truncate">--</h2>
+                    </div>
+                    <p id="detail-operator" class="text-[10px] text-gray-500 mt-1 uppercase tracking-widest">--</p>
+                </div>
+            </header>
 
-<div id="dropdown"></div>
-<div id="results"></div>
+            <div class="flex-1 relative">
+                <div class="itinerary-line"></div>
+                <div id="trip-itinerary" class="space-y-10 relative z-10">
+                    <!-- Stops injected here -->
+                </div>
+            </div>
 
-<div id="ov">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h2 id="ov-title" style="margin:0;"></h2>
-        <button onclick="closeOv()" style="padding:10px 20px; border-radius:10px; border:none; background:var(--border); color:var(--text);">Schließen</button>
+            <footer class="mt-12 py-6 border-t border-gray-100 dark:border-zinc-900 flex justify-between items-center text-[10px] text-gray-500 mono">
+                <span id="detail-trip-id">TRIP: --</span>
+                <span class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                    ECHTZEIT AKTIV
+                </span>
+            </footer>
+        </div>
     </div>
-    <div id="ov-content"></div>
-</div>
 
-<script>
-    const PROXY = "https://api.allorigins.win/get?url=";
-    const API = "https://v6.vrr.transport.rest";
-
-    // Init Datum/Zeit
-    const now = new Date();
-    document.getElementById('sel_date').value = now.toISOString().split('T')[0];
-    document.getElementById('sel_time').value = now.toTimeString().slice(0,5);
-
-    async function fetchVRR(path) {
-        const response = await fetch(PROXY + encodeURIComponent(API + path));
-        if (!response.ok) throw new Error("Limit");
-        const json = await response.json();
-        return JSON.parse(json.contents);
-    }
-
-    function formatTimeHTML(iso, planned) {
-        const d = iso ? new Date(iso) : new Date(planned);
-        const h = d.getHours().toString().padStart(2, '0');
-        const m = d.getMinutes().toString().padStart(2, '0');
-        const s = d.getSeconds().toString().padStart(2, '0');
+    <script>
+        // --- Configuration & State ---
+        const API_BASE = 'https://v6.db.transport.rest';
+        const REFRESH_INTERVAL = 30000; // 30s
         
-        // Wenn Echtzeit-Daten (iso) da sind, Sekunden fett anzeigen
-        const secClass = iso ? 'sec-bold' : 'sec-thin';
-        return `${h}:${m}<span class="${secClass}">:${s}</span>`;
-    }
+        let state = {
+            currentStation: null,
+            departures: [],
+            refreshTimer: null,
+            searchTimer: null,
+            lastSearchQuery: ''
+        };
 
-    async function startSearch() {
-        const q = document.getElementById('inp').value.trim();
-        const dd = document.getElementById('dropdown');
-        if(q.length < 2) return;
-        
-        dd.style.display = 'block';
-        dd.innerHTML = '<div class="dd-item">Suchen...</div>';
-        
-        try {
-            const data = await fetchVRR(`/locations?query=${q}&results=5`);
-            dd.innerHTML = data.map(s => `<div class="dd-item" onclick="pick('${s.id}','${s.name}')">🚉 ${s.name}</div>`).join('');
-        } catch(e) { dd.innerHTML = '<div class="dd-item" style="color:var(--red)">Limit erreicht. Bitte 30 Sek. warten.</div>'; }
-    }
+        const $ = (id) => document.getElementById(id);
 
-    function pick(id, name) {
-        document.getElementById('inp').value = name;
-        document.getElementById('dropdown').style.display = 'none';
-        loadBoard(id);
-    }
-
-    async function loadBoard(id) {
-        const resDiv = document.getElementById('results');
-        resDiv.innerHTML = "<div style='text-align:center; padding:50px;'>Lade Echtzeitdaten...</div>";
-        
-        const date = document.getElementById('sel_date').value;
-        const time = document.getElementById('sel_time').value;
-        
-        try {
-            const data = await fetchVRR(`/stops/${id}/departures?when=${date}T${time}:00&duration=60&remarks=true`);
-            const deps = data.departures || data;
+        // --- Initialization ---
+        function init() {
+            setupClock();
+            setupDefaultDateTime();
+            attachEventListeners();
             
-            resDiv.innerHTML = deps.map(d => {
-                const delay = d.delay !== null ? Math.round(d.delay / 60) : 0;
-                const isCancelled = d.cancelled;
-                const platform = d.platform || d.plannedPlatform;
-                
-                return `
-                    <div class="row ${isCancelled ? 'cancelled' : ''}" onclick="openTrip('${d.tripId}','${d.line.name}','${d.direction}')">
-                        <div class="line-info">
-                            <span class="line-badge">${d.line.name}</span>
-                            <div class="direction">${d.direction}</div>
-                            ${platform ? `<div class="platform">Gleis ${platform}</div>` : ''}
-                            ${d.remarks?.filter(r => r.type === 'warning').map(r => `<div class="reason">⚠️ ${r.text}</div>`).join('')}
-                        </div>
-                        <div class="time-area">
-                            <div class="plan-time">Plan: ${new Date(d.plannedWhen).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                            <div class="real-time" style="color:${delay > 0 ? 'var(--red)' : 'var(--green)'}">
-                                ${formatTimeHTML(d.when, d.plannedWhen)}
-                            </div>
-                            <div class="delay-info" style="color:${delay > 0 ? 'var(--red)' : 'var(--green)'}">
-                                ${delay > 0 ? '+' + delay : (delay < 0 ? delay : 'pünktlich')}
-                            </div>
-                        </div>
-                    </div>`;
-            }).join('');
-        } catch(e) { resDiv.innerHTML = "<div style='color:var(--red); text-align:center;'>Proxy-Fehler. Versuche es gleich nochmal.</div>"; }
-    }
+            // Check for saved station in URL or LocalStorage? (Optional)
+        }
 
-    async function openTrip(tripId, line, dir) {
-        const ov = document.getElementById('ov');
-        ov.style.display = 'block';
-        document.getElementById('ov-title').innerText = line + " → " + dir;
-        document.getElementById('ov-content').innerHTML = "Lade Fahrplan...";
-        
-        try {
-            const data = await fetchVRR(`/trips/${tripId}`);
-            document.getElementById('ov-content').innerHTML = data.trip.stopovers.map(s => {
-                const time = s.departure || s.arrival || s.plannedDeparture || s.plannedArrival;
-                const plan = s.plannedDeparture || s.plannedArrival;
-                const isCancelled = s.cancelled;
-                
-                return `
-                    <div class="stop-row" style="${isCancelled ? 'text-decoration:line-through; opacity:0.5;' : ''}">
-                        <div>
-                            <b style="font-size:15px;">${s.stop.name}</b>
-                            <div style="font-size:10px; color:var(--sub)">${s.platform ? 'Gleis ' + s.platform : ''}</div>
-                            ${s.additional ? '<div class="add-stop">Zusatzhalt</div>' : ''}
-                        </div>
-                        <div style="text-align:right;">
-                            <div style="font-size:14px; font-weight:bold;">${formatTimeHTML(time, plan)}</div>
-                        </div>
-                    </div>`;
-            }).join('');
-        } catch(e) { document.getElementById('ov-content').innerHTML = "Fahrtverlauf aktuell nicht verfügbar."; }
-    }
+        function setupClock() {
+            const update = () => {
+                const now = new Date();
+                $('current-date').textContent = now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                $('current-time').textContent = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            };
+            setInterval(update, 1000);
+            update();
+        }
 
-    function closeOv() { document.getElementById('ov').style.display = 'none'; }
-</script>
+        function setupDefaultDateTime() {
+            const now = new Date();
+            $('query-date').value = now.toISOString().split('T')[0];
+            $('query-time').value = now.toTimeString().slice(0, 5);
+        }
+
+        function attachEventListeners() {
+            $('station-search').addEventListener('input', e => handleSearchInput(e.target.value));
+            $('reset-query').addEventListener('click', () => {
+                setupDefaultDateTime();
+                if (state.currentStation) refreshDepartures();
+            });
+            $('theme-toggle').addEventListener('click', () => {
+                document.body.classList.toggle('dark');
+            });
+            $('close-detail').addEventListener('click', () => {
+                $('detail-view').classList.remove('active');
+            });
+            
+            // Close search results on click outside
+            document.addEventListener('click', e => {
+                if (!e.target.closest('.search-container')) {
+                    $('search-results').classList.add('hidden');
+                }
+            });
+
+            // Re-fetch on date/time change
+            $('query-date').addEventListener('change', () => state.currentStation && refreshDepartures());
+            $('query-time').addEventListener('change', () => state.currentStation && refreshDepartures());
+        }
+
+        // --- Search Logic ---
+        async function handleSearchInput(val) {
+            const query = val.trim();
+            if (query === state.lastSearchQuery) return;
+            state.lastSearchQuery = query;
+
+            if (query.length < 2) {
+                $('search-results').classList.add('hidden');
+                return;
+            }
+
+            clearTimeout(state.searchTimer);
+            state.searchTimer = setTimeout(async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/locations?query=${encodeURIComponent(query)}&results=6&stops=true&addresses=false&poi=false`);
+                    const results = await res.json();
+                    renderSearchResults(results);
+                } catch (err) {
+                    console.error('Search failed', err);
+                }
+            }, 300);
+        }
+
+        function renderSearchResults(results) {
+            const container = $('search-results');
+            container.innerHTML = '';
+            
+            const validResults = results.filter(r => r.type === 'stop' || r.type === 'station');
+            
+            if (validResults.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            validResults.forEach(loc => {
+                const item = document.createElement('div');
+                item.className = 'px-5 py-4 hover:bg-gray-50 dark:hover:bg-zinc-800/50 cursor-pointer flex items-center gap-4 border-b border-gray-100 dark:border-zinc-800 last:border-0';
+                
+                const products = loc.products ? Object.keys(loc.products).filter(p => loc.products[p]) : [];
+                
+                item.innerHTML = `
+                    <div class="w-10 h-10 rounded-xl bg-gray-100 dark:bg-zinc-800 flex items-center justify-center text-gray-400">
+                        <i class="fas fa-location-dot"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-bold text-sm truncate">${loc.name}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">${products.join(' • ')}</div>
+                    </div>
+                `;
+                item.onclick = () => selectStation(loc);
+                container.appendChild(item);
+            });
+
+            container.classList.remove('hidden');
+        }
+
+        function selectStation(loc) {
+            state.currentStation = loc;
+            $('station-search').value = loc.name;
+            $('search-results').classList.add('hidden');
+            $('board-header').classList.remove('hidden');
+            $('station-display-name').textContent = loc.name;
+            
+            refreshDepartures();
+            
+            // Auto-refresh
+            if (state.refreshTimer) clearInterval(state.refreshTimer);
+            state.refreshTimer = setInterval(refreshDepartures, REFRESH_INTERVAL);
+        }
+
+        // --- Departure Logic ---
+        async function refreshDepartures() {
+            if (!state.currentStation) return;
+            
+            const date = $('query-date').value;
+            const time = $('query-time').value;
+            const timestamp = `${date}T${time}:00`;
+
+            try {
+                const url = `${API_BASE}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=30&remarks=true`;
+                const res = await fetch(url);
+                
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(`API ${res.status}: ${errText.substring(0, 50)}`);
+                }
+
+                const data = await res.json();
+                state.departures = Array.isArray(data) ? data : (data.departures || []);
+                renderDepartures();
+            } catch (err) {
+                console.error('Departures fetch failed:', err);
+                $('departures-list').innerHTML = `
+                    <div class="py-20 text-center space-y-4">
+                        <p class="text-red-500 font-bold">Fehler beim Laden der Daten.</p>
+                        <p class="text-[10px] text-gray-500 mono opacity-50">${err.message}</p>
+                        <button onclick="refreshDepartures()" class="px-4 py-2 bg-zinc-800 rounded-lg text-xs hover:bg-zinc-700 transition-colors">Erneut versuchen</button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderDepartures() {
+            const container = $('departures-list');
+            container.innerHTML = '';
+
+            if (!state.departures || state.departures.length === 0) {
+                container.innerHTML = `<p class="py-20 text-center text-gray-500 text-sm italic">Momentan keine Abfahrten gefunden.</p>`;
+                return;
+            }
+
+            state.departures.forEach(dep => {
+                if (!dep.when) return;
+                
+                const scheduled = new Date(dep.when);
+                const actual = dep.prognosis?.when ? new Date(dep.prognosis.when) : scheduled;
+                const delay = Math.round((actual.getTime() - scheduled.getTime()) / 60000);
+                
+                const isCancelled = dep.cancelled;
+                const lineName = dep.line?.name || dep.line?.id || '???';
+                const direction = dep.direction || 'Unbekanntes Ziel';
+                
+                let timeColorClass = 'text-gray-400';
+                if (dep.prognosis) {
+                    timeColorClass = delay > 0 ? 'text-red-500' : 'text-green-500';
+                }
+
+                const item = document.createElement('div');
+                item.className = `trip-item py-5 flex items-center gap-5 hover:bg-gray-50 dark:hover:bg-zinc-900/30 cursor-pointer transition-colors px-2 rounded-xl ${isCancelled ? 'opacity-40' : ''}`;
+                
+                item.innerHTML = `
+                    <div class="w-14 text-center">
+                        <div class="text-lg font-black mono ${isCancelled ? 'line-through text-gray-500' : ''}">
+                            ${scheduled.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        ${!isCancelled && dep.prognosis ? `<div class="text-[10px] font-bold ${timeColorClass}">${delay > 0 ? '+' + delay : (delay < 0 ? delay : 'pünktlich')}</div>` : ''}
+                    </div>
+                    
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic uppercase">${lineName}</span>
+                            <span class="font-bold text-sm truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${direction}</span>
+                        </div>
+                        <div class="flex items-center gap-3 text-[10px] mono">
+                            <span class="${dep.prognosis && dep.prognosis.platform !== dep.platform ? 'platform-changed' : 'text-gray-500'}">
+                                ${dep.platform ? 'GLEIS ' + dep.platform : ''}
+                            </span>
+                            ${dep.remarks?.length > 0 ? `<span class="text-red-400 truncate max-w-[200px]"><i class="fas fa-info-circle mr-1"></i>${dep.remarks[0].text}</span>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="text-gray-300">
+                        <i class="fas fa-chevron-right text-xs"></i>
+                    </div>
+                `;
+
+                item.onclick = () => showTripDetails(dep);
+                container.appendChild(item);
+            });
+        }
+
+        // --- Detail Logic ---
+        async function showTripDetails(dep) {
+            if (!dep.tripId) return;
+            
+            const modal = $('detail-view');
+            const itinerary = $('trip-itinerary');
+            
+            modal.classList.add('active');
+            itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i></div>`;
+            
+            const lineName = dep.line?.name || dep.line?.id || '???';
+            $('detail-line-badge').textContent = lineName;
+            $('detail-train-direction').textContent = dep.direction || 'Unbekanntes Ziel';
+            $('detail-operator').textContent = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
+            $('detail-trip-id').textContent = `TRIP: ${dep.tripId.split('|')[0]}`;
+
+            try {
+                const res = await fetch(`${API_BASE}/trips/${encodeURIComponent(dep.tripId)}?stopovers=true&remarks=true`);
+                if (!res.ok) throw new Error(`Details API ${res.status}`);
+                const trip = await res.json();
+                renderItinerary(trip.stopovers || []);
+            } catch (err) {
+                console.error('Trip details failed', err);
+                itinerary.innerHTML = `<p class="py-10 text-center text-red-500 text-sm">Details konnten nicht geladen werden.<br><span class="text-[10px] opacity-50">${err.message}</span></p>`;
+            }
+        }
+
+        function renderItinerary(stopovers) {
+            const container = $('trip-itinerary');
+            container.innerHTML = '';
+
+            stopovers.forEach(stop => {
+                const isCancelled = stop.cancelled;
+                const isAdditional = stop.additional;
+                
+                const schedArr = stop.plannedArrival ? new Date(stop.plannedArrival) : null;
+                const actualArr = stop.arrival ? new Date(stop.arrival) : null;
+                const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const actualDep = stop.departure ? new Date(stop.departure) : null;
+
+                const hasLiveArr = actualArr && actualArr.getTime() !== schedArr?.getTime();
+                const hasLiveDep = actualDep && actualDep.getTime() !== schedDep?.getTime();
+
+                // Precision Logic
+                const formatTime = (sched, actual, hasLive) => {
+                    if (!sched) return '';
+                    
+                    const now = new Date();
+                    const isPast = actual && (actual.getTime() < now.getTime());
+                    
+                    if (!hasLive) {
+                        // Plan-Daten: Normal, grau, ohne Sekunden
+                        return `<span class="text-gray-500/50 font-normal">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                    }
+
+                    if (isPast) {
+                        // Echtzeit-Signal gesendet: Fett + Sekunden
+                        return `<span class="precision-time text-green-500 font-bold">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
+                    } else {
+                        // Prognose (Zukunft): Dünn, ohne Sekunden
+                        return `<span class="thin-prognosis text-green-500/70 font-light italic">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                    }
+                };
+
+                const stopItem = document.createElement('div');
+                stopItem.className = `relative flex items-start gap-6 ${isCancelled ? 'opacity-40' : ''}`;
+                
+                // Status Indicator on the line
+                const indicator = document.createElement('div');
+                indicator.className = `absolute left-[13px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 
+                    ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}`;
+                stopItem.appendChild(indicator);
+
+                stopItem.innerHTML += `
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start gap-4">
+                            <div>
+                                <h4 class="font-bold text-sm ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''}">
+                                    ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
+                                </h4>
+                                <div class="text-[10px] mono mt-0.5 flex items-center gap-2">
+                                    <span class="${stop.prognosis?.platform && stop.prognosis.platform !== stop.plannedPlatform ? 'platform-changed' : 'text-gray-500'}">
+                                        ${stop.platform ? 'GLEIS ' + stop.platform : '---'}
+                                    </span>
+                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 truncate max-w-[150px]"><i class="fas fa-exclamation-triangle mr-1"></i>${stop.remarks[0].text}</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right mono text-[10px] leading-relaxed shrink-0">
+                                ${schedArr ? `<div class="flex items-center justify-end gap-2"><span class="text-gray-600">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr)}</div>` : ''}
+                                ${schedDep ? `<div class="flex items-center justify-end gap-2"><span class="text-gray-600">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep)}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                container.appendChild(stopItem);
+            });
+        }
+
+        init();
+    </script>
 </body>
 </html>
