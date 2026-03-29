@@ -427,7 +427,7 @@
                 const timeoutId = setTimeout(() => controller.abort(), 10000);
 
                 try {
-                    // DB-only Suche (National) für Stationsfindung, wie angefragt
+                    // DB-only Suche (National) für Stationsfindung, flüssiger
                     const dbSources = REGIONAL_APIS.NATIONAL.map(url => ({ url, region: 'NATIONAL' }));
                     const searchPromises = dbSources.map(async (source) => {
                         try {
