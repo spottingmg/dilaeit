@@ -274,10 +274,11 @@
     <!-- Detail View Modal -->
     <div id="detail-view" class="detail-view">
         <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen flex flex-col">
-            <header class="flex items-center gap-6 mb-10">
+            <header class="flex items-center gap-3 mb-10">
                 <button id="close-detail" class="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-zinc-900 flex items-center justify-center hover:scale-105 transition-transform">
                     <i class="fas fa-chevron-left"></i>
                 </button>
+                <button id="reload-trip" class="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-500 transition">Neu laden</button>
                 <div class="flex-1">
                     <div class="flex items-center gap-3">
                         <span id="detail-line-badge" class="px-3 py-1 rounded-lg text-xs font-black bg-red-600 text-white italic">--</span>
@@ -448,10 +449,16 @@
             $('query-date').addEventListener('change', () => state.currentStation && refreshDepartures());
             $('query-time').addEventListener('change', () => state.currentStation && refreshDepartures());
             $('route-search').addEventListener('click', performRouteSearch);
+            $('reload-trip').addEventListener('click', async () => {
+                if (!currentTripDetail) return;
+                $('trip-itinerary').innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i></div>`;
+                await showTripDetails(currentTripDetail);
+            });
         }
 
         // --- Search Logic ---
         let searchSessionId = 0;
+        let currentTripDetail = null;
 
         async function handleSearchInput(val, depth = 0) {
             const query = val.trim();
@@ -766,6 +773,28 @@
             });
         }
 
+        async function resolveStationId(query) {
+            if (!query || !query.trim()) return null;
+            const url = `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=6`;
+            const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : null });
+            if (!res.ok) throw new Error(`Stationen nicht gefunden: ${query}`);
+            const data = await res.json();
+            let items = [];
+            if (Array.isArray(data)) items = data;
+            else if (data.locations) items = data.locations;
+            else if (data.results) items = data.results;
+            else items = Object.values(data).find(v => Array.isArray(v)) || [];
+
+            if (!items || items.length === 0) throw new Error(`Stationen nicht gefunden: ${query}`);
+
+            // prefer stop/station entries
+            const preferred = items.find(i => i.type === 'stop' || i.type === 'station') || items[0];
+            return {
+                id: preferred.id || preferred.extId || preferred.stop?.id,
+                name: preferred.name || preferred.stop?.name || query
+            };
+        }
+
         function queryJourneys(from, to, via, when) {
             const params = new URLSearchParams({ from, to, results: '6' });
             if (via) params.set('via', via);
@@ -792,7 +821,20 @@
             resultsContainer.innerHTML = '<span class="text-gray-500"><i class="fas fa-spinner fa-spin mr-1"></i>Verbindung wird geladen...</span>';
 
             try {
-                const journeys = await queryJourneys(start, dest, via, when);
+                const startStation = await resolveStationId(start);
+                const destStation = await resolveStationId(dest);
+                let viaStation = null;
+                if (via) viaStation = await resolveStationId(via);
+
+                if (!startStation || !destStation) {
+                    throw new Error('Start oder Ziel nicht gefunden. Bitte genaue Haltestelle eingeben.');
+                }
+
+                const from = startStation.id || startStation.name || start;
+                const to = destStation.id || destStation.name || dest;
+                const viaId = viaStation ? (viaStation.id || viaStation.name || via) : undefined;
+
+                const journeys = await queryJourneys(from, to, viaId, when);
                 if (!journeys || !journeys.journeys || journeys.journeys.length === 0) {
                     resultsContainer.innerHTML = '<span class="text-gray-500">Keine Verbindungen gefunden.</span>';
                     return;
@@ -924,6 +966,8 @@
 
             // Debug logging
             console.log(`Trip: ${lineName}, Region: ${state.currentRegion}, IsTrain: ${isTrain_line}, Product: ${dep.line?.product}, sourceApi: ${dep.sourceApi}, Line:`, dep.line);
+
+            currentTripDetail = dep;
             
             let detailEndpoints = [];
             
@@ -1023,7 +1067,13 @@
                 "Quiet zone": "Ruhebereich.",
                 "Area for people with reduced mobility": "Bereich für mobilitätseingeschränkte Personen.",
                 "Special service": "Sonderfahrt",
-                "Replacement service": "Schienenersatzverkehr."
+                "Replacement service": "Schienenersatzverkehr.",
+                "Stop cancelled": "Halt entfällt",
+                "Unfortunately, the train is cancelled. The reason is construction work.": "Aufgrund aktueller Ereignisse fällt der Zug aus. Der Grund dafür sind Baumaßnahmen.",
+                "Bicycles conveyed - subject to reservation": "Fahrradmitnahme - Reservierung erforderlich.",
+                "Bicycles conveyed - subject to availability": "Fahrradmitnahme - abhängig von Verfügbarkeit.",
+                "Bicycles conveyed - not possible": "Fahrradmitnahme - nicht möglich.",
+                "Construction works are affecting railway traffic in the area Hannover Hbf. The train is diverted. The stops Hannover-Linden/Fischerhof and Lehrte are omitted. The train stops alternatively in Hannover Hbf. Please allow for a delay of up to 15 minutes. Please check for any changes to your journey prior to departure.": "Baumaßnahmen beeinträchtigen den Bahnverkehr im Bereich Hannover Hbf. Der Zug wird umgeleitet. Die Halte Hannover-Linden/Fischerhof und Lehrte entfallen. Der Zug hält alternativ in Hannover Hbf. Bitte rechnen Sie mit einer Verspätung von bis zu 15 Minuten. Bitte prüfen Sie vor Abfahrt eventuelle Änderungen Ihrer Reise."
             };
 
             const translate = (text) => translationMap[text] || text;
@@ -1095,6 +1145,7 @@
                                     <span class="${stop.prognosis?.platform && stop.prognosis.platform !== stop.plannedPlatform ? 'platform-changed' : 'text-gray-600 dark:text-gray-300'} font-semibold">
                                         Gleis: ${stop.platform || '---'}
                                     </span>
+                                    ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
                                     ${stop.remarks?.length > 0 ? `<span class="text-red-400 block truncate max-w-full mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
                                 </div>
                             </div>
