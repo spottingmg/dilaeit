@@ -553,8 +553,6 @@
                 item.onclick = () => {
                     state.currentStation = res;
                     state.currentRegion  = detectRegion(res.name);
-                    // FIX 3: Schnellsten API-Cache zurücksetzen bei neuer Station
-                    fastestDepartureApi  = null;
                     $('station-search').value = res.name;
                     container.classList.add('hidden');
                     $('board-header').classList.remove('hidden');
@@ -614,11 +612,9 @@
             });
         }
 
-        // ─── FIX 4: refreshDepartures – Race-to-first-response statt sequenziell ────
-        // Vorher: APIs wurden nacheinander probiert → gesamte Wartezeit addiert sich.
-        // Jetzt:  Wenn ein schnellster Endpunkt bekannt ist, wird er zuerst allein
-        //         probiert (< 200 ms Overhead). Schlägt er fehl, Parallel-Race der
-        //         restlichen Endpunkte. Die erste erfolgreiche Antwort gewinnt.
+        // Schnellster API-Endpunkt pro Region merken (nicht global)
+        const fastestApiByRegion = {};
+
         async function refreshDepartures() {
             if (!state.currentStation) return;
             const now = Date.now();
@@ -631,7 +627,6 @@
             const [hours, minutes]   = timeVal.split(':').map(Number);
             const timestamp = new Date(year, month - 1, day, hours, minutes).toISOString();
 
-            // Cache-Key: Station + Zeitfenster (auf 1 min gerundet)
             const cacheKey = `${state.currentStation.id}|${timestamp.slice(0, 16)}`;
             if (state.departureCache.has(cacheKey)) {
                 state.departures = state.departureCache.get(cacheKey);
@@ -639,24 +634,30 @@
                 return;
             }
 
-            // API-Reihenfolge aufbauen
-            let searchOrder = [];
+            // FIX 1: NRW bekommt eine eigene, isolierte API-Liste.
+            // DB läuft NICHT parallel – kein Race, kein versehentlicher DB-Gewinn.
+            // Für alle anderen Regionen bleibt der Race wie bisher.
+            let searchOrder;
             if (state.currentRegion === 'NRW') {
-                searchOrder = ['https://v5.vrr.transport.rest', ...REGIONAL_APIS.NATIONAL];
+                searchOrder = ['https://v5.vrr.transport.rest'];
             } else {
                 searchOrder = [...REGIONAL_APIS.NATIONAL];
+                ALL_API_SOURCES.forEach(s => {
+                    if (!searchOrder.includes(s.url)) searchOrder.push(s.url);
+                });
             }
-            ALL_API_SOURCES.forEach(s => { if (!searchOrder.includes(s.url)) searchOrder.push(s.url); });
 
-            // Bekannten schnellen Endpunkt nach vorne ziehen
-            if (fastestDepartureApi && searchOrder.includes(fastestDepartureApi)) {
-                searchOrder = [fastestDepartureApi, ...searchOrder.filter(u => u !== fastestDepartureApi)];
+            // FIX 2: fastestApi ist jetzt region-spezifisch – ein DB-Treffer in
+            // Berlin überschreibt nicht den VRR-Cache für NRW.
+            const region = state.currentRegion;
+            const knownFastest = fastestApiByRegion[region];
+            if (knownFastest && searchOrder.includes(knownFastest)) {
+                searchOrder = [knownFastest, ...searchOrder.filter(u => u !== knownFastest)];
             }
 
             const buildUrl = base =>
                 `${base}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
 
-            // Race-to-first: alle Anfragen gleichzeitig, erste erfolgreiche gewinnt
             const raceResult = await Promise.any(
                 searchOrder.map(async apiBase => {
                     const res = await fetch(buildUrl(apiBase), { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
@@ -664,17 +665,16 @@
                     const data = await res.json();
                     const departures = Array.isArray(data) ? data : (data.departures || []);
                     if (departures.length === 0 && searchOrder.indexOf(apiBase) < searchOrder.length - 1) {
-                        throw new Error('empty');   // lass andere Endpunkte gewinnen
+                        throw new Error('empty');
                     }
                     return { departures, apiBase };
                 })
             ).catch(() => null);
 
             if (raceResult) {
-                fastestDepartureApi = raceResult.apiBase;   // merken für nächste Anfrage
+                fastestApiByRegion[region] = raceResult.apiBase;
                 state.isRateLimited = false;
                 state.departures    = raceResult.departures.map(d => ({ ...d, sourceApi: raceResult.apiBase }));
-                // Kurz cachen (60 s)
                 state.departureCache.set(cacheKey, state.departures);
                 setTimeout(() => state.departureCache.delete(cacheKey), 60000);
                 renderDepartures();
@@ -726,7 +726,6 @@
                 item.onclick = () => {
                     state.currentStation = { id: r.data?.stop?.id || state.currentStation?.id, name: r.station };
                     state.currentRegion  = detectRegion(r.station);
-                    fastestDepartureApi  = null;
                     $('station-search').value = r.station;
                     refreshDepartures();
                 };
@@ -996,6 +995,9 @@
 
             let detailEndpoints = [];
             if (isNrwLocal) {
+                // NRW-Lokal: ausschließlich VRR, kein DB-Fallback.
+                // DB würde hier eigene (abweichende) Prognosen liefern und
+                // die Quelle würde fälschlich als VRR angezeigt.
                 detailEndpoints = ['https://v5.vrr.transport.rest'];
             } else if (isTrain_line) {
                 detailEndpoints = [...REGIONAL_APIS.NATIONAL, 'https://v5.vrr.transport.rest'];
@@ -1003,8 +1005,8 @@
                 if      (state.currentRegion === 'BERLIN')  detailEndpoints = ['https://v6.vbb.transport.rest', ...REGIONAL_APIS.NATIONAL];
                 else if (state.currentRegion === 'HAMBURG') detailEndpoints = ['https://v5.hvv.transport.rest', ...REGIONAL_APIS.NATIONAL];
                 else                                         detailEndpoints = [...REGIONAL_APIS.NATIONAL];
+                ALL_API_SOURCES.forEach(s => { if (!detailEndpoints.includes(s.url)) detailEndpoints.push(s.url); });
             }
-            ALL_API_SOURCES.forEach(s => { if (!detailEndpoints.includes(s.url)) detailEndpoints.push(s.url); });
 
             // FIX 2 – sequenzieller Fallback akkumulierte Timeouts (8 s × N Endpunkte)
             // → Ladescreen hing minutenlang. Jetzt Promise.any(): alle gleichzeitig,
@@ -1029,12 +1031,13 @@
                 const { data: tripData, apiBase: usedApi } = result;
                 const stops   = tripData.stopovers || tripData.trip?.stopovers || [];
                 const remarks = tripData.remarks   || tripData.trip?.remarks   || [];
+                // FIX 3: Quellanzeige ehrlich – zeigt die API die wirklich geantwortet hat.
+                // Vorher wurde isNrwLocal ? 'VRR' immer erzwungen, auch wenn DB geantwortet hatte.
                 let sourceName = 'API';
                 if (usedApi?.includes('vrr'))      sourceName = 'VRR';
                 else if (usedApi?.includes('db'))  sourceName = 'Deutsche Bahn';
                 else if (usedApi?.includes('vbb')) sourceName = 'VBB';
                 else if (usedApi?.includes('hvv')) sourceName = 'HVV';
-                if (isNrwLocal) sourceName = 'VRR';
                 addTripToArchive(dep, tripData, usedApi);
                 renderItinerary(stops, remarks, sourceName);
             } else {
@@ -1063,27 +1066,25 @@
                 "On-board restaurant": "Bordrestaurant.",
                 "WC accessible for wheelchair users": "Rollstuhlgerechtes WC vorhanden.",
                 "Area for people with reduced mobility": "Bereich für mobilitätseingeschränkte Personen.",
-		"Exit only, no entry allowed" : "Hält nur zum Aussteigen.",
                 // Betrieb & Störungen
                 "Stop cancelled": "Halt entfällt.",
                 "Additional stop": "Zusatzhalt.",
                 "Replacement service": "Schienenersatzverkehr.",
                 "Special service": "Sonderfahrt.",
                 "Train is cancelled": "Zug fällt aus.",
-                "Unfortunately, the train is cancelled.": "Zug fällt aus.",
-                "The train is cancelled due to a technical defect.": "Zug fällt wegen technischen Defekts aus.",
+                "Unfortunately, the train is cancelled.": "Zug fällt leider aus.",
+                "The train is cancelled due to a technical defect.": "Technischer Defekt am Zug.",
                 "The train is cancelled due to construction work.": "Bauarbeiten.",
-                "The train is cancelled due to a staff shortage.": "Zug fällt wegen Personalmangels aus.",
+                "The train is cancelled due to a staff shortage.": "Kurzfristiger Personalausfall.",
                 "Delay due to construction work": "Verspätung wegen Bauarbeiten.",
-                "Delay due to a technical defect": "Verspätung wegen technischen Defekts.",
+                "Delay due to a technical defect": "Technischer Defekt.",
                 "Delay due to a police operation": "Polizeieinsatz.",
-                "Delay due to a medical emergency": "Verspätung wegen medizinischen Notfalls.",
+                "Delay due to a medical emergency": "Ärztliche Versorgung eines Fahrgastes.",
                 "Delay due to waiting for connecting passengers": "Warten auf Anschlussreisende.",
                 "Delay due to a broken down train": "Verspätung wegen liegengebliebenem Zug.",
-                "Delay due to a track obstruction": "Verspätung wegen Streckensperrung.",
+                "Delay due to a track obstruction": "Streckensperrung.",
                 "Delay due to storm damage": "Verspätung wegen Sturmschäden.",
-                "Delay caused by vandalism": "Verspätung wegen Vandalismus.",
-		"Delay of previous train" : "Verspätung eines vorausfahrenden Zuges.",
+                "Delay caused by vandalism": "Beeinträchtigungen durch Vandalismus.",
                 "Train is diverted": "Zug wird umgeleitet.",
                 "Train is diverted. Stops are omitted.": "Zug wird umgeleitet. Einige Halte entfallen.",
                 "Stops are omitted": "Einige Halte entfallen.",
@@ -1091,7 +1092,8 @@
                 "Change of platform": "Gleiswechsel.",
                 "Track change": "Gleiswechsel.",
             };
-   // Regex-Muster für dynamische Meldungen mit eingebetteten Liniennamen.
+
+            // Regex-Muster für dynamische Meldungen mit eingebetteten Liniennamen.
             // Die API liefert z.B. "Bus 605 heading towards Büdeshm.-Kempten from here"
             // oder "Throughbinding from line X" – der Linienname ist variabel.
             const regexTranslations = [
@@ -1100,14 +1102,14 @@
                 {
                     pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i,
                     replace: (_, line, dest) =>
-                        `Durchbindung aus Linie ${line.trim()} von ${dest.trim()}.`
+                        `Durchbindung aus Linie ${line.trim()} aus Richtung ${dest.trim()}.`
                 },
                 // "Bus 605 heading towards Kempten - Bingen Stadtbf"
                 // → Fahrzeug fährt ab hier als andere Linie weiter
                 {
                     pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,
                     replace: (_, line, dest) =>
-                        `Durchbindung auf Linie ${line.trim()} in Richtung ${dest.trim()}.`
+                        `Durchbindung auf Linie ${line.trim()} inRichtung ${dest.trim()}.`
                 },
                 // Generische Throughbinding-Varianten der DB/VRR API
                 {
@@ -1129,7 +1131,7 @@
                 // "Delay of approx. 5 minutes"
                 {
                     pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i,
-                    replace: (_, min) => `Verspätung ca. ${min} Minuten.`
+                    replace: (_, min) => `Verspätung von ca. ${min} Minuten.`
                 },
                 // "Cancelled due to …"
                 {
@@ -1142,7 +1144,7 @@
                     replace: (_, stop) => `Halt ${stop.trim()} entfällt.`
                 },
             ];
- 
+
             // Übersetzt einen API-Hinweistext: erst statische Map, dann Regex-Muster
             const translate = (text) => {
                 if (!text) return '';
