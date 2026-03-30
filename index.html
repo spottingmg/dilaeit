@@ -269,6 +269,8 @@
         ];
 
         const REFRESH_INTERVAL = 60000;
+        const VRR_BASE = 'https://v5.vrr.transport.rest';
+        const VRR_DNS_UNAVAILABLE_MS = 2 * 60 * 1000;
 
         // ─── FIX 1: Rate-Limit-Cooldown von 1500 ms → 200 ms ────────────────────────
         // War der Hauptgrund: jeder Klick auf eine Station blockierte 1,5 Sekunden.
@@ -285,7 +287,9 @@
             lastRequestTime: 0,
             searchCache:     new Map(),
             // FIX 2: Departures-Cache – gleiche Station+Zeit nicht nochmal fetchen
-            departureCache:  new Map()
+            departureCache:  new Map(),
+            // Wenn VRR-Domain (DNS) nicht auflösbar ist, nicht jedes Mal versuchen.
+            vrrUnavailableUntil: 0
         };
 
         const $ = id => document.getElementById(id);
@@ -295,6 +299,20 @@
         // speichern wir welcher zuletzt funktioniert hat.
         let fastestDepartureApi = null;
 
+        function isDnsNameNotResolved(err) {
+            const msg = (err?.message || '').toLowerCase();
+            // Browser/Fetch variieren etwas, aber "name not resolved" ist typisch.
+            return msg.includes('err_name_not_resolved') || msg.includes('name not resolved') || msg.includes('not resolved');
+        }
+
+        function markVrrDnsUnavailable() {
+            state.vrrUnavailableUntil = Date.now() + VRR_DNS_UNAVAILABLE_MS;
+        }
+
+        function canUseVrr() {
+            return Date.now() >= state.vrrUnavailableUntil;
+        }
+
         function detectRegion(stationName) {
             if (!stationName) return 'NATIONAL';
             const name = stationName.toLowerCase();
@@ -302,8 +320,12 @@
                 'mönchengladbach','wuppertal','oberhausen','krefeld','hagen','hamm','mülheim',
                 'leverkusen','solingen','neuss','herne','rheydt','viersen','korschenbroich',
                 'kleinenbroich','büttgen','jüchen','erkelenz','hückelhoven','baal','wassenberg',
-                'wegberg','mg','moenchengladbach'];
+                'wegberg','mg','moenchengladbach',
+                // Spezifische NRW-Orte / Schreibvarianten
+                'neersen','willich'];
             if (nrwKeywords.some(k => name.includes(k))) return 'NRW';
+            // Stationsnamen enden oft mit Zusatz wie "(Westf)" oder "(Westfalen)"
+            if (/\((?:westf|westfalen)\)/i.test(stationName)) return 'NRW';
             if (name.includes('berlin') || name.includes('potsdam') || name.includes('cottbus')) return 'BERLIN';
             if (name.includes('hamburg') || name.includes('lübeck') || name.includes('kiel')) return 'HAMBURG';
             return 'NATIONAL';
@@ -476,8 +498,13 @@
                 // BUG 2 FIX: eigener AbortController pro Fetch-Aufruf, nicht ein
                 // globaler Timeout – so wird der laufende Request sofort gecancelt
                 // sobald der User weitertippt, statt auf Timeout zu warten.
+                let abortedByTimeout = false;
                 activeSearchController = new AbortController();
-                const timeoutId = setTimeout(() => activeSearchController?.abort(), 8000);
+                const timeoutId = setTimeout(() => {
+                    abortedByTimeout = true;
+                    activeSearchController?.abort();
+                }, 8000);
+                let didRetry = false;
 
                 try {
                     const res = await fetch(
@@ -525,13 +552,35 @@
                     renderSearchResults(results);
                 } catch (err) {
                     clearTimeout(timeoutId);
-                    // Abgebrochene Requests (durch neue Eingabe) still ignorieren
-                    if (err.name === 'AbortError') return;
+                    // Abgebrochene Requests (durch neue Eingabe) still ignorieren.
+                    // Timeout-Abort zeigen wir aber als Meldung, sonst wirkt die Suche "hängen geblieben".
+                    if (err.name === 'AbortError') {
+                        if (abortedByTimeout && searchSessionId === thisSearchId) {
+                            $('search-results').innerHTML =
+                                `<div class="px-5 py-4 text-sm text-red-500 italic">
+                                    Suche ist zeitüberschritten. ${didRetry ? 'Bitte manuell erneut versuchen.' : 'Retry läuft…'}
+                                </div>`;
+                            if (!didRetry) {
+                                didRetry = true;
+                                setTimeout(() => {
+                                    // Nur retryen, wenn User den gleichen Suchbegriff noch im Feld hat.
+                                    const current = $('station-search').value.trim().toLowerCase();
+                                    if (current === cacheKey && searchSessionId === thisSearchId) {
+                                        handleSearchInput(query);
+                                    }
+                                }, 1200);
+                            }
+                        }
+                        return;
+                    }
                     if (searchSessionId !== thisSearchId) return;
                     // lastSearchQuery NICHT setzen bei Fehler → nächster Versuch
                     // mit gleichem Begriff wird nicht blockiert
                     state.lastSearchQuery = '';
-                    $('search-results').innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
+                    $('search-results').innerHTML =
+                        `<div class="px-5 py-4 text-sm text-red-500 italic">
+                            Suche fehlgeschlagen. Bitte kurz warten und erneut versuchen.
+                        </div>`;
                 }
             }, 200);
         }
@@ -650,7 +699,7 @@
                 // NRW-Regel:
                 // - Alles außer Zügen (S-Bahn/RE/RB/ICE/IC/EC/IRE/RS) ausschließlich VRR.
                 // - Wenn VRR nicht liefert: für Nicht-Züge nur Soll-Zeiten (Echtzeit-Felder entfernen).
-                searchOrder = ['https://v5.vrr.transport.rest'];
+                searchOrder = [VRR_BASE];
             } else {
                 searchOrder = [...REGIONAL_APIS.NATIONAL];
                 ALL_API_SOURCES.forEach(s => {
@@ -680,10 +729,15 @@
             try {
                 if (region === 'NRW') {
                     // 1) Immer VRR versuchen (Nicht-Züge daraus, Züge ggf. auch)
-                    try {
-                        const vrrResult = await fetchDeparturesFromApi('https://v5.vrr.transport.rest');
-                        if (vrrResult.departures?.length) raceResult = vrrResult;
-                    } catch { /* ignore */ }
+                    if (canUseVrr()) {
+                        try {
+                            const vrrResult = await fetchDeparturesFromApi(VRR_BASE);
+                            if (vrrResult.departures?.length) raceResult = vrrResult;
+                        } catch (e) {
+                            // DNS-Problem: VRR ist aktuell nicht erreichbar → für kurze Zeit überspringen
+                            if (isDnsNameNotResolved(e)) markVrrDnsUnavailable();
+                        }
+                    }
 
                     // 2) Wenn VRR nicht liefert: Fallback auf DB-National (aber Nicht-Züge -> nur Soll-Zeiten)
                     if (!raceResult) {
@@ -1070,12 +1124,18 @@
             if (nonTrain.some(p => product.includes(p))) return false;
             // Explizit Zug
             if (['national','nationalexpress','regional','regionalexpress','ferry'].includes(product)) return true;
-            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ'];
-            // RS soll als Zug erkannt werden (sonst würde es als "local" einsortiert werden).
-            trainPrefixes.push('RS');
-            if (trainPrefixes.some(p => name === p || name.startsWith(p + ' ') || name.startsWith(p + '-'))) return true;
-            // S-Bahn: nur wenn kein lokales Produkt
-            if (name.startsWith('S') && /^S\d/.test(name) && product === 'suburban') return true;
+            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
+            const prefixMatches = (p) => {
+                if (name === p) return true;
+                if (name.startsWith(p + ' ') || name.startsWith(p + '-')) return true;
+                // Handles patterns like "RS1" / "RE4" where there is no delimiter.
+                if (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1))) return true;
+                return false;
+            };
+            if (trainPrefixes.some(prefixMatches)) return true;
+            // S-Bahn in den NRW-APIs kommt oft als "S 8" oder "S8"
+            // "SB1" (Bus) wird NICHT getroffen, weil danach kein Digit folgt.
+            if (/^S\s*\d+/.test(name)) return true;
             if (!product && /^\d+$/.test(name.trim())) return false;
             return product !== '' && !nonTrain.some(p => product.includes(p));
         }
@@ -1126,11 +1186,11 @@
                 // NRW-Lokal: ausschließlich VRR, kein DB-Fallback.
                 // DB würde hier eigene (abweichende) Prognosen liefern und
                 // die Quelle würde fälschlich als VRR angezeigt.
-                detailEndpoints = ['https://v5.vrr.transport.rest'];
+                detailEndpoints = canUseVrr() ? [VRR_BASE] : [];
                 // Wenn VRR nicht liefert, dann trotzdem irgendwas holen, aber als Soll-Zeiten anzeigen.
                 fallbackEndpoints = [...REGIONAL_APIS.NATIONAL];
             } else if (isTrain_line) {
-                detailEndpoints = [...REGIONAL_APIS.NATIONAL, 'https://v5.vrr.transport.rest'];
+                detailEndpoints = canUseVrr() ? [...REGIONAL_APIS.NATIONAL, VRR_BASE] : [...REGIONAL_APIS.NATIONAL];
             } else {
                 if      (state.currentRegion === 'BERLIN')  detailEndpoints = ['https://v6.vbb.transport.rest', ...REGIONAL_APIS.NATIONAL];
                 else if (state.currentRegion === 'HAMBURG') detailEndpoints = ['https://v5.hvv.transport.rest', ...REGIONAL_APIS.NATIONAL];
@@ -1145,14 +1205,21 @@
             //   den Promise.any()-Race nicht ewig offen halten.
             const fetchTrip = async (apiBase) => {
                 const url = `${apiBase}/trips/${encodeURIComponent(safeTripId)}?stopovers=true&remarks=true`;
-                const res = await fetch(url, {
-                    signal: AbortSignal.timeout ? AbortSignal.timeout(7000) : undefined
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data  = await res.json();
-                const stops = data.stopovers || data.trip?.stopovers;
-                if (!stops?.length) throw new Error('no stops');
-                return { data, apiBase };
+                try {
+                    const res = await fetch(url, {
+                        signal: AbortSignal.timeout ? AbortSignal.timeout(7000) : undefined
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data  = await res.json();
+                    const stops = data.stopovers || data.trip?.stopovers;
+                    if (!stops?.length) throw new Error('no stops');
+                    return { data, apiBase };
+                } catch (e) {
+                    if (apiBase === VRR_BASE && isDnsNameNotResolved(e)) {
+                        markVrrDnsUnavailable();
+                    }
+                    throw e;
+                }
             };
 
             let result = await Promise.any(detailEndpoints.map(fetchTrip)).catch(() => null);
@@ -1192,7 +1259,11 @@
                 else if (usedApi?.includes('db'))  sourceName = 'Deutsche Bahn';
                 else if (usedApi?.includes('vbb')) sourceName = 'VBB';
                 else if (usedApi?.includes('hvv')) sourceName = 'HVV';
-                if (scheduledOnlyFallback) sourceName = `${sourceName} (nur Soll)`;
+                if (scheduledOnlyFallback) {
+                    // Bei NRW-local ist die geplante Quelle logisch VRR, auch wenn wir wegen
+                    // VRR-Ausfall auf einen "nur Soll"-Fremd-Request (DB) zurückgefallen sind.
+                    sourceName = isNrwLocal ? 'VRR (nur Soll)' : `${sourceName} (nur Soll)`;
+                }
                 addTripToArchive(dep, tripData, usedApi);
                 renderItinerary(finalStops, remarks, sourceName);
             } else {
