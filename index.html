@@ -253,24 +253,10 @@
 
     <script>
         // ─── Konfiguration ───────────────────────────────────────────────────────────
-        const REGIONAL_APIS = {
-            NATIONAL: ['https://v6.db.transport.rest', 'https://v5.db.transport.rest'],
-            NRW:      ['https://v5.vrr.transport.rest'],
-            BERLIN:   ['https://v6.vbb.transport.rest'],
-            HAMBURG:  ['https://v5.hvv.transport.rest']
-        };
-
-        const ALL_API_SOURCES = [
-            { url: 'https://v6.db.transport.rest', region: 'NATIONAL' },
-            { url: 'https://v5.db.transport.rest',  region: 'NATIONAL' },
-            { url: 'https://v5.vrr.transport.rest', region: 'NRW' },
-            { url: 'https://v6.vbb.transport.rest', region: 'BERLIN' },
-            { url: 'https://v5.hvv.transport.rest', region: 'HAMBURG' }
-        ];
-
+        // Abfahrtstafel + Details nutzen unseren lokalen Proxy (/api/*), der VRR OpenService nutzt.
+        // Verbindungssuche bleibt über DB (v6.db.transport.rest), damit ganz Deutschland abgedeckt ist.
+        const API_BASE = '';
         const REFRESH_INTERVAL = 60000;
-        const VRR_BASE = 'https://v5.vrr.transport.rest';
-        const VRR_DNS_UNAVAILABLE_MS = 2 * 60 * 1000;
 
         // ─── FIX 1: Rate-Limit-Cooldown von 1500 ms → 200 ms ────────────────────────
         // War der Hauptgrund: jeder Klick auf eine Station blockierte 1,5 Sekunden.
@@ -278,7 +264,7 @@
 
         let state = {
             currentStation:  null,
-            currentRegion:   'NATIONAL',
+            currentRegion:   'NRW',
             departures:      [],
             refreshTimer:    null,
             searchTimer:     null,
@@ -287,9 +273,7 @@
             lastRequestTime: 0,
             searchCache:     new Map(),
             // FIX 2: Departures-Cache – gleiche Station+Zeit nicht nochmal fetchen
-            departureCache:  new Map(),
-            // Wenn VRR-Domain (DNS) nicht auflösbar ist, nicht jedes Mal versuchen.
-            vrrUnavailableUntil: 0
+            departureCache:  new Map()
         };
 
         const $ = id => document.getElementById(id);
@@ -299,19 +283,7 @@
         // speichern wir welcher zuletzt funktioniert hat.
         let fastestDepartureApi = null;
 
-        function isDnsNameNotResolved(err) {
-            const msg = (err?.message || '').toLowerCase();
-            // Browser/Fetch variieren etwas, aber "name not resolved" ist typisch.
-            return msg.includes('err_name_not_resolved') || msg.includes('name not resolved') || msg.includes('not resolved');
-        }
-
-        function markVrrDnsUnavailable() {
-            state.vrrUnavailableUntil = Date.now() + VRR_DNS_UNAVAILABLE_MS;
-        }
-
-        function canUseVrr() {
-            return Date.now() >= state.vrrUnavailableUntil;
-        }
+        // VRR-Zugriff passiert serverseitig über /api; wir brauchen keine DNS-Workarounds im Browser.
 
         function detectRegion(stationName) {
             if (!stationName) return 'NATIONAL';
@@ -460,8 +432,7 @@
             }
         });
 
-        // Stationssuche: ausschließlich DB-API (deckt ganz Deutschland ab).
-        const DB_SEARCH_API = 'https://v6.db.transport.rest';
+        // Stationssuche (Abfahrtstafel): VRR Stopfinder via Backend
         let activeSearchController = null; // laufenden Fetch abbrechen wenn neue Eingabe kommt
 
         async function handleSearchInput(val) {
@@ -507,10 +478,7 @@
                 let didRetry = false;
 
                 try {
-                    const res = await fetch(
-                        `${DB_SEARCH_API}/locations?query=${encodeURIComponent(query)}&results=20&fuzzy=true`,
-                        { signal: activeSearchController.signal }
-                    );
+                    const res = await fetch(`${API_BASE}/api/locations?query=${encodeURIComponent(query)}`, { signal: activeSearchController.signal });
                     clearTimeout(timeoutId);
 
                     // BUG 3 FIX: Session-Check VOR dem JSON-Parse, nicht danach –
@@ -522,17 +490,14 @@
                     const data = await res.json();
                     if (searchSessionId !== thisSearchId) return;
 
-                    let results = Array.isArray(data) ? data : (data.locations || data.results || []);
+                    let results = data?.locations || [];
                     results = results
-                        .filter(r => r && (r.name || r.stop?.name) && (r.id || r.extId || r.stop?.id || r.stop?.extId))
+                        .filter(r => r && r.name && r.id)
                         .map(r => {
-                            const name = r.name || r.stop?.name;
-                            // /stops/{id}/departures erwartet i.d.R. einen "Stop"-Identifier.
-                            // Die Locations-Suche liefert aber manchmal "station" + zusätzlich einen stop-Block.
-                            const stopId = r.stop?.id || r.stop?.extId;
-                            const id     = stopId || r.id || r.extId;
+                            const name = r.name;
+                            const id   = r.id;
                             return { ...r, name, id,
-                                sourceRegion: detectRegion(name) || 'DEUTSCHLAND',
+                                sourceRegion: 'NRW',
                                 score: calculateSimilarity(query, name) * 100
                             };
                         })
@@ -689,103 +654,18 @@
                 renderDepartures();
                 return;
             }
-
-            // FIX 1: NRW bekommt eine eigene, isolierte API-Liste.
-            // DB läuft NICHT parallel – kein Race, kein versehentlicher DB-Gewinn.
-            // Für alle anderen Regionen bleibt der Race wie bisher.
-            const region = state.currentRegion;
-            let searchOrder;
-            if (region === 'NRW') {
-                // NRW-Regel:
-                // - Alles außer Zügen (S-Bahn/RE/RB/ICE/IC/EC/IRE/RS) ausschließlich VRR.
-                // - Wenn VRR nicht liefert: für Nicht-Züge nur Soll-Zeiten (Echtzeit-Felder entfernen).
-                searchOrder = [VRR_BASE];
-            } else {
-                searchOrder = [...REGIONAL_APIS.NATIONAL];
-                ALL_API_SOURCES.forEach(s => {
-                    if (!searchOrder.includes(s.url)) searchOrder.push(s.url);
-                });
-            }
-
-            // FIX 2: fastestApi ist jetzt region-spezifisch – ein DB-Treffer in
-            // Berlin überschreibt nicht den VRR-Cache für NRW.
-            const knownFastest = fastestApiByRegion[region];
-            if (knownFastest && searchOrder.includes(knownFastest)) {
-                searchOrder = [knownFastest, ...searchOrder.filter(u => u !== knownFastest)];
-            }
-
-            const buildUrl = base =>
-                `${base}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
-
-            let raceResult = null;
-            const fetchDeparturesFromApi = async (apiBase) => {
-                const res = await fetch(buildUrl(apiBase), { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+            try {
+                const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40`;
+                const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
-                const departures = Array.isArray(data) ? data : (data.departures || []);
-                return { departures, apiBase };
-            };
-
-            try {
-                if (region === 'NRW') {
-                    // 1) Immer VRR versuchen (Nicht-Züge daraus, Züge ggf. auch)
-                    if (canUseVrr()) {
-                        try {
-                            const vrrResult = await fetchDeparturesFromApi(VRR_BASE);
-                            if (vrrResult.departures?.length) raceResult = vrrResult;
-                        } catch (e) {
-                            // DNS-Problem: VRR ist aktuell nicht erreichbar → für kurze Zeit überspringen
-                            if (isDnsNameNotResolved(e)) markVrrDnsUnavailable();
-                        }
-                    }
-
-                    // 2) Wenn VRR nicht liefert: Fallback auf DB-National (aber Nicht-Züge -> nur Soll-Zeiten)
-                    if (!raceResult) {
-                        const dbBases = [...REGIONAL_APIS.NATIONAL];
-                        for (let i = 0; i < dbBases.length; i++) {
-                            const apiBase = dbBases[i];
-                            try {
-                                const dbResult = await fetchDeparturesFromApi(apiBase);
-                                if (dbResult.departures?.length || i === dbBases.length - 1) {
-                                    dbResult.departures = (dbResult.departures || []).map(dep => {
-                                        // Nicht-Züge: Echtzeit rauswerfen, damit UI nur Soll-Zeiten zeigt.
-                                        if (!isTrain(dep.line)) {
-                                            const copy = { ...dep };
-                                            copy.when = undefined;
-                                            delete copy.delay;
-                                            copy.prognosis = null;
-                                            // UI zeigt "dep.platform", daher auf geplanten Gleiswert setzen wenn vorhanden.
-                                            copy.platform = copy.plannedPlatform || copy.platform;
-                                            return copy;
-                                        }
-                                        return dep;
-                                    });
-                                    raceResult = dbResult;
-                                    break;
-                                }
-                            } catch { /* try next */ }
-                        }
-                    }
-                } else {
-                    // außerhalb NRW: wie bisher, schnellster Endpunkt gewinnt
-                    raceResult = await Promise.any(searchOrder.map(fetchDeparturesFromApi));
-                }
-            } catch (err) {
-                console.error('Departures fetch failed', err, {
-                    stationId: state.currentStation.id,
-                    region,
-                    searchOrder
-                });
-            }
-
-            if (raceResult) {
-                fastestApiByRegion[region] = raceResult.apiBase;
                 state.isRateLimited = false;
-                state.departures    = raceResult.departures.map(d => ({ ...d, sourceApi: raceResult.apiBase }));
+                state.departures = (data?.departures || []).map(d => ({ ...d, sourceApi: 'VRR OpenService' }));
                 state.departureCache.set(cacheKey, state.departures);
                 setTimeout(() => state.departureCache.delete(cacheKey), 60000);
                 renderDepartures();
-            } else {
+            } catch (err) {
+                console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
                 $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
             }
         }
@@ -1171,102 +1051,21 @@
             $('detail-operator').textContent        = dep.line?.operator?.name || 'Unbekanntes Unternehmen';
             $('detail-trip-id').textContent         = `TRIP: ${tripId.split('|')[0]}`;
 
-            const isNrwLocal   = state.currentRegion === 'NRW' && isNrwLocalTransit(dep.line);
-            const isTrain_line = isTrain(dep.line);
             currentTripDetail  = dep;
-
-            // FIX 1 – tripId normalisieren: wenn er bereits kodiert ist (z.B. nach Reload),
-            // würde encodeURIComponent ihn doppelt kodieren → 404. Immer erst dekodieren.
-            let safeTripId;
-            try { safeTripId = decodeURIComponent(tripId); } catch { safeTripId = tripId; }
-
-            let detailEndpoints = [];
-            let fallbackEndpoints = [];
-            if (isNrwLocal) {
-                // NRW-Lokal: ausschließlich VRR, kein DB-Fallback.
-                // DB würde hier eigene (abweichende) Prognosen liefern und
-                // die Quelle würde fälschlich als VRR angezeigt.
-                detailEndpoints = canUseVrr() ? [VRR_BASE] : [];
-                // Wenn VRR nicht liefert, dann trotzdem irgendwas holen, aber als Soll-Zeiten anzeigen.
-                fallbackEndpoints = [...REGIONAL_APIS.NATIONAL];
-            } else if (isTrain_line) {
-                detailEndpoints = canUseVrr() ? [...REGIONAL_APIS.NATIONAL, VRR_BASE] : [...REGIONAL_APIS.NATIONAL];
-            } else {
-                if      (state.currentRegion === 'BERLIN')  detailEndpoints = ['https://v6.vbb.transport.rest', ...REGIONAL_APIS.NATIONAL];
-                else if (state.currentRegion === 'HAMBURG') detailEndpoints = ['https://v5.hvv.transport.rest', ...REGIONAL_APIS.NATIONAL];
-                else                                         detailEndpoints = [...REGIONAL_APIS.NATIONAL];
-                ALL_API_SOURCES.forEach(s => { if (!detailEndpoints.includes(s.url)) detailEndpoints.push(s.url); });
-            }
-
-            // FIX 2 – sequenzieller Fallback akkumulierte Timeouts (8 s × N Endpunkte)
-            // → Ladescreen hing minutenlang. Jetzt Promise.any(): alle gleichzeitig,
-            //   erste erfolgreiche Antwort gewinnt sofort.
-            // FIX 3 – individuelles 7-s-Timeout pro Request, damit hängende Verbindungen
-            //   den Promise.any()-Race nicht ewig offen halten.
-            const fetchTrip = async (apiBase) => {
-                const url = `${apiBase}/trips/${encodeURIComponent(safeTripId)}?stopovers=true&remarks=true`;
-                try {
-                    const res = await fetch(url, {
-                        signal: AbortSignal.timeout ? AbortSignal.timeout(7000) : undefined
-                    });
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const data  = await res.json();
-                    const stops = data.stopovers || data.trip?.stopovers;
-                    if (!stops?.length) throw new Error('no stops');
-                    return { data, apiBase };
-                } catch (e) {
-                    if (apiBase === VRR_BASE && isDnsNameNotResolved(e)) {
-                        markVrrDnsUnavailable();
-                    }
-                    throw e;
-                }
-            };
-
-            let result = await Promise.any(detailEndpoints.map(fetchTrip)).catch(() => null);
-            let scheduledOnlyFallback = false;
-            if (!result && isNrwLocal && fallbackEndpoints.length) {
-                // VRR liefert nicht: fallback auf DB und stop-arrival/departure entfernen,
-                // damit der UI nur Soll-Zeiten (geplante Zeiten) zeigt.
-                const fb = await Promise.any(fallbackEndpoints.map(fetchTrip)).catch(() => null);
-                if (fb) {
-                    result = { ...fb, scheduledOnlyFallback: true };
-                    scheduledOnlyFallback = true;
-                }
-            }
-
-            if (result) {
-                const { data: tripData, apiBase: usedApi } = result;
-                const stops   = tripData.stopovers || tripData.trip?.stopovers || [];
-                const remarks = tripData.remarks   || tripData.trip?.remarks   || [];
-
-                const finalStops = scheduledOnlyFallback
-                    ? (stops || []).map(s => {
-                        const copy = { ...s };
-                        copy.arrival = undefined;
-                        copy.departure = undefined;
-                        copy.platform = undefined;
-                        copy.arrivalPlatform = undefined;
-                        copy.departurePlatform = undefined;
-                        copy.prognosis = undefined;
-                        return copy;
-                    })
-                    : stops;
-
-                // FIX 3: Quellanzeige ehrlich – zeigt die API die wirklich geantwortet hat.
-                // Vorher wurde isNrwLocal ? 'VRR' immer erzwungen, auch wenn DB geantwortet hatte.
-                let sourceName = 'API';
-                if (usedApi?.includes('vrr'))      sourceName = 'VRR';
-                else if (usedApi?.includes('db'))  sourceName = 'Deutsche Bahn';
-                else if (usedApi?.includes('vbb')) sourceName = 'VBB';
-                else if (usedApi?.includes('hvv')) sourceName = 'HVV';
-                if (scheduledOnlyFallback) {
-                    // Bei NRW-local ist die geplante Quelle logisch VRR, auch wenn wir wegen
-                    // VRR-Ausfall auf einen "nur Soll"-Fremd-Request (DB) zurückgefallen sind.
-                    sourceName = isNrwLocal ? 'VRR (nur Soll)' : `${sourceName} (nur Soll)`;
-                }
-                addTripToArchive(dep, tripData, usedApi);
-                renderItinerary(finalStops, remarks, sourceName);
-            } else {
+            try {
+                const url = `${API_BASE}/api/trips/${encodeURIComponent(tripId)}`;
+                const res = await fetch(url, {
+                    signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const stops = data?.stopovers || [];
+                const remarks = data?.remarks || [];
+                const sourceName = data?.source || 'VRR OpenService';
+                addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
+                renderItinerary(stops, remarks, sourceName);
+            } catch (e) {
+                console.error('Trip details failed', e);
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
             }
         }
@@ -1344,6 +1143,7 @@
                 "high passenger volume":                             "hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
                 "train running at reduced speed":                    "Zug verkehrt mit verminderter Geschwindigkeit",
                 "Stops are omitted":                                 "Einige Halte entfallen.",
+                "Enter only, no exiting allowed" : "Hält nur zum Einsteigen.",
                 "Platform change":                                   "Gleiswechsel.",
                 "Change of platform":                                "Gleiswechsel.",
                 "Track change":                                      "Gleiswechsel.",
