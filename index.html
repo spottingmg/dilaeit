@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV Echtzeit</title>
+    <title>dilaeit - ÖPNV in Echtzeit - Beta</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -134,6 +134,9 @@
                     <span id="current-date">--.--.----</span>
                     <span id="current-time" class="text-sm font-bold text-gray-300">--:--:--</span>
                 </div>
+                <button id="api-base-btn" class="hidden px-3 py-2 rounded-xl bg-gray-100 dark:bg-zinc-900 text-xs font-semibold hover:text-red-500 transition-colors">
+                    Backend-URL
+                </button>
                 <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform">
                     <i class="fas fa-moon dark:hidden"></i>
                     <i class="fas fa-sun hidden dark:block text-yellow-500"></i>
@@ -253,9 +256,33 @@
 
     <script>
         // ─── Konfiguration ───────────────────────────────────────────────────────────
-        // Abfahrtstafel + Details nutzen unseren lokalen Proxy (/api/*), der VRR OpenService nutzt.
+        // Abfahrtstafel + Details nutzen unseren Proxy (/api/*), der VRR OpenService nutzt.
         // Verbindungssuche bleibt über DB (v6.db.transport.rest), damit ganz Deutschland abgedeckt ist.
-        const API_BASE = '';
+        //
+        // Wenn du die Seite statisch über GitHub Pages hostest, brauchst du zusätzlich eine Backend-URL.
+        // Du kannst sie im UI unter "Backend-URL" setzen (wird in localStorage gespeichert).
+        const DEFAULT_REMOTE_API_BASE = ''; // optional hart setzen, z.B. 'https://dilaeit.onrender.com'
+        const API_BASE = (() => {
+            const saved = localStorage.getItem('dilaeit_api_base');
+            if (saved) return saved;
+            if (DEFAULT_REMOTE_API_BASE) return DEFAULT_REMOTE_API_BASE;
+            // Wenn wir auf einem Host laufen, der selbst /api/health hat, nutzen wir same-origin.
+            // (z.B. Render/localhost)
+            return '';
+        })();
+
+        function setApiBaseFromPrompt() {
+            const current = localStorage.getItem('dilaeit_api_base') || DEFAULT_REMOTE_API_BASE || '';
+            const next = prompt('Backend-URL (z.B. https://dein-service.onrender.com). Leer lassen = same-origin.', current);
+            if (next === null) return;
+            const trimmed = next.trim();
+            if (!trimmed) {
+                localStorage.removeItem('dilaeit_api_base');
+            } else {
+                localStorage.setItem('dilaeit_api_base', trimmed.replace(/\/+$/, ''));
+            }
+            location.reload();
+        }
         const REFRESH_INTERVAL = 60000;
 
         // ─── FIX 1: Rate-Limit-Cooldown von 1500 ms → 200 ms ────────────────────────
@@ -321,6 +348,22 @@
             setupDefaultDateTime();
             attachEventListeners();
             renderArchive();
+            // Button "Backend-URL" nur anzeigen, wenn wir statisch laufen (kein /api/health).
+            // Dann kann man die Backend-URL einmalig speichern.
+            (async () => {
+                const btn = document.getElementById('api-base-btn');
+                if (!btn) return;
+                try {
+                    const r = await fetch(`${API_BASE}/api/health`, { cache: 'no-store' });
+                    if (r.ok) {
+                        btn.classList.add('hidden');
+                    } else {
+                        btn.classList.remove('hidden');
+                    }
+                } catch {
+                    btn.classList.remove('hidden');
+                }
+            })();
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && state.currentStation && !state.isRateLimited) {
                     refreshDepartures();
@@ -359,6 +402,8 @@
                 if (state.currentStation) refreshDepartures();
             });
             $('theme-toggle').addEventListener('click', () => document.body.classList.toggle('dark'));
+            const apiBtn = document.getElementById('api-base-btn');
+            if (apiBtn) apiBtn.addEventListener('click', setApiBaseFromPrompt);
             $('close-detail').addEventListener('click', () => $('detail-view').classList.remove('active'));
             document.addEventListener('click', e => {
                 if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
