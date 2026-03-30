@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV in Echtzeit - Beta</title>
+    <title>dilaeit - ÖPNV Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -167,6 +167,12 @@
                     <input type="time" id="query-time" class="bg-transparent border-none text-xs outline-none focus:ring-0 w-20">
                 </div>
                 <button id="reset-query" class="px-4 py-2 bg-gray-100 dark:bg-zinc-900 rounded-xl text-xs font-medium hover:text-red-500 transition-colors">Jetzt</button>
+                <button onclick="shiftQueryDay(-1)" class="px-3 py-2 bg-gray-100 dark:bg-zinc-900 rounded-xl text-xs font-medium hover:text-red-500 transition-colors" title="Einen Tag zurück">
+                    <i class="fas fa-chevron-left mr-1"></i>−1d
+                </button>
+                <button onclick="shiftQueryDay(1)" class="px-3 py-2 bg-gray-100 dark:bg-zinc-900 rounded-xl text-xs font-medium hover:text-red-500 transition-colors" title="Einen Tag vor">
+                    +1d<i class="fas fa-chevron-right ml-1"></i>
+                </button>
             </div>
         </div>
 
@@ -195,8 +201,16 @@
         </div>
 
         <div id="trip-archive" class="mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
-            <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Archiv letzte Fahrten (48h)</h3>
-            <div id="archive-list" class="mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
+            <div class="flex items-center justify-between mb-2">
+                <button onclick="toggleArchive()" class="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 hover:text-red-500 transition-colors">
+                    <i id="archive-chevron" class="fas fa-chevron-right text-xs transition-transform duration-200"></i>
+                    Archiv letzte Fahrten (48h)
+                </button>
+                <button onclick="clearArchive()" class="text-[10px] text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-gray-200 dark:hover:bg-zinc-700">
+                    <i class="fas fa-trash-alt mr-1"></i>Leeren
+                </button>
+            </div>
+            <div id="archive-list" class="hidden mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
@@ -390,6 +404,19 @@
             const mins  = String(now.getMinutes()).padStart(2, '0');
             $('query-date').value = `${year}-${month}-${day}`;
             $('query-time').value = `${hours}:${mins}`;
+        }
+
+        function shiftQueryDay(delta) {
+            const dateVal = $('query-date').value;
+            if (!dateVal) return;
+            const [y, mo, d] = dateVal.split('-').map(Number);
+            const shifted = new Date(y, mo - 1, d + delta);
+            $('query-date').value = [
+                shifted.getFullYear(),
+                String(shifted.getMonth() + 1).padStart(2, '0'),
+                String(shifted.getDate()).padStart(2, '0')
+            ].join('-');
+            if (state.currentStation) refreshDepartures();
         }
 
         function attachEventListeners() {
@@ -739,23 +766,41 @@
             } catch (e) { console.error('Archive error', e); }
         }
 
-        function renderArchive() {
+        let archiveExpanded = false;
+        const ARCHIVE_PAGE_SIZE = 5;
+
+        function toggleArchive() {
+            archiveExpanded = !archiveExpanded;
+            const list     = $('archive-list');
+            const chevron  = $('archive-chevron');
+            list.classList.toggle('hidden', !archiveExpanded);
+            chevron.style.transform = archiveExpanded ? 'rotate(90deg)' : '';
+            if (archiveExpanded) renderArchive();
+        }
+
+        function clearArchive() {
+            localStorage.removeItem('dilaeit_trip_archive');
+            renderArchive();
+        }
+
+        function renderArchive(showAll = false) {
             const listEl = $('archive-list');
             listEl.innerHTML = '';
             let items;
             try { items = JSON.parse(localStorage.getItem('dilaeit_trip_archive') || '[]'); } catch { items = []; }
             items = items.filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000);
             if (items.length === 0) {
-                listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400">Noch keine Fahrten im Archiv.</div>';
+                listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400 text-xs">Noch keine Fahrten im Archiv.</div>';
                 return;
             }
-            items.forEach(r => {
+            const visible = showAll ? items : items.slice(0, ARCHIVE_PAGE_SIZE);
+            visible.forEach(r => {
                 const item = document.createElement('div');
-                item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700';
+                item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 cursor-pointer hover:border-red-400 transition-colors';
                 const time = new Date(r.timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
                 item.innerHTML = `
                     <div class="font-semibold text-xs">${r.station} • ${r.line}</div>
-                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time} • ${r.api.replace('https://','')}</div>`;
+                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time}</div>`;
                 item.onclick = () => {
                     state.currentStation = { id: r.stationId || r.data?.stop?.id || state.currentStation?.id, name: r.station };
                     state.currentRegion  = detectRegion(r.station);
@@ -764,11 +809,18 @@
                 };
                 listEl.appendChild(item);
             });
+            // "Mehr anzeigen"-Button wenn mehr als ARCHIVE_PAGE_SIZE Einträge
+            if (!showAll && items.length > ARCHIVE_PAGE_SIZE) {
+                const btn = document.createElement('button');
+                btn.className = 'w-full text-center text-[11px] text-gray-500 hover:text-red-500 py-1 transition-colors';
+                btn.textContent = `+ ${items.length - ARCHIVE_PAGE_SIZE} weitere anzeigen`;
+                btn.onclick = () => renderArchive(true);
+                listEl.appendChild(btn);
+            }
         }
 
         // ─── Verbindungssuche ────────────────────────────────────────────────────────
         function extractTripIdFromJourney(journey) {
-            // DB journeys liefern je nach Produkt/Quelle teils tripId an verschiedenen Stellen.
             if (!journey) return null;
             const legs = journey.legs || [];
             return (
@@ -788,19 +840,24 @@
             return firstLineLeg || null;
         }
 
-        function showJourneyTripDetailsFromEncodedPayload(encodedPayload) {
+        // Öffnet den Fahrtverlauf für einen einzelnen Leg einer Journey
+        function showLegTripDetails(encodedPayload) {
             if (!encodedPayload) return;
             let payload = null;
-            try { payload = JSON.parse(decodeURIComponent(encodedPayload)); } catch { payload = null; }
+            try { payload = JSON.parse(decodeURIComponent(encodedPayload)); } catch { return; }
             if (!payload?.tripId) return;
-
             const dep = {
-                tripId: payload.tripId,
+                tripId:    payload.tripId,
                 prognosis: { tripId: payload.tripId },
-                line: payload.line || null,
+                line:      payload.line || null,
                 direction: payload.direction || ''
             };
-            return showTripDetails(dep);
+            showTripDetails(dep);
+        }
+
+        // Rückwärtskompatibilität (alter Name aus journey-card onclick)
+        function showJourneyTripDetailsFromEncodedPayload(encodedPayload) {
+            showLegTripDetails(encodedPayload);
         }
 
         async function resolveStationId(query) {
@@ -934,6 +991,29 @@
                 }).join('');
 
                 const cancelled = leg.cancelled ? 'opacity-40' : '';
+                // Jeder Leg bekommt seinen eigenen tripId und Details-Button
+                const legTripId = leg.tripId || leg.prognosis?.tripId || null;
+                const legLine = leg.line ? {
+                    name:     leg.line?.name || leg.line?.id || leg.mode || '?',
+                    id:       leg.line?.id,
+                    product:  (leg.line?.product || leg.product || leg.mode || '').toString(),
+                    operator: leg.line?.operator?.name ? { name: leg.line.operator.name } : undefined
+                } : null;
+                const legPayload = legTripId
+                    ? encodeURIComponent(JSON.stringify({
+                        tripId:    legTripId,
+                        line:      legLine,
+                        direction: leg.direction || ''
+                    }))
+                    : '';
+                const detailsBtn = legTripId
+                    ? `<button
+                           class="mt-1.5 w-full text-center py-1 rounded-lg text-[10px] font-semibold bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-colors"
+                           onclick="showLegTripDetails('${legPayload}')"
+                           type="button">
+                           <i class="fas fa-map-marker-alt mr-1"></i>Fahrtverlauf ansehen
+                       </button>`
+                    : '';
                 return `<div class="rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden mb-2 ${cancelled}">
                     <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-zinc-800">
                         <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic shrink-0">${leg.line?.name || '?'}</span>
@@ -950,6 +1030,7 @@
                             <span class="text-gray-500">An: <span class="font-semibold text-gray-200">${leg.destination?.name || ''}</span></span>
                             <span>${fmtT(legArr, legArrAct)}</span>
                         </div>
+                        ${detailsBtn}
                     </div>
                 </div>`;
             }).join('');
@@ -968,16 +1049,6 @@
                         </div>
                         <div class="flex items-center gap-1 mt-1 flex-wrap">${legBadges}</div>
                     </div>
-                    <button
-                        class="px-3 py-1.5 rounded-xl text-[10px] font-semibold transition-colors ${tripId ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-gray-500/30 text-gray-200 cursor-not-allowed opacity-60'}"
-                        ${tripId ? '' : 'disabled'}
-                        data-journey-payload="${journeyDetailsPayload}"
-                        onclick="event.stopPropagation(); showJourneyTripDetailsFromEncodedPayload(this.dataset.journeyPayload)"
-                        type="button"
-                        title="${tripId ? 'Details ansehen' : 'Keine Trip-ID in der Journey gefunden.'}"
-                    >
-                        Details ansehen
-                    </button>
                     <i id="${cardId}-icon" class="fas fa-chevron-down text-gray-400 text-xs transition-transform duration-200 shrink-0"></i>
                 </div>
                 <div id="${detailId}" class="hidden px-4 pb-4 pt-1 border-t border-gray-100 dark:border-zinc-800">
