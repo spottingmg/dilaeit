@@ -644,8 +644,12 @@
             // FIX 1: NRW bekommt eine eigene, isolierte API-Liste.
             // DB läuft NICHT parallel – kein Race, kein versehentlicher DB-Gewinn.
             // Für alle anderen Regionen bleibt der Race wie bisher.
+            const region = state.currentRegion;
             let searchOrder;
-            if (state.currentRegion === 'NRW') {
+            if (region === 'NRW') {
+                // NRW-Regel:
+                // - Alles außer Zügen (S-Bahn/RE/RB/ICE/IC/EC/IRE/RS) ausschließlich VRR.
+                // - Wenn VRR nicht liefert: für Nicht-Züge nur Soll-Zeiten (Echtzeit-Felder entfernen).
                 searchOrder = ['https://v5.vrr.transport.rest'];
             } else {
                 searchOrder = [...REGIONAL_APIS.NATIONAL];
@@ -656,7 +660,6 @@
 
             // FIX 2: fastestApi ist jetzt region-spezifisch – ein DB-Treffer in
             // Berlin überschreibt nicht den VRR-Cache für NRW.
-            const region = state.currentRegion;
             const knownFastest = fastestApiByRegion[region];
             if (knownFastest && searchOrder.includes(knownFastest)) {
                 searchOrder = [knownFastest, ...searchOrder.filter(u => u !== knownFastest)];
@@ -666,23 +669,57 @@
                 `${base}/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
 
             let raceResult = null;
+            const fetchDeparturesFromApi = async (apiBase) => {
+                const res = await fetch(buildUrl(apiBase), { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const departures = Array.isArray(data) ? data : (data.departures || []);
+                return { departures, apiBase };
+            };
+
             try {
-                raceResult = await Promise.any(
-                    searchOrder.map(async apiBase => {
-                        const res = await fetch(buildUrl(apiBase), { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                        const data = await res.json();
-                        const departures = Array.isArray(data) ? data : (data.departures || []);
-                        if (departures.length === 0 && searchOrder.indexOf(apiBase) < searchOrder.length - 1) {
-                            throw new Error('empty');
+                if (region === 'NRW') {
+                    // 1) Immer VRR versuchen (Nicht-Züge daraus, Züge ggf. auch)
+                    try {
+                        const vrrResult = await fetchDeparturesFromApi('https://v5.vrr.transport.rest');
+                        if (vrrResult.departures?.length) raceResult = vrrResult;
+                    } catch { /* ignore */ }
+
+                    // 2) Wenn VRR nicht liefert: Fallback auf DB-National (aber Nicht-Züge -> nur Soll-Zeiten)
+                    if (!raceResult) {
+                        const dbBases = [...REGIONAL_APIS.NATIONAL];
+                        for (let i = 0; i < dbBases.length; i++) {
+                            const apiBase = dbBases[i];
+                            try {
+                                const dbResult = await fetchDeparturesFromApi(apiBase);
+                                if (dbResult.departures?.length || i === dbBases.length - 1) {
+                                    dbResult.departures = (dbResult.departures || []).map(dep => {
+                                        // Nicht-Züge: Echtzeit rauswerfen, damit UI nur Soll-Zeiten zeigt.
+                                        if (!isTrain(dep.line)) {
+                                            const copy = { ...dep };
+                                            copy.when = undefined;
+                                            delete copy.delay;
+                                            copy.prognosis = null;
+                                            // UI zeigt "dep.platform", daher auf geplanten Gleiswert setzen wenn vorhanden.
+                                            copy.platform = copy.plannedPlatform || copy.platform;
+                                            return copy;
+                                        }
+                                        return dep;
+                                    });
+                                    raceResult = dbResult;
+                                    break;
+                                }
+                            } catch { /* try next */ }
                         }
-                        return { departures, apiBase };
-                    })
-                );
+                    }
+                } else {
+                    // außerhalb NRW: wie bisher, schnellster Endpunkt gewinnt
+                    raceResult = await Promise.any(searchOrder.map(fetchDeparturesFromApi));
+                }
             } catch (err) {
                 console.error('Departures fetch failed', err, {
                     stationId: state.currentStation.id,
-                    region: state.currentRegion,
+                    region,
                     searchOrder
                 });
             }
@@ -769,7 +806,7 @@
         function extractLineForJourney(journey) {
             const legs = journey?.legs || [];
             const firstLineLeg = legs.find(l => l?.line);
-            return firstLineLeg?.line || null;
+            return firstLineLeg || null;
         }
 
         function showJourneyTripDetailsFromEncodedPayload(encodedPayload) {
@@ -828,13 +865,22 @@
             const lastLeg  = legs[legs.length - 1];
             const tripId   = extractTripIdFromJourney(journey);
             const firstLine = extractLineForJourney(journey);
-            const directionGuess = lastLeg?.destination?.name || firstLine?.name || 'Verbindung';
-            const minimalLine = firstLine
+            const directionGuess =
+                firstLine?.destination?.name ||
+                firstLine?.plannedArrival?.name ||
+                lastLeg?.destination?.name ||
+                lastLeg?.plannedArrival?.name ||
+                'Verbindung';
+
+            // Für die Modal-Quelle und die Header-Ausgabe brauchen wir eine dep-ähnliche "line"-Struktur.
+            // Bei /journeys sind die Felder je nach Provider teils anders als bei /departures,
+            // daher leiten wir "product" aus leg.mode/line.product ab.
+            const minimalLine = firstLine?.line
                 ? {
-                    name: firstLine.name,
-                    id: firstLine.id,
-                    product: firstLine.product,
-                    operator: { name: firstLine.operator?.name }
+                    name: firstLine.line?.name || firstLine.line?.id || firstLine.mode || 'Unbekannt',
+                    id: firstLine.line?.id,
+                    product: (firstLine.line?.product || firstLine.product || firstLine.mode || '').toString(),
+                    operator: firstLine.line?.operator?.name ? { name: firstLine.line.operator.name } : undefined
                 }
                 : null;
             const journeyDetailsPayload = tripId
@@ -1025,6 +1071,8 @@
             // Explizit Zug
             if (['national','nationalexpress','regional','regionalexpress','ferry'].includes(product)) return true;
             const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ'];
+            // RS soll als Zug erkannt werden (sonst würde es als "local" einsortiert werden).
+            trainPrefixes.push('RS');
             if (trainPrefixes.some(p => name === p || name.startsWith(p + ' ') || name.startsWith(p + '-'))) return true;
             // S-Bahn: nur wenn kein lokales Produkt
             if (name.startsWith('S') && /^S\d/.test(name) && product === 'suburban') return true;
@@ -1035,12 +1083,14 @@
         // NRW-Lokal: alles was kein Fernzug ist → VRR zuständig
         function isNrwLocalTransit(line) {
             if (!line) return false;
+            // NRW-local bedeutet: lokale ÖPNV-Teile (Bus/Tram/Stadtbahn etc.), aber NICHT Züge.
+            // Züge (S-Bahn/RE/RB/ICE/IC/EC/IRE/RS) sollen NICHT als "local" gelten.
+            if (isTrain(line)) return false;
+
             const product = (line.product || '').toLowerCase();
             const name    = (line.name || '').toUpperCase();
             const localProducts = ['bus','tram','tramway','subway','metro','light_rail','urban_rail','watercraft'];
             if (localProducts.some(p => product.includes(p))) return true;
-            // S-Bahnen in NRW (S-Bahn Rhein-Ruhr etc.) → VRR
-            if (product === 'suburban' || (name.startsWith('S') && /^S\d/.test(name))) return true;
             // Numerische Linienbezeichnungen → Bus/Stadtbahn
             if (/^\d+$/.test(name.trim())) return true;
             return false;
@@ -1071,11 +1121,14 @@
             try { safeTripId = decodeURIComponent(tripId); } catch { safeTripId = tripId; }
 
             let detailEndpoints = [];
+            let fallbackEndpoints = [];
             if (isNrwLocal) {
                 // NRW-Lokal: ausschließlich VRR, kein DB-Fallback.
                 // DB würde hier eigene (abweichende) Prognosen liefern und
                 // die Quelle würde fälschlich als VRR angezeigt.
                 detailEndpoints = ['https://v5.vrr.transport.rest'];
+                // Wenn VRR nicht liefert, dann trotzdem irgendwas holen, aber als Soll-Zeiten anzeigen.
+                fallbackEndpoints = [...REGIONAL_APIS.NATIONAL];
             } else if (isTrain_line) {
                 detailEndpoints = [...REGIONAL_APIS.NATIONAL, 'https://v5.vrr.transport.rest'];
             } else {
@@ -1102,12 +1155,36 @@
                 return { data, apiBase };
             };
 
-            const result = await Promise.any(detailEndpoints.map(fetchTrip)).catch(() => null);
+            let result = await Promise.any(detailEndpoints.map(fetchTrip)).catch(() => null);
+            let scheduledOnlyFallback = false;
+            if (!result && isNrwLocal && fallbackEndpoints.length) {
+                // VRR liefert nicht: fallback auf DB und stop-arrival/departure entfernen,
+                // damit der UI nur Soll-Zeiten (geplante Zeiten) zeigt.
+                const fb = await Promise.any(fallbackEndpoints.map(fetchTrip)).catch(() => null);
+                if (fb) {
+                    result = { ...fb, scheduledOnlyFallback: true };
+                    scheduledOnlyFallback = true;
+                }
+            }
 
             if (result) {
                 const { data: tripData, apiBase: usedApi } = result;
                 const stops   = tripData.stopovers || tripData.trip?.stopovers || [];
                 const remarks = tripData.remarks   || tripData.trip?.remarks   || [];
+
+                const finalStops = scheduledOnlyFallback
+                    ? (stops || []).map(s => {
+                        const copy = { ...s };
+                        copy.arrival = undefined;
+                        copy.departure = undefined;
+                        copy.platform = undefined;
+                        copy.arrivalPlatform = undefined;
+                        copy.departurePlatform = undefined;
+                        copy.prognosis = undefined;
+                        return copy;
+                    })
+                    : stops;
+
                 // FIX 3: Quellanzeige ehrlich – zeigt die API die wirklich geantwortet hat.
                 // Vorher wurde isNrwLocal ? 'VRR' immer erzwungen, auch wenn DB geantwortet hatte.
                 let sourceName = 'API';
@@ -1115,8 +1192,9 @@
                 else if (usedApi?.includes('db'))  sourceName = 'Deutsche Bahn';
                 else if (usedApi?.includes('vbb')) sourceName = 'VBB';
                 else if (usedApi?.includes('hvv')) sourceName = 'HVV';
+                if (scheduledOnlyFallback) sourceName = `${sourceName} (nur Soll)`;
                 addTripToArchive(dep, tripData, usedApi);
-                renderItinerary(stops, remarks, sourceName);
+                renderItinerary(finalStops, remarks, sourceName);
             } else {
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
             }
