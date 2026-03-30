@@ -1,249 +1,366 @@
+/**
+ * dilaeit – VRR OpenService Proxy
+ *
+ * Übersetzt die Frontend-API (/api/*) auf die VRR EFA-API (openservice-test.vrr.de).
+ * Wichtig: VRR EFA nutzt NICHT ISO-Timestamps, sondern einzelne Datumsfelder.
+ * Dieser Proxy konvertiert ?when=<ISO> in die richtigen EFA-Parameter.
+ */
+
 import express from 'express';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createServer } from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const PORT = process.env.PORT || 8787;
 
-const OPEN_SERVICE_BASE =
-  process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
-const EFA_VERSION = process.env.EFA_VERSION || '10.4.18.18';
+// ─── VRR API Konfiguration ───────────────────────────────────────────────────
+// Test-Endpunkt (kein Key nötig). Für Produktion gegen openservice.vrr.de tauschen
+// und ACCESS_TOKEN setzen wenn VRR OpenData-Zugang vorhanden.
+const VRR_BASE    = process.env.VRR_BASE    || 'https://openservice-test.vrr.de/static03/XML_DM_REQUEST';
+const VRR_TRIP    = process.env.VRR_TRIP    || 'https://openservice-test.vrr.de/static03/XML_TRIP_REQUEST2';
+const VRR_COORD   = process.env.VRR_COORD   || 'https://openservice-test.vrr.de/static03/XML_COORD_REQUEST';
+const VRR_STOPFINDER = process.env.VRR_STOPFINDER || 'https://openservice-test.vrr.de/static03/XML_STOPFINDER_REQUEST';
+const ACCESS_TOKEN = process.env.VRR_ACCESS_TOKEN || '';
 
-function toIsoStringOrNull(v) {
-  if (!v) return null;
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+// ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
+
+/**
+ * ISO-String → EFA-Zeitobjekt
+ * VRR EFA erwartet: itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute
+ */
+function isoToEfaTime(isoString) {
+    const d = isoString ? new Date(isoString) : new Date();
+    return {
+        itdDateDay:    d.getDate(),
+        itdDateMonth:  d.getMonth() + 1,
+        itdDateYear:   d.getFullYear(),
+        itdTimeHour:   d.getHours(),
+        itdTimeMinute: d.getMinutes(),
+    };
 }
 
-function toYyyymmddUtc(iso) {
-  const d = new Date(iso);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${day}`;
+/** Gemeinsame EFA-Basisparameter */
+function efaBaseParams(extraParams = {}) {
+    const p = {
+        outputFormat:     'rapidJSON',
+        coordOutputFormat:'WGS84[dd.ddddd]',
+        language:         'de',
+        ...extraParams,
+    };
+    if (ACCESS_TOKEN) p.accessToken = ACCESS_TOKEN;
+    return p;
 }
 
-function toHmmUtc(iso) {
-  const d = new Date(iso);
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  const m = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${h}${m}`;
-}
-
-function encodeTripId(payload) {
-  const json = JSON.stringify(payload);
-  return Buffer.from(json, 'utf8').toString('base64url');
-}
-
-function decodeTripId(tripId) {
-  const json = Buffer.from(tripId, 'base64url').toString('utf8');
-  return JSON.parse(json);
-}
-
-async function efaGet(endpoint, params) {
-  const url = new URL(`${OPEN_SERVICE_BASE}/${endpoint}`);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v === undefined || v === null || v === '') return;
-    url.searchParams.set(k, String(v));
-  });
-  const res = await fetch(url, {
-    headers: {
-      'user-agent': 'dilaeit-vrr-proxy/0.1 (+https://github.com/)'
+async function efaFetch(url, params) {
+    const qs = new URLSearchParams(params).toString();
+    const fullUrl = `${url}?${qs}`;
+    const res = await fetch(fullUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal:  AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined,
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw Object.assign(new Error(`VRR API error ${res.status}`), { status: res.status, body: text });
     }
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const err = new Error(`EFA HTTP ${res.status} ${endpoint}`);
-    err.status = res.status;
-    err.body = text;
-    throw err;
-  }
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    const err = new Error(`EFA invalid JSON from ${endpoint}`);
-    err.body = text;
-    throw err;
-  }
+    return res.json();
 }
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    openServiceBase: OPEN_SERVICE_BASE,
-    efaVersion: EFA_VERSION
-  });
-});
+/**
+ * Normalisiert eine EFA-Abfahrt auf das vom Frontend erwartete hafas-ähnliche Format.
+ * Das Frontend erwartet: { line, direction, plannedWhen, when, delay, platform,
+ *                          tripId, cancelled, prognosis }
+ */
+function normalizeEfaDeparture(efaDep, stopName) {
+    const line = efaDep.servingLine || efaDep.transportation || {};
+    const realtimeStatus = efaDep.realtimeStatus || efaDep.Realtime || '';
+    const isCancelled    = realtimeStatus === 'TRIP_CANCELLED' || efaDep.isCancelled === true;
 
-// Stop search -> returns EFA stopIDs (properties.stopId)
-app.get('/api/locations', async (req, res) => {
-  const query = (req.query.query || '').toString().trim();
-  if (query.length < 2) return res.json({ locations: [] });
+    // EFA liefert Zeiten als "dateTime"-Objekt oder als Unix-Timestamp
+    const plannedDt = efaDep.dateTime       || efaDep.plannedDateTime;
+    const realDt    = efaDep.realtimeDateTime || efaDep.realDateTime;
 
-  const data = await efaGet('XML_STOPFINDER_REQUEST', {
-    outputFormat: 'rapidJSON',
-    version: EFA_VERSION,
-    language: 'de',
-    type_sf: 'any',
-    name_sf: query,
-    anyObjFilter_sf: 2,
-    locationServerActive: 1
-  });
+    const toIso = (dt) => {
+        if (!dt) return null;
+        if (typeof dt === 'string') return dt;
+        if (dt.year && dt.month && dt.day) {
+            const pad = n => String(n).padStart(2,'0');
+            return `${dt.year}-${pad(dt.month)}-${pad(dt.day)}T${pad(dt.hour||0)}:${pad(dt.minute||0)}:00`;
+        }
+        return null;
+    };
 
-  const locs = (data.locations || [])
-    .filter((l) => l?.properties?.stopId && (l.type === 'stop' || l.type === 'platform'))
-    .slice(0, 12)
-    .map((l) => ({
-      id: String(l.properties.stopId),
-      name: l.name,
-      type: l.type,
-      rawId: l.id,
-      source: 'VRR'
-    }));
+    const plannedWhen = toIso(plannedDt);
+    const actualWhen  = toIso(realDt);
 
-  res.json({ locations: locs });
-});
+    // Verspätung in Sekunden berechnen
+    let delaySecs = null;
+    if (plannedWhen && actualWhen) {
+        delaySecs = Math.round((new Date(actualWhen) - new Date(plannedWhen)) / 1000);
+    } else if (typeof efaDep.delaySeconds === 'number') {
+        delaySecs = efaDep.delaySeconds;
+    } else if (typeof efaDep.delay === 'number') {
+        delaySecs = efaDep.delay * 60;
+    }
 
-// Departures for stopID
-app.get('/api/stops/:stopId/departures', async (req, res) => {
-  const stopId = String(req.params.stopId || '').trim();
-  if (!stopId) return res.status(400).json({ error: 'missing stopId' });
+    const lineName = line.symbol || line.number || line.name || line.shortName || '?';
+    const product  = (line.motType !== undefined)
+        ? mapMotType(Number(line.motType))
+        : (line.product || '').toLowerCase();
 
-  const data = await efaGet('XML_DM_REQUEST', {
-    outputFormat: 'rapidJSON',
-    version: EFA_VERSION,
-    mode: 'direct',
-    type_dm: 'stopID',
-    name_dm: stopId,
-    useRealtime: 1
-  });
+    const tripId   = efaDep.tripID ||
+                     efaDep.trip?.id ||
+                     line.tripID ||
+                     `${lineName}|${plannedWhen || ''}`;
 
-  const stopEvents = Array.isArray(data.stopEvents) ? data.stopEvents : [];
+    const platform = efaDep.platformName || efaDep.platform || efaDep.assignedStop?.platform || null;
+    const plannedPlatform = efaDep.plannedPlatformName || efaDep.plannedPlatform || platform;
 
-  const departures = stopEvents
-    .map((ev) => {
-      const planned = toIsoStringOrNull(ev.departureTimePlanned);
-      if (!planned) return null;
-      const estimated = toIsoStringOrNull(ev.departureTimeEstimated) || planned;
-
-      const plannedDate = planned;
-      const delaySec = Math.round((Date.parse(estimated) - Date.parse(plannedDate)) / 1000);
-
-      const platform =
-        ev.location?.properties?.platform ||
-        ev.location?.properties?.platformName ||
-        ev.location?.properties?.plannedPlatformName ||
-        null;
-
-      const lineName =
-        ev.transportation?.number ||
-        ev.transportation?.disassembledName ||
-        ev.transportation?.name ||
-        '???';
-
-      const productName = (ev.transportation?.product?.name || '').toLowerCase();
-      const operatorName = ev.transportation?.operator?.name || null;
-
-      const tripPayload = {
-        line: ev.transportation?.id || null,
-        stopID: stopId,
-        tripCode: ev.transportation?.properties?.tripCode ?? null,
-        date: toYyyymmddUtc(planned),
-        time: toHmmUtc(planned)
-      };
-
-      const tripId = tripPayload.line && tripPayload.tripCode != null ? encodeTripId(tripPayload) : null;
-
-      const cancelled =
-        Array.isArray(ev.realtimeStatus) && ev.realtimeStatus.some((s) => String(s).toUpperCase().includes('CANCEL'));
-
-      return {
-        plannedWhen: plannedDate,
-        when: estimated,
-        delay: Number.isFinite(delaySec) ? delaySec : 0,
-        plannedPlatform: platform,
-        platform,
-        cancelled,
-        direction: ev.transportation?.destination?.name || '',
+    return {
         tripId,
+        direction:     efaDep.destination?.name || line.direction || line.destination || '',
+        plannedWhen,
+        when:          actualWhen || plannedWhen,
+        delay:         delaySecs,
+        platform,
+        plannedPlatform,
+        cancelled:     isCancelled,
         prognosis: {
-          tripId,
-          platform
+            platform: platform !== plannedPlatform ? platform : undefined,
         },
         line: {
-          name: String(lineName).replace(/^.*?\s+/, '').trim() || String(lineName),
-          product: productName || 'bus',
-          operator: operatorName ? { name: operatorName } : undefined
+            id:       line.id || lineName,
+            name:     lineName,
+            product,
+            operator: line.operator ? { name: line.operator.name || line.operator } : undefined,
         },
-        _source: 'VRR OpenService'
-      };
-    })
-    .filter(Boolean)
-    .slice(0, 60);
+        remarks: normalizeRemarks(efaDep.infos || efaDep.infoTexts || []),
+        stop: {
+            id:   efaDep.stopID || efaDep.stop?.id || '',
+            name: stopName || efaDep.stopName || '',
+        },
+    };
+}
 
-  res.json({ departures });
+/** VRR motType → hafas-ähnliches product */
+function mapMotType(motType) {
+    const map = {
+        0:  'national',        // ICE, IC
+        1:  'national',        // IC/EC
+        2:  'national',        // D-Zug
+        3:  'regionalexpress', // IRE
+        4:  'regional',        // RE
+        5:  'regional',        // RB
+        6:  'suburban',        // S-Bahn
+        7:  'subway',          // U-Bahn
+        8:  'tram',            // Stadtbahn/Straßenbahn
+        9:  'bus',             // Bus
+        10: 'bus',             // AST
+        11: 'ferry',           // Fähre
+        17: 'taxi',            // Rufbus
+        19: 'bus',             // Schnellbus
+    };
+    return map[motType] || 'unknown';
+}
+
+function normalizeRemarks(infos) {
+    if (!Array.isArray(infos)) return [];
+    return infos
+        .filter(i => i && (i.infoText?.subject || i.subtitle || i.text))
+        .map(i => ({
+            type: 'hint',
+            text: i.infoText?.subject || i.subtitle || i.text || '',
+        }));
+}
+
+/**
+ * Normalisiert einen EFA-Stopover (für Fahrtverlauf).
+ */
+function normalizeEfaStopover(s) {
+    const toIso = (dt) => {
+        if (!dt) return null;
+        if (typeof dt === 'string') return dt;
+        if (dt.year && dt.month && dt.day) {
+            const pad = n => String(n).padStart(2,'0');
+            return `${dt.year}-${pad(dt.month)}-${pad(dt.day)}T${pad(dt.hour||0)}:${pad(dt.minute||0)}:00`;
+        }
+        return null;
+    };
+
+    return {
+        stop: {
+            id:   s.stopID || s.id || '',
+            name: s.nameWO || s.name || s.fullName || '',
+        },
+        plannedArrival:    toIso(s.arrivalDateTimePlanned   || s.plannedArrivalDateTime),
+        arrival:           toIso(s.arrivalDateTimeEstimated || s.realtimeArrivalDateTime),
+        plannedDeparture:  toIso(s.departureDateTimePlanned  || s.plannedDepartureDateTime),
+        departure:         toIso(s.departureDateTimeEstimated|| s.realtimeDepartureDateTime),
+        platform:          s.disassembledName?.match(/Gleis\s+(.+)/)?.[1] || s.platform || s.platformName || null,
+        plannedPlatform:   s.plannedPlatform || s.platform || null,
+        cancelled:         s.isCancelled || false,
+        additional:        s.isAdditional || false,
+        remarks:           normalizeRemarks(s.infos || s.infoTexts || []),
+    };
+}
+
+// ─── Statische Dateien ───────────────────────────────────────────────────────
+// Serviert public/ – funktioniert sowohl lokal als auch auf Render/Fly.io
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// ─── Health Check ────────────────────────────────────────────────────────────
+app.get('/api/health', (_req, res) => {
+    res.json({ ok: true, version: '0.3.0', backend: 'VRR OpenService' });
 });
 
-// Trip stop sequence for a specific trip (TripStopTimes)
+// ─── Stationssuche ───────────────────────────────────────────────────────────
+// GET /api/locations?query=Rheydt&results=10
+app.get('/api/locations', async (req, res) => {
+    const query   = req.query.query || '';
+    const results = Number(req.query.results) || 10;
+    if (!query.trim()) return res.status(400).json({ error: 'query required' });
+
+    try {
+        const params = efaBaseParams({
+            type_sf:              'any',
+            name_sf:              query,
+            anyMaxSizeHitList:    results,
+            anyObjFilter_sf:      2,       // nur Haltestellen
+            doNotSearchForStops_sf: 0,
+        });
+        const data = await efaFetch(VRR_STOPFINDER, params);
+
+        const raw = data?.stopFinder?.points?.point
+            || data?.stopFinder?.points
+            || data?.locations
+            || [];
+        const points = Array.isArray(raw) ? raw : [raw];
+
+        const locations = points
+            .filter(p => p && (p.name || p.nameWO))
+            .map(p => ({
+                type: 'stop',
+                id:   p.stateless || p.id || p.stopID || '',
+                name: p.nameWO || p.name || '',
+                location: p.coord ? {
+                    latitude:  Number(p.coord.y || p.coord.lat || 0),
+                    longitude: Number(p.coord.x || p.coord.lon || 0),
+                } : undefined,
+            }));
+
+        res.json(locations);
+    } catch (e) {
+        console.error('locations error', e);
+        res.status(502).json({ error: e.message });
+    }
+});
+
+// ─── Abfahrten ───────────────────────────────────────────────────────────────
+// GET /api/stops/:id/departures?when=<ISO>&duration=120&results=40
+app.get('/api/stops/:id/departures', async (req, res) => {
+    const stopId   = req.params.id;
+    const results  = Number(req.query.results)  || 40;
+    const duration = Number(req.query.duration) || 120;
+
+    // ── KERN-FIX: ISO-Timestamp in EFA-Datumsfelder aufsplitten ──────────────
+    // Vorher: der `when`-Parameter wurde ignoriert → immer aktuelle Zeit
+    // Jetzt:  korrekte Konvertierung ISO → itdDate*/itdTime*
+    const whenIso  = req.query.when || new Date().toISOString();
+    const efaTime  = isoToEfaTime(whenIso);
+    // ─────────────────────────────────────────────────────────────────────────
+
+    try {
+        const params = efaBaseParams({
+            type_dm:                  'stop',
+            name_dm:                  stopId,
+            mode:                     'direct',
+            ptOptionsActive:          1,
+            deleteAssignedStops_dm:   1,
+            useProxFootSearch:        0,
+            limit:                    results,
+            depType:                  'stopEvents',
+            // Zeitfelder aus ISO-Timestamp
+            itdDateDay:               efaTime.itdDateDay,
+            itdDateMonth:             efaTime.itdDateMonth,
+            itdDateYear:              efaTime.itdDateYear,
+            itdTimeHour:              efaTime.itdTimeHour,
+            itdTimeMinute:            efaTime.itdTimeMinute,
+            // Planungshorizont
+            itdTripDateTimeDepArr:    'dep',
+            useRealtime:              1,
+            includedMeans:            'checkbox',
+        });
+
+        const data = await efaFetch(VRR_BASE, params);
+
+        // EFA liefert Abfahrten unter verschiedenen Pfaden je nach Version
+        const rawDeps = data?.departureList
+            || data?.stopEventResponse?.stopEvents
+            || data?.stopEvents
+            || [];
+
+        const stopName = data?.dm?.points?.point?.nameWO
+            || data?.dm?.points?.point?.name
+            || stopId;
+
+        const departures = rawDeps.map(d => normalizeEfaDeparture(d, stopName));
+
+        res.json({ departures, stop: { id: stopId, name: stopName } });
+    } catch (e) {
+        console.error('departures error', e?.body || e);
+        res.status(502).json({ error: e.message });
+    }
+});
+
+// ─── Fahrtverlauf ─────────────────────────────────────────────────────────────
+// GET /api/trips/:tripId
 app.get('/api/trips/:tripId', async (req, res) => {
-  const tripId = String(req.params.tripId || '').trim();
-  if (!tripId) return res.status(400).json({ error: 'missing tripId' });
+    const rawTripId = decodeURIComponent(req.params.tripId);
 
-  let payload;
-  try {
-    payload = decodeTripId(tripId);
-  } catch {
-    return res.status(400).json({ error: 'invalid tripId' });
-  }
+    try {
+        // VRR EFA Trip-Request: wir nutzen den tripID-Parameter
+        const params = efaBaseParams({
+            tripID:           rawTripId,
+            useRealtime:      1,
+        });
 
-  const { line, stopID, tripCode, date, time } = payload || {};
-  if (!line || !stopID || tripCode == null || !date || !time) {
-    return res.status(400).json({ error: 'tripId missing fields' });
-  }
+        const data = await efaFetch(VRR_TRIP, params);
 
-  const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
-    outputFormat: 'rapidJSON',
-    version: EFA_VERSION,
-    mode: 'direct',
-    line,
-    stopID,
-    tripCode,
-    date,
-    time,
-    tStOTType: 'ALL',
-    useRealtime: 1
-  });
+        // EFA gibt Zwischenhalte an verschiedenen Stellen zurück
+        const rawStops = data?.trips?.trip?.stopSeq?.point
+            || data?.trip?.stopSeq?.point
+            || data?.tripList?.trip?.stopSeq?.point
+            || data?.stopovers
+            || [];
 
-  const seq = data.transportation?.locationSequence || [];
+        const points = Array.isArray(rawStops) ? rawStops : [rawStops];
+        const stopovers = points.map(normalizeEfaStopover);
 
-  const stopovers = (Array.isArray(seq) ? seq : []).map((s) => ({
-    stop: { name: s.name || s.parent?.name || '' },
-    plannedArrival: toIsoStringOrNull(s.arrivalTimePlanned),
-    arrival: toIsoStringOrNull(s.arrivalTimeEstimated),
-    plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
-    departure: toIsoStringOrNull(s.departureTimeEstimated),
-    plannedPlatform: s.properties?.plannedPlatformName || s.properties?.platformName || s.properties?.platform || null,
-    platform: s.properties?.platformName || s.properties?.platform || null,
-    cancelled: false,
-    additional: false
-  }));
+        const remarks = normalizeRemarks(
+            data?.trips?.trip?.infoTexts
+            || data?.trip?.infoTexts
+            || []
+        );
 
-  res.json({
-    stopovers,
-    remarks: [],
-    source: 'VRR OpenService'
-  });
+        res.json({
+            stopovers,
+            remarks,
+            source: 'VRR OpenService',
+        });
+    } catch (e) {
+        console.error('trip error', e?.body || e);
+        res.status(502).json({ error: e.message });
+    }
 });
 
-// Serve the static frontend
-const publicDir = path.resolve(__dirname, '../public');
-app.use(express.static(publicDir));
-
-const port = Number(process.env.PORT || 8787);
-app.listen(port, () => {
-  console.log(`dilaeit server running on http://localhost:${port}`);
+// ─── Fallback: alle anderen Routen → public/index.html ──────────────────────
+app.get('*', (_req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
+// ─── Server starten ──────────────────────────────────────────────────────────
+createServer(app).listen(PORT, () => {
+    console.log(`dilaeit backend läuft auf http://localhost:${PORT}`);
+    console.log(`VRR Base: ${VRR_BASE}`);
+});
