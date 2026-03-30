@@ -439,28 +439,33 @@
         });
 
         // Stationssuche: ausschließlich DB-API (deckt ganz Deutschland ab).
-        // Kein Multi-API-Race, kein sequenzieller Fallback – eine Anfrage, ein Ergebnis.
         const DB_SEARCH_API = 'https://v6.db.transport.rest';
+        let activeSearchController = null; // laufenden Fetch abbrechen wenn neue Eingabe kommt
 
         async function handleSearchInput(val) {
             const query = val.trim();
-            if (query === state.lastSearchQuery) return;
             if (query.length < 2) {
-                state.lastSearchQuery = query;
+                state.lastSearchQuery = '';
                 $('search-results').classList.add('hidden');
                 return;
             }
 
-            // Cache-Hit: sofort anzeigen, kein Netzwerk
+            // Cache-Hit: sofort anzeigen, kein Netzwerk, kein Debounce
             const cacheKey = query.toLowerCase();
             if (state.searchCache.has(cacheKey)) {
+                state.lastSearchQuery = query;
                 renderSearchResults(state.searchCache.get(cacheKey));
                 return;
             }
 
+            // Vorherigen laufenden Fetch abbrechen – verhindert veraltete Ergebnisse
+            if (activeSearchController) activeSearchController.abort();
+
             clearTimeout(state.searchTimer);
             state.searchTimer = setTimeout(async () => {
-                state.lastSearchQuery = query;
+                // BUG 1 FIX: lastSearchQuery erst nach erfolgreichem Fetch setzen,
+                // nicht vorher – sonst blockiert ein Fehler alle Retry-Versuche
+                // für denselben Suchbegriff.
                 searchSessionId += 1;
                 const thisSearchId = searchSessionId;
 
@@ -468,24 +473,35 @@
                 container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
                 container.classList.remove('hidden');
 
+                // BUG 2 FIX: eigener AbortController pro Fetch-Aufruf, nicht ein
+                // globaler Timeout – so wird der laufende Request sofort gecancelt
+                // sobald der User weitertippt, statt auf Timeout zu warten.
+                activeSearchController = new AbortController();
+                const timeoutId = setTimeout(() => activeSearchController?.abort(), 8000);
+
                 try {
                     const res = await fetch(
                         `${DB_SEARCH_API}/locations?query=${encodeURIComponent(query)}&results=20&fuzzy=true`,
-                        { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined }
+                        { signal: activeSearchController.signal }
                     );
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    clearTimeout(timeoutId);
+
+                    // BUG 3 FIX: Session-Check VOR dem JSON-Parse, nicht danach –
+                    // verhindert dass ein langsamer Fetch die Ergebnisse eines
+                    // schnelleren neueren Fetches überschreibt.
                     if (searchSessionId !== thisSearchId) return;
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
                     const data = await res.json();
-                    let results = Array.isArray(data) ? data : (data.locations || data.results || []);
+                    if (searchSessionId !== thisSearchId) return;
 
+                    let results = Array.isArray(data) ? data : (data.locations || data.results || []);
                     results = results
                         .filter(r => r && (r.name || r.stop?.name) && (r.id || r.extId || r.stop?.id))
                         .map(r => {
                             const name = r.name || r.stop?.name;
                             const id   = r.id || r.extId || r.stop?.id;
-                            return {
-                                ...r, name, id,
+                            return { ...r, name, id,
                                 sourceRegion: detectRegion(name) || 'DEUTSCHLAND',
                                 score: calculateSimilarity(query, name) * 100
                             };
@@ -500,13 +516,21 @@
 
                     if (results.length === 0) throw new Error('No results');
 
+                    // Erst jetzt lastSearchQuery setzen – nur bei Erfolg
+                    state.lastSearchQuery = query;
                     state.searchCache.set(cacheKey, results);
                     renderSearchResults(results);
-                } catch {
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    // Abgebrochene Requests (durch neue Eingabe) still ignorieren
+                    if (err.name === 'AbortError') return;
                     if (searchSessionId !== thisSearchId) return;
+                    // lastSearchQuery NICHT setzen bei Fehler → nächster Versuch
+                    // mit gleichem Begriff wird nicht blockiert
+                    state.lastSearchQuery = '';
                     $('search-results').innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
                 }
-            }, 200); // 200 ms Debounce – wie Verbindungssuche, spürbar schneller als 300 ms
+            }, 200);
         }
 
         function renderSearchResults(results) {
@@ -1025,7 +1049,7 @@
 
             const translationMap = {
                 // Fahrzeug & Ausstattung
-                "Number of bicycles conveyed limited": "Fahrradmitnahme begrenzt.",
+                "Number of bicycles conveyed limited": "Fahrradmitnahme begrenzt möglich.",
                 "Bicycles conveyed": "Fahrradmitnahme möglich.",
                 "Bicycles conveyed - subject to reservation": "Fahrradmitnahme – Reservierung erforderlich.",
                 "Bicycles conveyed - subject to availability": "Fahrradmitnahme – je nach Verfügbarkeit.",
@@ -1039,25 +1063,27 @@
                 "On-board restaurant": "Bordrestaurant.",
                 "WC accessible for wheelchair users": "Rollstuhlgerechtes WC vorhanden.",
                 "Area for people with reduced mobility": "Bereich für mobilitätseingeschränkte Personen.",
+		"Exit only, no entry allowed" : "Hält nur zum Aussteigen.",
                 // Betrieb & Störungen
                 "Stop cancelled": "Halt entfällt.",
                 "Additional stop": "Zusatzhalt.",
                 "Replacement service": "Schienenersatzverkehr.",
                 "Special service": "Sonderfahrt.",
                 "Train is cancelled": "Zug fällt aus.",
-                "Unfortunately, the train is cancelled.": "Zug fällt leider aus.",
+                "Unfortunately, the train is cancelled.": "Zug fällt aus.",
                 "The train is cancelled due to a technical defect.": "Zug fällt wegen technischen Defekts aus.",
-                "The train is cancelled due to construction work.": "Zug fällt wegen Bauarbeiten aus.",
+                "The train is cancelled due to construction work.": "Bauarbeiten.",
                 "The train is cancelled due to a staff shortage.": "Zug fällt wegen Personalmangels aus.",
                 "Delay due to construction work": "Verspätung wegen Bauarbeiten.",
                 "Delay due to a technical defect": "Verspätung wegen technischen Defekts.",
-                "Delay due to a police operation": "Verspätung wegen Polizeieinsatz.",
+                "Delay due to a police operation": "Polizeieinsatz.",
                 "Delay due to a medical emergency": "Verspätung wegen medizinischen Notfalls.",
-                "Delay due to waiting for connecting passengers": "Verspätung durch Warten auf Anschlussreisende.",
+                "Delay due to waiting for connecting passengers": "Warten auf Anschlussreisende.",
                 "Delay due to a broken down train": "Verspätung wegen liegengebliebenem Zug.",
                 "Delay due to a track obstruction": "Verspätung wegen Streckensperrung.",
                 "Delay due to storm damage": "Verspätung wegen Sturmschäden.",
                 "Delay caused by vandalism": "Verspätung wegen Vandalismus.",
+		"Delay of previous train" : "Verspätung eines vorausfahrenden Zuges.",
                 "Train is diverted": "Zug wird umgeleitet.",
                 "Train is diverted. Stops are omitted.": "Zug wird umgeleitet. Einige Halte entfallen.",
                 "Stops are omitted": "Einige Halte entfallen.",
@@ -1065,7 +1091,71 @@
                 "Change of platform": "Gleiswechsel.",
                 "Track change": "Gleiswechsel.",
             };
-            const translate = t => translationMap[t] || t;
+   // Regex-Muster für dynamische Meldungen mit eingebetteten Liniennamen.
+            // Die API liefert z.B. "Bus 605 heading towards Büdeshm.-Kempten from here"
+            // oder "Throughbinding from line X" – der Linienname ist variabel.
+            const regexTranslations = [
+                // "Bus 605 heading towards Büdeshm.-Kempten from here"
+                // → Fahrzeug kommt von woanders und fährt ab hier als diese Linie
+                {
+                    pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i,
+                    replace: (_, line, dest) =>
+                        `Durchbindung aus Linie ${line.trim()} von ${dest.trim()}.`
+                },
+                // "Bus 605 heading towards Kempten - Bingen Stadtbf"
+                // → Fahrzeug fährt ab hier als andere Linie weiter
+                {
+                    pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,
+                    replace: (_, line, dest) =>
+                        `Durchbindung auf Linie ${line.trim()} in Richtung ${dest.trim()}.`
+                },
+                // Generische Throughbinding-Varianten der DB/VRR API
+                {
+                    pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,
+                    replace: (_, line) => `Durchbindung von Linie ${line.trim()}.`
+                },
+                {
+                    pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i,
+                    replace: (_, line) => `Durchbindung auf Linie ${line.trim()}.`
+                },
+                {
+                    pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,
+                    replace: (_, line) => `Fährt weiter als Linie ${line.trim()}.`
+                },
+                {
+                    pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,
+                    replace: (_, line) => `Kommt als Linie ${line.trim()}.`
+                },
+                // "Delay of approx. 5 minutes"
+                {
+                    pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i,
+                    replace: (_, min) => `Verspätung ca. ${min} Minuten.`
+                },
+                // "Cancelled due to …"
+                {
+                    pattern: /^cancelled\s+due\s+to\s+(.+)$/i,
+                    replace: (_, reason) => `Fällt aus wegen ${reason.trim()}.`
+                },
+                // "Stop X is not served"
+                {
+                    pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,
+                    replace: (_, stop) => `Halt ${stop.trim()} entfällt.`
+                },
+            ];
+ 
+            // Übersetzt einen API-Hinweistext: erst statische Map, dann Regex-Muster
+            const translate = (text) => {
+                if (!text) return '';
+                // 1. Exakter Treffer in der statischen Map
+                if (translationMap[text]) return translationMap[text];
+                // 2. Regex-Muster durchprobieren
+                for (const { pattern, replace } of regexTranslations) {
+                    const m = text.match(pattern);
+                    if (m) return text.replace(pattern, replace);
+                }
+                // 3. Unbekannt: Originaltext zurückgeben
+                return text;
+            };
 
             const sortedStopovers = [...stopovers].sort((a, b) => {
                 return new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival);
