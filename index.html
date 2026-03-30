@@ -557,107 +557,63 @@
                 const lineName    = dep.line?.name || dep.line?.id || '???';
                 const isCancelled = dep.cancelled;
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
-const actualTime = dep.prognosedWhen
-                    ? new Date(dep.prognosedWhen)
-                    : (dep.when ? new Date(dep.when) : null);
-                
-                const delay = dep.delay != null
-                    ? dep.delay / 60
-                    : (dep.prognosedWhen && dep.plannedWhen
-                        ? (new Date(dep.prognosedWhen) - new Date(dep.plannedWhen)) / 60000
-                        : null);
-
-                const roundedDelay = delay !== null ? Math.round(delay) : null;
-                
+                const actualTime  = dep.when ? new Date(dep.when) : null;
+                const delay       = dep.delay !== undefined
+                    ? dep.delay / 60
+                    : (actualTime && schedTime ? (actualTime - schedTime) / 60000 : null);
+                const roundedDelay = delay !== null ? Math.round(delay) : null;
                 item.innerHTML = `
-                    <div class="flex items-center gap-4">
-                        <div class="w-16 flex flex-col items-center">
-                            <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${!isCancelled && actualTime && roundedDelay !== null && roundedDelay !== 0 ? `
-                                <span class="text-[10px] font-bold ${roundedDelay >= 1 ? 'text-red-500' : (roundedDelay <= -1 ? 'text-blue-500' : 'text-green-500')}">
-                                    ${roundedDelay > 0 ? '+' : ''}${roundedDelay}'
-                                </span>` : ''}
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-2 mb-0.5">
-                                <span class="px-2 py-0.5 rounded bg-red-600 text-[10px] font-black text-white italic">${lineName}</span>
-                                <span class="text-sm font-bold truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${dep.direction}</span>
-                            </div>
-                            <div class="flex items-center gap-3 text-[10px] mono text-gray-500">
-                                <span class="${dep.prognosis?.platform && dep.prognosis.platform !== dep.plannedPlatform ? 'platform-changed' : ''}">
-                                    ${dep.platform || '---'}
-                                </span>
-                                ${isCancelled ? '<span class="text-red-500 font-bold uppercase">[Fällt aus]</span>' : ''}
-                            </div>
-                        </div>
-                        <i class="fas fa-chevron-right text-gray-300 group-hover:text-red-500 transition-colors text-xs pr-2"></i>
-                    </div>`;
-                item.onclick = () => showTripDetails(dep);
-                list.appendChild(item);
-            });
-        }
-
-        async function fetchDeparturesFrom(apiBase, stationId, timestamp) {
-            const url = `${apiBase}/stops/${encodeURIComponent(stationId)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`;
-            const res = await fetch(url);
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            return Array.isArray(data) ? data : (data.departures || data);
-        }
-        // Initialisierung starten
-        init();
-
-   
-async function refreshDepartures() {
-    if (!state.currentStation) return;
-
-    const now = Date.now();
-    if (now - state.lastRequestTime < REQUEST_COOLDOWN_MS) return;
-    state.lastRequestTime = now;
-
-    const dateVal = $('query-date').value;
-    const timeVal = $('query-time').value;
-    const [year, month, day] = dateVal.split('-').map(Number);
-    const [hours, minutes] = timeVal.split(':').map(Number);
-    const timestamp = new Date(year, month - 1, day, hours, minutes).toISOString();
-
-    try {
-        // 🔵 DB → Züge
-        const dbRes = await fetch(
-            `https://v6.db.transport.rest/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`
-        );
-        const dbData = await dbRes.json();
-        const dbDeps = (Array.isArray(dbData) ? dbData : (dbData.departures || []))
-            .filter(d => isTrain(d.line))
-            .map(d => ({ ...d, sourceApi: 'db' }));
-
-        // 🟢 VRR → ÖPNV
-        let vrrDeps = [];
-        if (state.currentRegion === 'NRW') {
-            const vrrRes = await fetch(
-                `https://v5.vrr.transport.rest/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40&remarks=true`
-            );
-            const vrrData = await vrrRes.json();
-            vrrDeps = (Array.isArray(vrrData) ? vrrData : (vrrData.departures || []))
-                .filter(d => isNrwLocalTransit(d.line))
-                .map(d => ({ ...d, sourceApi: 'vrr' }));
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 flex flex-col items-center">
+                            <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
+                            ${!isCancelled && actualTime && roundedDelay !== null && roundedDelay !== 0 ? `
+                                <span class="text-[10px] font-bold ${roundedDelay >= 1 ? 'text-red-500' : (roundedDelay <= -1 ? 'text-blue-500' : 'text-green-500')}">
+                                    ${roundedDelay > 0 ? '+' : ''}${roundedDelay}'
+                                </span>` : ''}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-0.5">
+                                <span class="px-2 py-0.5 rounded bg-red-600 text-[10px] font-black text-white italic">${lineName}</span>
+                                <span class="text-sm font-bold truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${dep.direction}</span>
+                            </div>
+                            <div class="flex items-center gap-3 text-[10px] mono text-gray-500">
+                                <span class="${dep.prognosis?.platform && dep.prognosis.platform !== dep.plannedPlatform ? 'platform-changed' : ''}">
+                                    ${dep.platform || '---'}
+                                </span>
+                                ${isCancelled ? '<span class="text-red-500 font-bold uppercase">[Fällt aus]</span>' : ''}
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-300 group-hover:text-red-500 transition-colors text-xs pr-2"></i>
+                    </div>`;
+                item.onclick = () => showTripDetails(dep);
+                list.appendChild(item);
+            });
         }
 
-        // 🔀 Merge + Sort
-        const merged = [...dbDeps, ...vrrDeps].sort((a, b) =>
-            new Date(a.when || a.plannedWhen) - new Date(b.when || b.plannedWhen)
-        );
+        // ─── FIX 4: refreshDepartures – Race-to-first-response statt sequenziell ────
+        // Vorher: APIs wurden nacheinander probiert → gesamte Wartezeit addiert sich.
+        // Jetzt:  Wenn ein schnellster Endpunkt bekannt ist, wird er zuerst allein
+        //         probiert (< 200 ms Overhead). Schlägt er fehl, Parallel-Race der
+        //         restlichen Endpunkte. Die erste erfolgreiche Antwort gewinnt.
+        async function refreshDepartures() {
+            if (!state.currentStation) return;
+            const now = Date.now();
+            if (now - state.lastRequestTime < REQUEST_COOLDOWN_MS) return;
+            state.lastRequestTime = now;
 
-        state.departures = merged;
+            const dateVal = $('query-date').value;
+            const timeVal = $('query-time').value;
+            const [year, month, day] = dateVal.split('-').map(Number);
+            const [hours, minutes]   = timeVal.split(':').map(Number);
+            const timestamp = new Date(year, month - 1, day, hours, minutes).toISOString();
 
-        renderDepartures();
-
-    } catch (e) {
-        console.error(e);
-        $('departures-list').innerHTML =
-            `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
-    }
-}
+            // Cache-Key: Station + Zeitfenster (auf 1 min gerundet)
+            const cacheKey = `${state.currentStation.id}|${timestamp.slice(0, 16)}`;
+            if (state.departureCache.has(cacheKey)) {
+                state.departures = state.departureCache.get(cacheKey);
+                renderDepartures();
+                return;
+            }
 
             // API-Reihenfolge aufbauen
             let searchOrder = [];
