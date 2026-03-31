@@ -1,4 +1,4 @@
-import express from 'express'; 
+import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -112,13 +112,45 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
   const stopId = String(req.params.stopId || '').trim();
   if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
+  // `when` als ISO-String direkt zeichenweise parsen – NICHT über new Date(),
+  // da der Server in UTC läuft und getHours() dann falsche Lokalzeit liefert.
+  // Das Frontend schickt z.B. "2026-03-31T10:18:00.000+02:00" oder "...Z".
+  // Wir schneiden Datum und Uhrzeit direkt aus dem String heraus.
+  const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
+  let itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute;
+
+  if (whenRaw) {
+    // ISO-String aufsplitten: "2026-03-31T10:18:00..." → ["2026","03","31"], ["10","18",...]
+    const [datePart, timePart] = whenRaw.split('T');
+    const [y, mo, d] = datePart.split('-').map(Number);
+    const [h, mi]    = (timePart || '00:00').split(':').map(Number);
+    itdDateYear  = y;
+    itdDateMonth = mo;
+    itdDateDay   = d;
+    itdTimeHour  = h;
+    itdTimeMinute = mi;
+  } else {
+    const now = new Date();
+    itdDateYear   = now.getFullYear();
+    itdDateMonth  = now.getMonth() + 1;
+    itdDateDay    = now.getDate();
+    itdTimeHour   = now.getHours();
+    itdTimeMinute = now.getMinutes();
+  }
+
   const data = await efaGet('XML_DM_REQUEST', {
     outputFormat: 'rapidJSON',
     version: EFA_VERSION,
     mode: 'direct',
     type_dm: 'stopID',
     name_dm: stopId,
-    useRealtime: 1
+    useRealtime: 1,
+    itdDateDay,
+    itdDateMonth,
+    itdDateYear,
+    itdTimeHour,
+    itdTimeMinute,
+    itdTripDateTimeDepArr: 'dep',
   });
 
   const stopEvents = Array.isArray(data.stopEvents) ? data.stopEvents : [];
