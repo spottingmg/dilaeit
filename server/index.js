@@ -120,12 +120,15 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
     : new Date().toISOString();
 
   // Lokale Zeitfelder aus dem ISO-String extrahieren (EFA arbeitet mit Lokalzeit)
-  const whenDate = new Date(whenIso);
-  const itdDateDay    = whenDate.getDate();
-  const itdDateMonth  = whenDate.getMonth() + 1;
-  const itdDateYear   = whenDate.getFullYear();
-  const itdTimeHour   = whenDate.getHours();
-  const itdTimeMinute = whenDate.getMinutes();
+  //const whenDate = new Date(whenIso);
+ // const itdDateDay    = whenDate.getDate();
+ // const itdDateMonth  = whenDate.getMonth() + 1;
+ // const itdDateYear   = whenDate.getFullYear();
+ // const itdTimeHour   = whenDate.getHours();
+ // const itdTimeMinute = whenDate.getMinutes();
+  const [datePart, timePart] = whenIso.split('T');
+const [itdDateYear, itdDateMonth, itdDateDay] = datePart.split('-').map(Number);
+const [itdTimeHour, itdTimeMinute] = timePart.split(':').map(Number);
   // ─────────────────────────────────────────────────────────────────────────
 
   const data = await efaGet('XML_DM_REQUEST', {
