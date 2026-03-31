@@ -1,312 +1,150 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-// Oben in der index.js hinzufügen
 import { createClient } from 'db-hafas';
-const dbClient = createClient('dilaeit-app');
 
-// Diese Funktion verheiratet VRR-Daten mit DB-Echtzeit
-app.get('/api/smart-departures/:stationId', async (req, res) => {
-    try {
-        const { stationId } = req.params;
-        
-        // 1. Erstmal wie gewohnt die VRR-Daten holen
-        const vrrRes = await efaGet('XML_DM_REQUEST', {
-            outputFormat: 'rapidJSON',
-            stopID: stationId,
-            // ... deine restlichen Parameter
-        });
-
-        // 2. Wir schauen, ob Züge dabei sind
-        const departures = vrrRes.departures || [];
-        
-        // Optional: Hier könnte man jetzt parallel die DB-API fragen 
-        // und die 'delay'-Werte der Züge mit DB-Sekunden überschreiben.
-        // Für den Anfang reicht es aber, die VRR-Daten sauber durchzureichen.
-
-        res.json({ departures });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const dbClient = createClient('dilaeit-app');
 
-const OPEN_SERVICE_BASE =
-  process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
+const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
 const EFA_VERSION = process.env.EFA_VERSION || '10.4.18.18';
 
+// --- HILFSFUNKTIONEN ---
 function toIsoStringOrNull(v) {
-  if (!v) return null;
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+    if (!v) return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 function toYyyymmddUtc(iso) {
-  const d = new Date(iso);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${day}`;
+    const d = new Date(iso);
+    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 function toHmmUtc(iso) {
-  const d = new Date(iso);
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  const m = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${h}${m}`;
+    const d = new Date(iso);
+    return `${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
 function encodeTripId(payload) {
-  const json = JSON.stringify(payload);
-  return Buffer.from(json, 'utf8').toString('base64url');
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
 function decodeTripId(tripId) {
-  const json = Buffer.from(tripId, 'base64url').toString('utf8');
-  return JSON.parse(json);
+    return JSON.parse(Buffer.from(tripId, 'base64url').toString('utf8'));
 }
 
 async function efaGet(endpoint, params) {
-  const url = new URL(`${OPEN_SERVICE_BASE}/${endpoint}`);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v === undefined || v === null || v === '') return;
-    url.searchParams.set(k, String(v));
-  });
-  const res = await fetch(url, {
-    headers: {
-      'user-agent': 'dilaeit-vrr-proxy/0.1 (+https://github.com/)'
-    }
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const err = new Error(`EFA HTTP ${res.status} ${endpoint}`);
-    err.status = res.status;
-    err.body = text;
-    throw err;
-  }
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    const err = new Error(`EFA invalid JSON from ${endpoint}`);
-    err.body = text;
-    throw err;
-  }
+    const url = new URL(`${OPEN_SERVICE_BASE}/${endpoint}`);
+    Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+    });
+    const res = await fetch(url, { headers: { 'user-agent': 'dilaeit-vrr-proxy/0.1' } });
+    if (!res.ok) throw new Error(`EFA HTTP ${res.status}`);
+    return res.json();
 }
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    openServiceBase: OPEN_SERVICE_BASE,
-    efaVersion: EFA_VERSION
-  });
-});
+// --- ROUTES ---
 
-// Stop search -> returns EFA stopIDs (properties.stopId)
+// 1. Health Check
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+// 2. Haltestellensuche
 app.get('/api/locations', async (req, res) => {
-  const query = (req.query.query || '').toString().trim();
-  if (query.length < 2) return res.json({ locations: [] });
-
-  const data = await efaGet('XML_STOPFINDER_REQUEST', {
-    outputFormat: 'rapidJSON',
-    version: EFA_VERSION,
-    language: 'de',
-    type_sf: 'any',
-    name_sf: query,
-    anyObjFilter_sf: 2,
-    locationServerActive: 1
-  });
-
-  const locs = (data.locations || [])
-    .filter((l) => l?.properties?.stopId && (l.type === 'stop' || l.type === 'platform'))
-    .slice(0, 12)
-    .map((l) => ({
-      id: String(l.properties.stopId),
-      name: l.name,
-      type: l.type,
-      rawId: l.id,
-      source: 'VRR'
-    }));
-
-  res.json({ locations: locs });
+    try {
+        const query = (req.query.query || '').trim();
+        if (query.length < 2) return res.json({ locations: [] });
+        const data = await efaGet('XML_STOPFINDER_REQUEST', {
+            outputFormat: 'rapidJSON', version: EFA_VERSION, type_sf: 'any', name_sf: query
+        });
+        const locs = (data.locations || [])
+            .filter(l => l?.properties?.stopId)
+            .map(l => ({ id: String(l.properties.stopId), name: l.name, type: l.type }));
+        res.json({ locations: locs });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Departures for stopID
-app.get('/api/stops/:stopId/departures', async (req, res) => {
-  const stopId = String(req.params.stopId || '').trim();
-  if (!stopId) return res.status(400).json({ error: 'missing stopId' });
+// 3. Abfahrtstafel (Hybrid: VRR + DB-Hafas)
+app.get('/api/stops/:id/departures', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const vrrData = await efaGet('XML_DM_REQUEST', {
+            outputFormat: 'rapidJSON', version: EFA_VERSION, mode: 'direct', type_dm: 'any', name_dm: id, useRealtime: 1
+        });
 
-  // `when` als ISO-String direkt zeichenweise parsen – NICHT über new Date(),
-  // da der Server in UTC läuft und getHours() dann falsche Lokalzeit liefert.
-  // Das Frontend schickt z.B. "2026-03-31T10:18:00.000+02:00" oder "...Z".
-  // Wir schneiden Datum und Uhrzeit direkt aus dem String heraus.
-  const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
-  let itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute;
+        let departures = vrrData.departures || [];
 
-  if (whenRaw) {
-    // ISO-String aufsplitten: "2026-03-31T10:18:00..." → ["2026","03","31"], ["10","18",...]
-    const [datePart, timePart] = whenRaw.split('T');
-    const [y, mo, d] = datePart.split('-').map(Number);
-    const [h, mi]    = (timePart || '00:00').split(':').map(Number);
-    itdDateYear  = y;
-    itdDateMonth = mo;
-    itdDateDay   = d;
-    itdTimeHour  = h;
-    itdTimeMinute = mi;
-  } else {
-    const now = new Date();
-    itdDateYear   = now.getFullYear();
-    itdDateMonth  = now.getMonth() + 1;
-    itdDateDay    = now.getDate();
-    itdTimeHour   = now.getHours();
-    itdTimeMinute = now.getMinutes();
-  }
+        // Check für Züge (RE, RB, S, ICE, IC)
+        const hasTrains = departures.some(d => 
+            ['RE', 'RB', 'S', 'ICE', 'IC'].some(t => d.servingLine?.symbol?.startsWith(t))
+        );
 
-  const data = await efaGet('XML_DM_REQUEST', {
-    outputFormat: 'rapidJSON',
-    version: EFA_VERSION,
-    mode: 'direct',
-    type_dm: 'stopID',
-    name_dm: stopId,
-    useRealtime: 1,
-    itdDateDay,
-    itdDateMonth,
-    itdDateYear,
-    itdTimeHour,
-    itdTimeMinute,
-    itdTripDateTimeDepArr: 'dep',
-  });
+        if (hasTrains) {
+            const uicMatch = id.match(/80\d{5}/);
+            if (uicMatch) {
+                try {
+                    const dbRes = await dbClient.departures(uicMatch[0], { duration: 60 });
+                    departures.forEach(vDep => {
+                        const line = vDep.servingLine?.symbol;
+                        const dbMatch = dbRes.find(d => d.line.name === line);
+                        if (dbMatch) {
+                            vDep.delay = dbMatch.delay;
+                            if (dbMatch.when) vDep.realDateTime = dbMatch.when;
+                        }
+                    });
+                } catch (e) { console.warn("DB-Hafas Fallback genutzt"); }
+            }
+        }
 
-  const stopEvents = Array.isArray(data.stopEvents) ? data.stopEvents : [];
-
-  const departures = stopEvents
-    .map((ev) => {
-      const planned = toIsoStringOrNull(ev.departureTimePlanned);
-      if (!planned) return null;
-      // estimated ist null wenn kein Echtzeitsignal vorhanden – dann delay=null,
-      // nicht delay=0, damit das Frontend "kein Signal" korrekt darstellt.
-      const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
-
-      const plannedDate = planned;
-      // Verfrühung = negativer delaySec (estimated < planned)
-      const delaySec = estimated !== null
-        ? Math.round((Date.parse(estimated) - Date.parse(plannedDate)) / 1000)
-        : null;
-
-      const platform =
-        ev.location?.properties?.platform ||
-        ev.location?.properties?.platformName ||
-        ev.location?.properties?.plannedPlatformName ||
-        null;
-
-      const lineName =
-        ev.transportation?.number ||
-        ev.transportation?.disassembledName ||
-        ev.transportation?.name ||
-        '???';
-
-      const productName = (ev.transportation?.product?.name || '').toLowerCase();
-      const operatorName = ev.transportation?.operator?.name || null;
-
-      const tripPayload = {
-        line: ev.transportation?.id || null,
-        stopID: stopId,
-        tripCode: ev.transportation?.properties?.tripCode ?? null,
-        date: toYyyymmddUtc(planned),
-        time: toHmmUtc(planned)
-      };
-
-      const tripId = tripPayload.line && tripPayload.tripCode != null ? encodeTripId(tripPayload) : null;
-
-      const cancelled =
-        Array.isArray(ev.realtimeStatus) && ev.realtimeStatus.some((s) => String(s).toUpperCase().includes('CANCEL'));
-
-      return {
-        plannedWhen: plannedDate,
-        when: estimated ?? plannedDate,   // null-coalescing: wenn kein RT, Soll-Zeit
-        delay: delaySec,                  // null = kein Signal, negativ = Verfrühung
-        plannedPlatform: platform,
-        platform,
-        cancelled,
-        direction: ev.transportation?.destination?.name || '',
-        tripId,
-        prognosis: {
-          tripId,
-          platform
-        },
-        line: {
-          name: String(lineName).replace(/^.*?\s+/, '').trim() || String(lineName),
-          product: productName || 'bus',
-          operator: operatorName ? { name: operatorName } : undefined
-        },
-        _source: 'VRR OpenService'
-      };
-    })
-    .filter(Boolean)
-    .slice(0, 60);
-
-  res.json({ departures });
+        const result = departures.map(d => {
+            const planned = toIsoStringOrNull(d.dateTime || d.plannedWhen);
+            const tripPayload = {
+                line: d.servingLine?.id || null,
+                stopID: id,
+                tripCode: d.servingLine?.properties?.tripCode ?? null,
+                date: planned ? toYyyymmddUtc(planned) : null,
+                time: planned ? toHmmUtc(planned) : null
+            };
+            return {
+                tripId: tripPayload.line ? encodeTripId(tripPayload) : null,
+                line: { name: d.servingLine?.symbol || d.servingLine?.number },
+                direction: d.servingLine?.direction,
+                plannedWhen: planned,
+                when: toIsoStringOrNull(d.realDateTime || d.dateTime || d.when),
+                delay: d.delay || 0,
+                platform: d.servingLine?.platformName || d.platformName,
+                hasLive: !!(d.realDateTime || d.delay !== undefined)
+            };
+        });
+        res.json({ departures: result });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Trip stop sequence for a specific trip (TripStopTimes)
+// 4. Trip Details (Verlauf)
 app.get('/api/trips/:tripId', async (req, res) => {
-  const tripId = String(req.params.tripId || '').trim();
-  if (!tripId) return res.status(400).json({ error: 'missing tripId' });
-
-  let payload;
-  try {
-    payload = decodeTripId(tripId);
-  } catch {
-    return res.status(400).json({ error: 'invalid tripId' });
-  }
-
-  const { line, stopID, tripCode, date, time } = payload || {};
-  if (!line || !stopID || tripCode == null || !date || !time) {
-    return res.status(400).json({ error: 'tripId missing fields' });
-  }
-
-  const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
-    outputFormat: 'rapidJSON',
-    version: EFA_VERSION,
-    mode: 'direct',
-    line,
-    stopID,
-    tripCode,
-    date,
-    time,
-    tStOTType: 'ALL',
-    useRealtime: 1
-  });
-
-  const seq = data.transportation?.locationSequence || [];
-
-  const stopovers = (Array.isArray(seq) ? seq : []).map((s) => ({
-    stop: { name: s.name || s.parent?.name || '' },
-    plannedArrival: toIsoStringOrNull(s.arrivalTimePlanned),
-    arrival: toIsoStringOrNull(s.arrivalTimeEstimated),
-    plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
-    departure: toIsoStringOrNull(s.departureTimeEstimated),
-    plannedPlatform: s.properties?.plannedPlatformName || s.properties?.platformName || s.properties?.platform || null,
-    platform: s.properties?.platformName || s.properties?.platform || null,
-    cancelled: false,
-    additional: false
-  }));
-
-  res.json({
-    stopovers,
-    remarks: [],
-    source: 'VRR OpenService'
-  });
+    try {
+        const payload = decodeTripId(req.params.tripId);
+        const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
+            outputFormat: 'rapidJSON', version: EFA_VERSION, mode: 'direct',
+            line: payload.line, stopID: payload.stopID, tripCode: payload.tripCode,
+            date: payload.date, time: payload.time, tStOTType: 'ALL', useRealtime: 1
+        });
+        const seq = data.transportation?.locationSequence || [];
+        const stopovers = seq.map(s => ({
+            stop: { name: s.name || '' },
+            plannedArrival: toIsoStringOrNull(s.arrivalTimePlanned),
+            arrival: toIsoStringOrNull(s.arrivalTimeEstimated),
+            plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
+            departure: toIsoStringOrNull(s.departureTimeEstimated)
+        }));
+        res.json({ stopovers });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Serve the static frontend
-const publicDir = path.resolve(__dirname, '../public');
-app.use(express.static(publicDir));
-
-const port = Number(process.env.PORT || 8787);
-app.listen(port, () => {
-  console.log(`dilaeit server running on http://localhost:${port}`);
-});
+// Statische Dateien & Port
+app.use(express.static(path.join(__dirname, 'public')));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
