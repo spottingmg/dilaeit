@@ -2,11 +2,11 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// --- HAFAS SETUP (Direkt-Import für ESM) ---
-// Wir umgehen den Haupt-Einstiegspunkt und laden die Funktion direkt
-import { createHafas } from 'db-hafas/lib/index.js';
-
-const hafas = createHafas('dilaeit-app');
+// --- HAFAS SETUP (Der Standard-Weg für ESM) ---
+import { createHafas } from 'db-hafas';
+import dbHafas from 'db-hafas';
+const hafas = dbHafas.createHafas('dilaeit-app');
+// Wir initialisieren hafas direkt
 
 // --- PFADE ---
 const __filename = fileURLToPath(import.meta.url);
