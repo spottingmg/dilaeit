@@ -230,25 +230,33 @@
 
         // --- ZEIT-LOGIK (DIE KERNAUFGABE) ---
         function formatTime(planned, actual, hasLive) {
-            if (!planned) return '';
-            const pDate = new Date(planned);
-            const timeStr = pDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    if (!planned) return '';
+    const pDate = new Date(planned);
+    const timeStr = pDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
 
-            if (!hasLive || !actual) return `<span class="font-bold">${timeStr}</span>`;
+    if (!hasLive || !actual) return `<span class="font-bold">${timeStr}</span>`;
 
-            const aDate = new Date(actual);
-            const diffSeconds = Math.floor((aDate - pDate) / 1000);
+    const aDate = new Date(actual);
+    // Wir berechnen die Differenz in vollen Sekunden
+    const diffSeconds = Math.floor((aDate - pDate) / 1000);
 
-            if (diffSeconds >= 60) {
-                const mins = Math.floor(diffSeconds / 60);
-                return `<span class="font-bold">${timeStr}</span> <span class="text-red-500 ml-1 font-bold">+${mins}</span>`;
-            } else if (diffSeconds <= -60) {
-                const mins = Math.abs(Math.ceil(diffSeconds / 60));
-                return `<span class="font-bold text-green-500">${timeStr}</span> <span class="text-green-500 ml-1 font-bold">-${mins}</span>`;
-            } else {
-                return `<span class="font-bold text-green-500">${timeStr}</span>`;
-            }
-        }
+    // ERST AB 60 SEKUNDEN ROT
+if (diffSeconds >= 60) {
+    const mins = Math.floor(diffSeconds / 60);
+    const secs = diffSeconds % 60;
+    // Zeigt z.B. +1' 25''
+    return `<span class="font-bold">${timeStr}</span> <span class="text-red-500 ml-1 font-bold">+${mins}' ${secs}''</span>`;
+}
+    // FRÜHER ALS GEPLANT (AB -60 SEKUNDEN GRÜN)
+    else if (diffSeconds <= -60) {
+        const mins = Math.abs(Math.ceil(diffSeconds / 60));
+        return `<span class="font-bold text-green-500">${timeStr}</span> <span class="text-green-500 ml-1 font-bold">-${mins}</span>`;
+    } 
+    // ALLES UNTER 60 SEKUNDEN GILT ALS PÜNKTLICH (GRÜN)
+    else {
+        return `<span class="font-bold text-green-500">${timeStr}</span>`;
+    }
+}
 
 function renderDepartures() {
     const list = $('departures-list');
@@ -268,17 +276,33 @@ function renderDepartures() {
         else if (lineName.startsWith('U')) badgeClass = "bg-u-bahn";
 
         const schedTime = new Date(dep.plannedWhen || dep.when);
-        const diffSec = dep.delay || 0;
-        
-        // Präzise Verspätungsanzeige
-        let delayDisplay = '';
-        if (diffSec >= 60) {
-            delayDisplay = `<span class="text-[10px] font-bold text-red-500">+${Math.floor(diffSec / 60)}'</span>`;
-        } else if (diffSec <= -60) {
-            delayDisplay = `<span class="text-[10px] font-bold text-green-500">-${Math.abs(Math.ceil(diffSec / 60))}'</span>`;
-        } else if (dep.delay !== null) {
-            delayDisplay = `<span class="text-[10px] font-bold text-green-500">pünktlich</span>`;
-        }
+// Suche diesen Teil in renderDepartures() und ersetze ihn:
+const diffSec = dep.delay || 0;
+let delayDisplay = '';
+
+if (diffSec >= 60) {
+    // Mehr als eine Minute: Min + Sek
+    const mins = Math.floor(diffSec / 60);
+    const secs = diffSec % 60;
+    delayDisplay = `<span class="text-[10px] font-bold text-red-500">+${mins}' ${secs}''</span>`;
+} 
+else if (diffSec > 0 && diffSec < 60) {
+    // Unter einer Minute: Nur Sekunden in Rot
+    delayDisplay = `<span class="text-[10px] font-bold text-red-500">+${diffSec}''</span>`;
+} 
+else if (diffSec <= -60) {
+    // Verfrüht (kommt selten vor): Min + Sek in Grün
+    const mins = Math.abs(Math.ceil(diffSec / 60));
+    const secs = Math.abs(diffSec % 60);
+    delayDisplay = `<span class="text-[10px] font-bold text-green-500">-${mins}' ${secs}''</span>`;
+} 
+else {
+    // Exakt 0 oder minimale Abweichung: Pünktlich
+    delayDisplay = `<span class="text-[10px] font-bold text-green-500">pünktlich</span>`;
+}
+
+// Farbe für die Uhrzeit (Grün wenn pünktlich oder verfrüht, sonst Standard)
+const timeColor = (diffSec <= 0 && dep.delay !== null) ? 'text-green-500' : '';
 
         const timeColor = (diffSec < 60 && diffSec > -60 && dep.delay !== null) ? 'text-green-500' : '';
 
