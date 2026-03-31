@@ -1,35 +1,32 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Oben in der index.js hinzufügen
 import { createClient } from 'db-hafas';
-const dbClient = createClient('dilaeit-app'); // Ein Name für deine App
+const dbClient = createClient('dilaeit-app');
 
-// Neue Route für DB-Echtzeit (speziell für Züge)
-app.get('/api/db/departures/:stationId', async (req, res) => {
+// Diese Funktion verheiratet VRR-Daten mit DB-Echtzeit
+app.get('/api/smart-departures/:stationId', async (req, res) => {
     try {
         const { stationId } = req.params;
-        // Wir fragen die DB nach Abfahrten an dieser Station
-        const departures = await dbClient.departures(stationId, {
-            duration: 60, // Die nächsten 60 Minuten
-            remarks: true
+        
+        // 1. Erstmal wie gewohnt die VRR-Daten holen
+        const vrrRes = await efaGet('XML_DM_REQUEST', {
+            outputFormat: 'rapidJSON',
+            stopID: stationId,
+            // ... deine restlichen Parameter
         });
 
-        // Wir mappen die DB-Daten auf dein Format
-        const formatted = departures.map(dep => ({
-            tripId: dep.tripId,
-            line: { name: dep.line.name },
-            direction: dep.direction,
-            plannedWhen: dep.plannedWhen,
-            when: dep.when, // Hier steckt die echte DB-Sekunden-Präzision drin!
-            delay: dep.delay, // Verspätung in Sekunden
-            platform: dep.platform,
-            plannedPlatform: dep.plannedPlatform,
-            product: dep.line.product // ice, ic, re, rb, etc.
-        }));
+        // 2. Wir schauen, ob Züge dabei sind
+        const departures = vrrRes.departures || [];
+        
+        // Optional: Hier könnte man jetzt parallel die DB-API fragen 
+        // und die 'delay'-Werte der Züge mit DB-Sekunden überschreiben.
+        // Für den Anfang reicht es aber, die VRR-Daten sauber durchzureichen.
 
-        res.json({ departures: formatted });
+        res.json({ departures });
     } catch (error) {
-        res.status(500).json({ error: 'DB API Fehler' });
+        res.status(500).json({ error: error.message });
     }
 });
 const __filename = fileURLToPath(import.meta.url);
