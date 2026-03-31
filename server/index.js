@@ -5,14 +5,16 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-// --- HAFAS SETUP (Der sichere Weg für Node 25) ---
+// --- HAFAS SETUP (Kugelsicher für Node 25) ---
 const dbHafas = require('db-hafas');
 
-// Manche Versionen exportieren direkt, manche in einem Objekt. 
-// Das hier fängt beides ab:
-const createHafas = typeof dbHafas === 'function' ? dbHafas : dbHafas.createHafas;
+// Wir suchen die Funktion überall: direkt, unter .createHafas oder unter .default
+const createHafas = dbHafas.createHafas || 
+                     (typeof dbHafas === 'function' ? dbHafas : dbHafas.default?.createHafas) || 
+                     dbHafas.default;
 
 if (typeof createHafas !== 'function') {
+    console.error('DEBUG - dbHafas Inhalt:', dbHafas); // Hilft uns, falls es wieder kracht
     throw new Error('Hafas-Bibliothek konnte nicht korrekt geladen werden.');
 }
 
