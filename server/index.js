@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
+import { profile as dbProfile } from 'db-hafas/lib/index.js';
 // --- HAFAS INITIALISIERUNG ---
 // Wichtig: Erst importieren, dann nutzen!
 import createHafas from 'db-hafas';
