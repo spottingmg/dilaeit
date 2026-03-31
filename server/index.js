@@ -1,15 +1,24 @@
 import express from 'express';
 import path from 'node:path';
-
 import { fileURLToPath } from 'node:url';
-import { createClient } from 'db-hafas';
 
+// --- HAFAS INITIALISIERUNG ---
+// Wichtig: Erst importieren, dann nutzen!
+import createHafas from 'db-hafas';
+import { profile as dbProfile } from 'db-hafas/p/db/index.js';
+
+// Client erstellen (Wir nennen ihn hafas, wie in deinem Code-Verlauf genutzt)
+const hafas = createHafas(dbProfile, 'dilaeit-app');
+
+// --- PFAD DEFINITIONEN ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const dbClient = createClient('dilaeit-app');
+
+// Statische Dateien (muss nach 'app' Definition kommen)
 app.use(express.static(path.join(__dirname, 'public')));
+
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
 const EFA_VERSION = process.env.EFA_VERSION || '10.4.18.18';
 
@@ -87,7 +96,8 @@ app.get('/api/stops/:id/departures', async (req, res) => {
             const uicMatch = id.match(/80\d{5}/);
             if (uicMatch) {
                 try {
-                    const dbRes = await dbClient.departures(uicMatch[0], { duration: 60 });
+                    // Geändert: Nutzen jetzt 'hafas' statt 'dbClient'
+                    const dbRes = await hafas.departures(uicMatch[0], { duration: 60 });
                     departures.forEach(vDep => {
                         const line = vDep.servingLine?.symbol;
                         const dbMatch = dbRes.find(d => d.line.name === line);
@@ -96,7 +106,7 @@ app.get('/api/stops/:id/departures', async (req, res) => {
                             if (dbMatch.when) vDep.realDateTime = dbMatch.when;
                         }
                     });
-                } catch (e) { console.warn("DB-Hafas Fallback genutzt"); }
+                } catch (e) { console.warn("DB-Hafas Fallback fehlgeschlagen"); }
             }
         }
 
@@ -145,8 +155,8 @@ app.get('/api/trips/:tripId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Statische Dateien & Port
+// Port & Server Start
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(` Server läuft auf Port ${PORT}`);
+    console.log(`🚀 Server läuft auf Port ${PORT}`);
 });
