@@ -112,13 +112,36 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
   const stopId = String(req.params.stopId || '').trim();
   if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
+  // ── KERN-FIX: ?when=<ISO> in EFA-Zeitfelder aufsplitten ──────────────────
+  // VRR EFA versteht keinen ISO-Timestamp. Es erwartet itdDate/itdTime-Felder.
+  // Ohne diese Felder antwortet EFA immer mit der aktuellen Serverzeit.
+  const whenIso = req.query.when
+    ? decodeURIComponent(req.query.when)
+    : new Date().toISOString();
+
+  // Lokale Zeitfelder aus dem ISO-String extrahieren (EFA arbeitet mit Lokalzeit)
+  const whenDate = new Date(whenIso);
+  const itdDateDay    = whenDate.getDate();
+  const itdDateMonth  = whenDate.getMonth() + 1;
+  const itdDateYear   = whenDate.getFullYear();
+  const itdTimeHour   = whenDate.getHours();
+  const itdTimeMinute = whenDate.getMinutes();
+  // ─────────────────────────────────────────────────────────────────────────
+
   const data = await efaGet('XML_DM_REQUEST', {
     outputFormat: 'rapidJSON',
     version: EFA_VERSION,
     mode: 'direct',
     type_dm: 'stopID',
     name_dm: stopId,
-    useRealtime: 1
+    useRealtime: 1,
+    // Zeitparameter – ohne diese wird immer "jetzt" zurückgegeben
+    itdDateDay,
+    itdDateMonth,
+    itdDateYear,
+    itdTimeHour,
+    itdTimeMinute,
+    itdTripDateTimeDepArr: 'dep',
   });
 
   const stopEvents = Array.isArray(data.stopEvents) ? data.stopEvents : [];
@@ -246,4 +269,3 @@ const port = Number(process.env.PORT || 8787);
 app.listen(port, () => {
   console.log(`dilaeit server running on http://localhost:${port}`);
 });
-
