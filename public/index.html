@@ -167,12 +167,6 @@
                     <input type="time" id="query-time" class="bg-transparent border-none text-xs outline-none focus:ring-0 w-20">
                 </div>
                 <button id="reset-query" class="px-4 py-2 bg-gray-100 dark:bg-zinc-900 rounded-xl text-xs font-medium hover:text-red-500 transition-colors">Jetzt</button>
-                <button onclick="shiftQueryDay(-1)" class="px-3 py-2 bg-gray-100 dark:bg-zinc-900 rounded-xl text-xs font-medium hover:text-red-500 transition-colors" title="Einen Tag zurück">
-                    <i class="fas fa-chevron-left mr-1"></i>−1d
-                </button>
-                <button onclick="shiftQueryDay(1)" class="px-3 py-2 bg-gray-100 dark:bg-zinc-900 rounded-xl text-xs font-medium hover:text-red-500 transition-colors" title="Einen Tag vor">
-                    +1d<i class="fas fa-chevron-right ml-1"></i>
-                </button>
             </div>
         </div>
 
@@ -201,16 +195,8 @@
         </div>
 
         <div id="trip-archive" class="mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
-            <div class="flex items-center justify-between mb-2">
-                <button onclick="toggleArchive()" class="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 hover:text-red-500 transition-colors">
-                    <i id="archive-chevron" class="fas fa-chevron-right text-xs transition-transform duration-200"></i>
-                    Archiv letzte Fahrten (48h)
-                </button>
-                <button onclick="clearArchive()" class="text-[10px] text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-gray-200 dark:hover:bg-zinc-700">
-                    <i class="fas fa-trash-alt mr-1"></i>Leeren
-                </button>
-            </div>
-            <div id="archive-list" class="hidden mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
+            <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Archiv letzte Fahrten (48h)</h3>
+            <div id="archive-list" class="mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
@@ -224,6 +210,8 @@
                     LIVE REFRESH
                 </div>
             </div>
+            <!-- Linienfilter – wird nach erstem Laden befüllt -->
+            <div id="line-filter-bar" class="hidden flex flex-wrap gap-2 pb-2"></div>
 
             <div id="departures-list" class="divide-y divide-gray-100 dark:divide-zinc-900">
                 <div class="flex flex-col items-center justify-center py-32 text-gray-500 space-y-6 opacity-40">
@@ -404,19 +392,6 @@
             const mins  = String(now.getMinutes()).padStart(2, '0');
             $('query-date').value = `${year}-${month}-${day}`;
             $('query-time').value = `${hours}:${mins}`;
-        }
-
-        function shiftQueryDay(delta) {
-            const dateVal = $('query-date').value;
-            if (!dateVal) return;
-            const [y, mo, d] = dateVal.split('-').map(Number);
-            const shifted = new Date(y, mo - 1, d + delta);
-            $('query-date').value = [
-                shifted.getFullYear(),
-                String(shifted.getMonth() + 1).padStart(2, '0'),
-                String(shifted.getDate()).padStart(2, '0')
-            ].join('-');
-            if (state.currentStation) refreshDepartures();
         }
 
         function attachEventListeners() {
@@ -642,6 +617,7 @@
                 item.onclick = () => {
                     state.currentStation = res;
                     state.currentRegion  = detectRegion(res.name);
+                    activeLineFilter = null;   // Filter bei neuer Station zurücksetzen
                     $('station-search').value = res.name;
                     container.classList.add('hidden');
                     $('board-header').classList.remove('hidden');
@@ -655,32 +631,128 @@
         }
 
         // ─── Abfahrtstafel ───────────────────────────────────────────────────────────
+        // Aktive Linien – null = alle, Set = nur ausgewählte
+        let activeLineFilter = null;
+
+        // Baut den Linienfilter aus state.departures und rendert die Chips
+        function buildLineFilter() {
+            const bar = $('line-filter-bar');
+            if (!bar) return;
+
+            // Alle eindeutigen Linien aus den Abfahrten sammeln, Reihenfolge beibehalten
+            const seen = new Map();
+            state.departures.forEach(d => {
+                const name = d.line?.name;
+                if (name && !seen.has(name)) seen.set(name, d.line);
+            });
+
+            // Wenn nur eine Linie, Filter ausblenden – nicht nötig
+            if (seen.size <= 1) {
+                bar.classList.add('hidden');
+                activeLineFilter = null;
+                return;
+            }
+
+            // Beim ersten Aufbau: alle Linien aktiv
+            if (activeLineFilter === null) {
+                activeLineFilter = new Set(seen.keys());
+            } else {
+                // Neue Linien, die noch nicht im Filter sind, automatisch aktivieren
+                seen.forEach((_, name) => {
+                    if (!activeLineFilter.has(name) && activeLineFilter !== null) {
+                        // Nur hinzufügen wenn vorher alle aktiv waren (kein gezielter Filter)
+                    }
+                });
+            }
+
+            bar.innerHTML = '';
+            bar.classList.remove('hidden');
+
+            // "Alle"-Toggle
+            const allActive = activeLineFilter.size === seen.size;
+            const allBtn = document.createElement('button');
+            allBtn.className = `px-3 py-1 rounded-xl text-[11px] font-bold border transition-colors ${
+                allActive
+                    ? 'bg-gray-600 border-gray-500 text-white'
+                    : 'bg-transparent border-gray-600 text-gray-400 hover:border-gray-400'
+            }`;
+            allBtn.textContent = 'Alle';
+            allBtn.onclick = () => {
+                if (allActive) {
+                    // Alle abwählen → nur erste Linie aktiv lassen
+                    activeLineFilter = new Set([seen.keys().next().value]);
+                } else {
+                    activeLineFilter = new Set(seen.keys());
+                }
+                buildLineFilter();
+                renderDepartures();
+            };
+            bar.appendChild(allBtn);
+
+            // Ein Chip pro Linie
+            seen.forEach((lineObj, name) => {
+                const isActive = activeLineFilter.has(name);
+                const chip = document.createElement('button');
+                chip.className = `px-3 py-1 rounded-xl text-[11px] font-black italic border transition-colors ${
+                    isActive
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'bg-transparent border-gray-600 text-gray-400 hover:border-red-400 hover:text-red-400'
+                }`;
+                chip.textContent = name;
+                chip.onclick = () => {
+                    if (activeLineFilter.has(name)) {
+                        // Abwählen – mindestens eine Linie muss aktiv bleiben
+                        if (activeLineFilter.size > 1) activeLineFilter.delete(name);
+                    } else {
+                        activeLineFilter.add(name);
+                    }
+                    buildLineFilter();
+                    renderDepartures();
+                };
+                bar.appendChild(chip);
+            });
+        }
+
         function renderDepartures() {
             const list = $('departures-list');
             list.innerHTML = '';
-            if (state.departures.length === 0) {
+
+            // Linienfilter anwenden
+            const filtered = activeLineFilter
+                ? state.departures.filter(d => activeLineFilter.has(d.line?.name))
+                : state.departures;
+
+            if (filtered.length === 0) {
                 list.innerHTML = `<div class="py-20 text-center text-gray-500">Keine aktuellen Abfahrten gefunden.</div>`;
                 return;
             }
-            state.departures.forEach(dep => {
+            filtered.forEach(dep => {
                 const item = document.createElement('div');
                 item.className = 'trip-item py-4 hover:bg-gray-50 dark:hover:bg-zinc-900/50 cursor-pointer transition-colors px-1 group';
                 const lineName    = dep.line?.name || dep.line?.id || '???';
                 const isCancelled = dep.cancelled;
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
                 const actualTime  = dep.when ? new Date(dep.when) : null;
-                const delay       = dep.delay !== undefined
-                    ? dep.delay / 60
-                    : (actualTime && schedTime ? (actualTime - schedTime) / 60000 : null);
-                const roundedDelay = delay !== null ? Math.round(delay) : null;
+
+                // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
+                let roundedDelay = null;
+                if (dep.delay !== null && dep.delay !== undefined) {
+                    roundedDelay = Math.round(dep.delay / 60);
+                }
+
+                // Verfrühung: blau + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
+                const delayColor = roundedDelay === null ? ''
+                    : roundedDelay > 0  ? 'text-red-500'
+                    : roundedDelay < 0  ? 'text-blue-400'
+                    : 'text-green-500';
+                const delaySign  = roundedDelay !== null && roundedDelay > 0 ? '+' : '';
+                const showDelay  = !isCancelled && roundedDelay !== null && roundedDelay !== 0;
+
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
                             <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${!isCancelled && actualTime && roundedDelay !== null && roundedDelay !== 0 ? `
-                                <span class="text-[10px] font-bold ${roundedDelay >= 1 ? 'text-red-500' : (roundedDelay <= -1 ? 'text-blue-500' : 'text-green-500')}">
-                                    ${roundedDelay > 0 ? '+' : ''}${roundedDelay}'
-                                </span>` : ''}
+                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${roundedDelay}'</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -735,6 +807,7 @@
                 state.departures = (data?.departures || []).map(d => ({ ...d, sourceApi: 'VRR OpenService' }));
                 state.departureCache.set(cacheKey, state.departures);
                 setTimeout(() => state.departureCache.delete(cacheKey), 60000);
+                buildLineFilter();
                 renderDepartures();
             } catch (err) {
                 console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
@@ -766,41 +839,23 @@
             } catch (e) { console.error('Archive error', e); }
         }
 
-        let archiveExpanded = false;
-        const ARCHIVE_PAGE_SIZE = 5;
-
-        function toggleArchive() {
-            archiveExpanded = !archiveExpanded;
-            const list     = $('archive-list');
-            const chevron  = $('archive-chevron');
-            list.classList.toggle('hidden', !archiveExpanded);
-            chevron.style.transform = archiveExpanded ? 'rotate(90deg)' : '';
-            if (archiveExpanded) renderArchive();
-        }
-
-        function clearArchive() {
-            localStorage.removeItem('dilaeit_trip_archive');
-            renderArchive();
-        }
-
-        function renderArchive(showAll = false) {
+        function renderArchive() {
             const listEl = $('archive-list');
             listEl.innerHTML = '';
             let items;
             try { items = JSON.parse(localStorage.getItem('dilaeit_trip_archive') || '[]'); } catch { items = []; }
             items = items.filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000);
             if (items.length === 0) {
-                listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400 text-xs">Noch keine Fahrten im Archiv.</div>';
+                listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400">Noch keine Fahrten im Archiv.</div>';
                 return;
             }
-            const visible = showAll ? items : items.slice(0, ARCHIVE_PAGE_SIZE);
-            visible.forEach(r => {
+            items.forEach(r => {
                 const item = document.createElement('div');
-                item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 cursor-pointer hover:border-red-400 transition-colors';
+                item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700';
                 const time = new Date(r.timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
                 item.innerHTML = `
                     <div class="font-semibold text-xs">${r.station} • ${r.line}</div>
-                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time}</div>`;
+                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time} • ${r.api.replace('https://','')}</div>`;
                 item.onclick = () => {
                     state.currentStation = { id: r.stationId || r.data?.stop?.id || state.currentStation?.id, name: r.station };
                     state.currentRegion  = detectRegion(r.station);
@@ -809,18 +864,11 @@
                 };
                 listEl.appendChild(item);
             });
-            // "Mehr anzeigen"-Button wenn mehr als ARCHIVE_PAGE_SIZE Einträge
-            if (!showAll && items.length > ARCHIVE_PAGE_SIZE) {
-                const btn = document.createElement('button');
-                btn.className = 'w-full text-center text-[11px] text-gray-500 hover:text-red-500 py-1 transition-colors';
-                btn.textContent = `+ ${items.length - ARCHIVE_PAGE_SIZE} weitere anzeigen`;
-                btn.onclick = () => renderArchive(true);
-                listEl.appendChild(btn);
-            }
         }
 
         // ─── Verbindungssuche ────────────────────────────────────────────────────────
         function extractTripIdFromJourney(journey) {
+            // DB journeys liefern je nach Produkt/Quelle teils tripId an verschiedenen Stellen.
             if (!journey) return null;
             const legs = journey.legs || [];
             return (
@@ -840,24 +888,19 @@
             return firstLineLeg || null;
         }
 
-        // Öffnet den Fahrtverlauf für einen einzelnen Leg einer Journey
-        function showLegTripDetails(encodedPayload) {
+        function showJourneyTripDetailsFromEncodedPayload(encodedPayload) {
             if (!encodedPayload) return;
             let payload = null;
-            try { payload = JSON.parse(decodeURIComponent(encodedPayload)); } catch { return; }
+            try { payload = JSON.parse(decodeURIComponent(encodedPayload)); } catch { payload = null; }
             if (!payload?.tripId) return;
+
             const dep = {
-                tripId:    payload.tripId,
+                tripId: payload.tripId,
                 prognosis: { tripId: payload.tripId },
-                line:      payload.line || null,
+                line: payload.line || null,
                 direction: payload.direction || ''
             };
-            showTripDetails(dep);
-        }
-
-        // Rückwärtskompatibilität (alter Name aus journey-card onclick)
-        function showJourneyTripDetailsFromEncodedPayload(encodedPayload) {
-            showLegTripDetails(encodedPayload);
+            return showTripDetails(dep);
         }
 
         async function resolveStationId(query) {
@@ -991,29 +1034,6 @@
                 }).join('');
 
                 const cancelled = leg.cancelled ? 'opacity-40' : '';
-                // Jeder Leg bekommt seinen eigenen tripId und Details-Button
-                const legTripId = leg.tripId || leg.prognosis?.tripId || null;
-                const legLine = leg.line ? {
-                    name:     leg.line?.name || leg.line?.id || leg.mode || '?',
-                    id:       leg.line?.id,
-                    product:  (leg.line?.product || leg.product || leg.mode || '').toString(),
-                    operator: leg.line?.operator?.name ? { name: leg.line.operator.name } : undefined
-                } : null;
-                const legPayload = legTripId
-                    ? encodeURIComponent(JSON.stringify({
-                        tripId:    legTripId,
-                        line:      legLine,
-                        direction: leg.direction || ''
-                    }))
-                    : '';
-                const detailsBtn = legTripId
-                    ? `<button
-                           class="mt-1.5 w-full text-center py-1 rounded-lg text-[10px] font-semibold bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-colors"
-                           onclick="showLegTripDetails('${legPayload}')"
-                           type="button">
-                           <i class="fas fa-map-marker-alt mr-1"></i>Fahrtverlauf ansehen
-                       </button>`
-                    : '';
                 return `<div class="rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden mb-2 ${cancelled}">
                     <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-zinc-800">
                         <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic shrink-0">${leg.line?.name || '?'}</span>
@@ -1030,7 +1050,6 @@
                             <span class="text-gray-500">An: <span class="font-semibold text-gray-200">${leg.destination?.name || ''}</span></span>
                             <span>${fmtT(legArr, legArrAct)}</span>
                         </div>
-                        ${detailsBtn}
                     </div>
                 </div>`;
             }).join('');
@@ -1049,6 +1068,16 @@
                         </div>
                         <div class="flex items-center gap-1 mt-1 flex-wrap">${legBadges}</div>
                     </div>
+                    <button
+                        class="px-3 py-1.5 rounded-xl text-[10px] font-semibold transition-colors ${tripId ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-gray-500/30 text-gray-200 cursor-not-allowed opacity-60'}"
+                        ${tripId ? '' : 'disabled'}
+                        data-journey-payload="${journeyDetailsPayload}"
+                        onclick="event.stopPropagation(); showJourneyTripDetailsFromEncodedPayload(this.dataset.journeyPayload)"
+                        type="button"
+                        title="${tripId ? 'Details ansehen' : 'Keine Trip-ID in der Journey gefunden.'}"
+                    >
+                        Details ansehen
+                    </button>
                     <i id="${cardId}-icon" class="fas fa-chevron-down text-gray-400 text-xs transition-transform duration-200 shrink-0"></i>
                 </div>
                 <div id="${detailId}" class="hidden px-4 pb-4 pt-1 border-t border-gray-100 dark:border-zinc-800">
