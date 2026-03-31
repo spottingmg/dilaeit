@@ -2,18 +2,31 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// --- HAFAS SETUP (Der Standard-Weg für ESM) ---
-import { createHafas } from 'db-hafas';
+// --- HAFAS SETUP (Kugelsicherer Default-Import für Node 25) ---
 import dbHafas from 'db-hafas';
-const hafas = dbHafas.createHafas('dilaeit-app');
-// Wir initialisieren hafas direkt
 
-// --- PFADE ---
+// Wir prüfen alle möglichen Verstecke der Funktion (direkt, .createHafas oder .default)
+const baseCreate = typeof dbHafas === 'function' ? dbHafas : dbHafas.createHafas;
+let finalCreateHafas;
+
+if (typeof baseCreate !== 'function') {
+    finalCreateHafas = dbHafas.default?.createHafas || dbHafas.default;
+} else {
+    finalCreateHafas = baseCreate;
+}
+
+// Falls es immer noch keine Funktion ist, werfen wir einen sauberen Fehler
+if (typeof finalCreateHafas !== 'function') {
+    throw new Error('Hafas-Bibliothek konnte nicht geladen werden. Prüfe die Modul-Struktur.');
+}
+
+const hafas = finalCreateHafas('dilaeit-app');
+
+// --- PFADE DEFINITIONEN ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// ... Rest bleibt gleich
 
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -85,7 +98,6 @@ app.get('/api/stops/:id/departures', async (req, res) => {
         let departures = vrrData.departures || [];
         const uicMatch = id.match(/80\d{5}/);
 
-        // Hybrid-Check: Wenn es ein Bahnhof ist, frage die DB nach Verspätungen & TripIDs
         if (uicMatch) {
             try {
                 const dbRes = await hafas.departures(uicMatch[0], { duration: 60 });
@@ -94,7 +106,7 @@ app.get('/api/stops/:id/departures', async (req, res) => {
                     const dbMatch = dbRes.find(d => d.line.name === line);
                     if (dbMatch) {
                         vDep.delay = dbMatch.delay;
-                        vDep.dbTripId = dbMatch.tripId; // WICHTIG für Sekunden-Verlauf
+                        vDep.dbTripId = dbMatch.tripId; 
                         if (dbMatch.when) vDep.realDateTime = dbMatch.when;
                     }
                 });
