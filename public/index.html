@@ -314,13 +314,25 @@
             });
         }
 
-        async function refreshDepartures() {
-            if (!state.currentStation) return;
-            const res = await fetch(`${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures`);
-            const data = await res.json();
-            state.departures = data.departures || [];
-            renderDepartures();
-        }
+      async function refreshDepartures() {
+    if (!state.currentStation) return;
+    
+    // Wir nutzen jetzt unsere neue "Smart"-Route im Backend
+    const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures`;
+
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        // Hier sortieren wir die Daten vielleicht noch oder filtern sie
+        state.departures = data.departures || [];
+        
+        renderDepartures(); // Das zeichnet die Liste neu
+        $('board-header').classList.remove('hidden');
+    } catch (e) {
+        console.error("Fehler beim Laden:", e);
+    }
+}
 
         async function showTripDetails(dep) {
             $('detail-view').classList.add('active');
