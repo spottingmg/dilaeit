@@ -1,7 +1,37 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createClient } from 'db-hafas';
+const dbClient = createClient('dilaeit-app'); // Ein Name für deine App
 
+// Neue Route für DB-Echtzeit (speziell für Züge)
+app.get('/api/db/departures/:stationId', async (req, res) => {
+    try {
+        const { stationId } = req.params;
+        // Wir fragen die DB nach Abfahrten an dieser Station
+        const departures = await dbClient.departures(stationId, {
+            duration: 60, // Die nächsten 60 Minuten
+            remarks: true
+        });
+
+        // Wir mappen die DB-Daten auf dein Format
+        const formatted = departures.map(dep => ({
+            tripId: dep.tripId,
+            line: { name: dep.line.name },
+            direction: dep.direction,
+            plannedWhen: dep.plannedWhen,
+            when: dep.when, // Hier steckt die echte DB-Sekunden-Präzision drin!
+            delay: dep.delay, // Verspätung in Sekunden
+            platform: dep.platform,
+            plannedPlatform: dep.plannedPlatform,
+            product: dep.line.product // ice, ic, re, rb, etc.
+        }));
+
+        res.json({ departures: formatted });
+    } catch (error) {
+        res.status(500).json({ error: 'DB API Fehler' });
+    }
+});
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
