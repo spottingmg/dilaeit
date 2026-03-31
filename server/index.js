@@ -1,27 +1,11 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
+// --- HAFAS SETUP (Offizieller ESM-Weg für db-hafas v9+) ---
+import { createHafas } from 'db-hafas';
 
-// --- HAFAS SETUP (Maximale Kompatibilität) ---
-const rawModule = require('db-hafas');
-
-// Wir suchen die Funktion in allen bekannten Export-Mustern
-const createHafas = 
-    (typeof rawModule === 'function' ? rawModule : null) || 
-    rawModule.createHafas || 
-    rawModule.default?.createHafas || 
-    (typeof rawModule.default === 'function' ? rawModule.default : null);
-
-if (typeof createHafas !== 'function') {
-    // Falls es immer noch scheitert, geben wir die Struktur im Log aus, 
-    // damit wir sehen, was Node.js 25 daraus gemacht hat.
-    console.error('DEBUG - Modul-Struktur:', JSON.stringify(Object.keys(rawModule)));
-    throw new Error('Hafas-Bibliothek konnte in keiner bekannten Struktur gefunden werden.');
-}
-
+// Wir initialisieren hafas direkt
 const hafas = createHafas('dilaeit-app');
 
 // --- PFADE DEFINITIONEN ---
@@ -29,6 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// ... dein restlicher Code (Routen etc.)
 // ... Rest deiner Routen
 
 // Statische Dateien (Frontend)
