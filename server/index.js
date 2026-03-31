@@ -2,19 +2,18 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// --- HAFAS SETUP (Offizieller ESM-Weg für db-hafas v9+) ---
-import { createHafas } from 'db-hafas';
+// --- HAFAS SETUP (Korrekt für db-hafas v9+) ---
+// Wir importieren die Funktion als Default-Import
+import createHafas from 'db-hafas';
 
-// Wir initialisieren hafas direkt
+// Initialisierung
 const hafas = createHafas('dilaeit-app');
 
-// --- PFADE DEFINITIONEN ---
+// --- PFADE ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// ... dein restlicher Code (Routen etc.)
-// ... Rest deiner Routen
 
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
