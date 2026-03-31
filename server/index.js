@@ -1,22 +1,20 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { profile as dbProfile } from 'db-hafas/lib/index.js';
-// --- HAFAS INITIALISIERUNG ---
-// Wichtig: Erst importieren, dann nutzen!
 import createHafas from 'db-hafas';
-import { profile as dbProfile } from 'db-hafas/p/db/index.js';
-
-// Client erstellen (Wir nennen ihn hafas, wie in deinem Code-Verlauf genutzt)
-const hafas = createHafas(dbProfile, 'dilaeit-app');
 
 // --- PFAD DEFINITIONEN ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- HAFAS INITIALISIERUNG ---
+// Unter Node 25 lassen wir das direkte Importieren des Profils weg, 
+// um "Module Not Found" Fehler zu vermeiden. db-hafas nutzt Standard-DB automatisch.
+const hafas = createHafas('dilaeit-app');
+
 const app = express();
 
-// Statische Dateien (muss nach 'app' Definition kommen)
+// Statische Dateien
 app.use(express.static(path.join(__dirname, 'public')));
 
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
@@ -59,10 +57,8 @@ async function efaGet(endpoint, params) {
 
 // --- ROUTES ---
 
-// 1. Health Check
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-// 2. Haltestellensuche
 app.get('/api/locations', async (req, res) => {
     try {
         const query = (req.query.query || '').trim();
@@ -77,7 +73,6 @@ app.get('/api/locations', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 3. Abfahrtstafel (Hybrid: VRR + DB-Hafas)
 app.get('/api/stops/:id/departures', async (req, res) => {
     try {
         const { id } = req.params;
@@ -86,8 +81,6 @@ app.get('/api/stops/:id/departures', async (req, res) => {
         });
 
         let departures = vrrData.departures || [];
-
-        // Check für Züge (RE, RB, S, ICE, IC)
         const hasTrains = departures.some(d => 
             ['RE', 'RB', 'S', 'ICE', 'IC'].some(t => d.servingLine?.symbol?.startsWith(t))
         );
@@ -96,7 +89,6 @@ app.get('/api/stops/:id/departures', async (req, res) => {
             const uicMatch = id.match(/80\d{5}/);
             if (uicMatch) {
                 try {
-                    // Geändert: Nutzen jetzt 'hafas' statt 'dbClient'
                     const dbRes = await hafas.departures(uicMatch[0], { duration: 60 });
                     departures.forEach(vDep => {
                         const line = vDep.servingLine?.symbol;
@@ -134,7 +126,6 @@ app.get('/api/stops/:id/departures', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 4. Trip Details (Verlauf)
 app.get('/api/trips/:tripId', async (req, res) => {
     try {
         const payload = decodeTripId(req.params.tripId);
@@ -155,7 +146,6 @@ app.get('/api/trips/:tripId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Port & Server Start
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server läuft auf Port ${PORT}`);
