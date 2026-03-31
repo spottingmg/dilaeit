@@ -112,40 +112,13 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
   const stopId = String(req.params.stopId || '').trim();
   if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
-  // ── KERN-FIX: ?when=<ISO> in EFA-Zeitfelder aufsplitten ──────────────────
-  // VRR EFA versteht keinen ISO-Timestamp. Es erwartet itdDate/itdTime-Felder.
-  // Ohne diese Felder antwortet EFA immer mit der aktuellen Serverzeit.
-  const whenIso = req.query.when
-    ? decodeURIComponent(req.query.when)
-    : new Date().toISOString();
-
-  // Lokale Zeitfelder aus dem ISO-String extrahieren (EFA arbeitet mit Lokalzeit)
- const whenDate = new Date(whenIso);
- const itdDateDay    = whenDate.getDate();
- const itdDateMonth  = whenDate.getMonth() + 1;
- const itdDateYear   = whenDate.getFullYear();
- const itdTimeHour   = whenDate.getHours();
- const itdTimeMinute = whenDate.getMinutes();
-  
-const [datePart, timePart] = whenIso.split('T');
-const [itdDateYear, itdDateMonth, itdDateDay] = datePart.split('-').map(Number);
-const [itdTimeHour, itdTimeMinute] = timePart.split(':').map(Number);
-  // ─────────────────────────────────────────────────────────────────────────
-
   const data = await efaGet('XML_DM_REQUEST', {
     outputFormat: 'rapidJSON',
     version: EFA_VERSION,
     mode: 'direct',
     type_dm: 'stopID',
     name_dm: stopId,
-    useRealtime: 1,
-    // Zeitparameter – ohne diese wird immer "jetzt" zurückgegeben
-    itdDateDay,
-    itdDateMonth,
-    itdDateYear,
-    itdTimeHour,
-    itdTimeMinute,
-    itdTripDateTimeDepArr: 'dep',
+    useRealtime: 1
   });
 
   const stopEvents = Array.isArray(data.stopEvents) ? data.stopEvents : [];
@@ -154,10 +127,15 @@ const [itdTimeHour, itdTimeMinute] = timePart.split(':').map(Number);
     .map((ev) => {
       const planned = toIsoStringOrNull(ev.departureTimePlanned);
       if (!planned) return null;
-      const estimated = toIsoStringOrNull(ev.departureTimeEstimated) || planned;
+      // estimated ist null wenn kein Echtzeitsignal vorhanden – dann delay=null,
+      // nicht delay=0, damit das Frontend "kein Signal" korrekt darstellt.
+      const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
 
       const plannedDate = planned;
-      const delaySec = Math.round((Date.parse(estimated) - Date.parse(plannedDate)) / 1000);
+      // Verfrühung = negativer delaySec (estimated < planned)
+      const delaySec = estimated !== null
+        ? Math.round((Date.parse(estimated) - Date.parse(plannedDate)) / 1000)
+        : null;
 
       const platform =
         ev.location?.properties?.platform ||
@@ -189,8 +167,8 @@ const [itdTimeHour, itdTimeMinute] = timePart.split(':').map(Number);
 
       return {
         plannedWhen: plannedDate,
-        when: estimated,
-        delay: Number.isFinite(delaySec) ? delaySec : 0,
+        when: estimated ?? plannedDate,   // null-coalescing: wenn kein RT, Soll-Zeit
+        delay: delaySec,                  // null = kein Signal, negativ = Verfrühung
         plannedPlatform: platform,
         platform,
         cancelled,
