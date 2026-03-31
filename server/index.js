@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import createHafas from 'db-hafas';
+import { createHafas } from 'db-hafas';
 
 // --- PFAD DEFINITIONEN ---
 const __filename = fileURLToPath(import.meta.url);
