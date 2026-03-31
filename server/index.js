@@ -3,11 +3,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'module';
 
-// Wir erstellen ein lokales 'require', da db-hafas kein ESM-Modul ist
 const require = createRequire(import.meta.url);
-const { createHafas } = require('db-hafas');
 
-// Initialisierung
+// --- HAFAS SETUP (Kugelsicherer Import) ---
+const dbHafasRaw = require('db-hafas');
+
+// Falls dbHafasRaw direkt die Funktion ist, nehmen wir sie.
+// Falls es ein Objekt ist, nehmen wir .createHafas oder .default
+const createHafas = typeof dbHafasRaw === 'function' 
+    ? dbHafasRaw 
+    : (dbHafasRaw.createHafas || dbHafasRaw.default);
+
+if (typeof createHafas !== 'function') {
+    throw new Error('Hafas-Bibliothek konnte nicht als Funktion geladen werden.');
+}
+
 const hafas = createHafas('dilaeit-app');
 
 // --- PFADE DEFINITIONEN ---
