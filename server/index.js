@@ -126,7 +126,10 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
  const itdDateYear   = whenDate.getFullYear();
  const itdTimeHour   = whenDate.getHours();
  const itdTimeMinute = whenDate.getMinutes();
-
+  
+const [datePart, timePart] = whenIso.split('T');
+const [itdDateYear, itdDateMonth, itdDateDay] = datePart.split('-').map(Number);
+const [itdTimeHour, itdTimeMinute] = timePart.split(':').map(Number);
   // ─────────────────────────────────────────────────────────────────────────
 
   const data = await efaGet('XML_DM_REQUEST', {
