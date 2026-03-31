@@ -1,22 +1,10 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
-
-// --- HAFAS SETUP (Kugelsicher für Node 25) ---
-const dbHafas = require('db-hafas');
-
-// Wir suchen die Funktion überall: direkt, unter .createHafas oder unter .default
-const createHafas = dbHafas.createHafas || 
-                     (typeof dbHafas === 'function' ? dbHafas : dbHafas.default?.createHafas) || 
-                     dbHafas.default;
-
-if (typeof createHafas !== 'function') {
-    console.error('DEBUG - dbHafas Inhalt:', dbHafas); // Hilft uns, falls es wieder kracht
-    throw new Error('Hafas-Bibliothek konnte nicht korrekt geladen werden.');
-}
+// --- HAFAS SETUP (Direkt-Import für ESM) ---
+// Wir umgehen den Haupt-Einstiegspunkt und laden die Funktion direkt
+import { createHafas } from 'db-hafas/lib/index.js';
 
 const hafas = createHafas('dilaeit-app');
 
@@ -25,6 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// ... Rest bleibt gleich
 
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
