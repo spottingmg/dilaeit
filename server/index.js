@@ -1,22 +1,26 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHafas } from 'db-hafas';
+import { createRequire } from 'module';
 
-// --- PFAD DEFINITIONEN ---
+const require = createRequire(import.meta.url);
+
+// --- HAFAS & PFADE SETUP ---
+const { createHafas } = require('db-hafas');
+const { profile: dbProfile } = require('db-hafas/lib/db.js');
+
+// WICHTIG: Nur einmal deklarieren!
+const hafas = createHafas('dilaeit-app');
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- HAFAS INITIALISIERUNG ---
-// Unter Node 25 lassen wir das direkte Importieren des Profils weg, 
-// um "Module Not Found" Fehler zu vermeiden. db-hafas nutzt Standard-DB automatisch.
-const hafas = createHafas('dilaeit-app');
-
 const app = express();
 
-// Statische Dateien
+// Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
 
+// --- EFA KONFIGURATION ---
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
 const EFA_VERSION = process.env.EFA_VERSION || '10.4.18.18';
 
@@ -55,7 +59,7 @@ async function efaGet(endpoint, params) {
     return res.json();
 }
 
-// --- ROUTES ---
+// --- API ROUTES ---
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
@@ -81,55 +85,72 @@ app.get('/api/stops/:id/departures', async (req, res) => {
         });
 
         let departures = vrrData.departures || [];
-        const hasTrains = departures.some(d => 
-            ['RE', 'RB', 'S', 'ICE', 'IC'].some(t => d.servingLine?.symbol?.startsWith(t))
-        );
+        const uicMatch = id.match(/80\d{5}/);
 
-        if (hasTrains) {
-            const uicMatch = id.match(/80\d{5}/);
-            if (uicMatch) {
-                try {
-                    const dbRes = await hafas.departures(uicMatch[0], { duration: 60 });
-                    departures.forEach(vDep => {
-                        const line = vDep.servingLine?.symbol;
-                       const dbMatch = dbRes.find(d => d.line.name === line);
-if (dbMatch) {
-    vDep.delay = dbMatch.delay;
-    vDep.dbTripId = dbMatch.tripId; // <--- Das hier „parkt“ die ID im Datensatz
-    if (dbMatch.when) vDep.realDateTime = dbMatch.when;
-}
-                        
-                    });
-                } catch (e) { console.warn("DB-Hafas Fallback fehlgeschlagen"); }
-            }
+        // Hybrid-Check: Wenn es ein Bahnhof ist, frage die DB nach Verspätungen & TripIDs
+        if (uicMatch) {
+            try {
+                const dbRes = await hafas.departures(uicMatch[0], { duration: 60 });
+                departures.forEach(vDep => {
+                    const line = vDep.servingLine?.symbol || vDep.servingLine?.number;
+                    const dbMatch = dbRes.find(d => d.line.name === line);
+                    if (dbMatch) {
+                        vDep.delay = dbMatch.delay;
+                        vDep.dbTripId = dbMatch.tripId; // WICHTIG für Sekunden-Verlauf
+                        if (dbMatch.when) vDep.realDateTime = dbMatch.when;
+                    }
+                });
+            } catch (e) { console.warn("DB-Hafas Abgleich fehlgeschlagen"); }
         }
 
-const result = departures.map(d => {
-    const planned = toIsoStringOrNull(d.dateTime || d.plannedWhen);
-    const tripPayload = {
-        line: d.servingLine?.id || null,
-        stopID: id,
-        tripCode: d.servingLine?.properties?.tripCode ?? null,
-        date: planned ? toYyyymmddUtc(planned) : null,
-        time: planned ? toHmmUtc(planned) : null
-    };
+        const result = departures.map(d => {
+            const planned = toIsoStringOrNull(d.dateTime || d.plannedWhen);
+            const tripPayload = {
+                line: d.servingLine?.id || null,
+                stopID: id,
+                tripCode: d.servingLine?.properties?.tripCode ?? null,
+                date: planned ? toYyyymmddUtc(planned) : null,
+                time: planned ? toHmmUtc(planned) : null
+            };
 
-    return {
-        tripId: tripPayload.line ? encodeTripId(tripPayload) : null,
-        dbTripId: d.dbTripId || null, // <--- DIESE ZEILE HINZUFÜGEN
-        line: { name: d.servingLine?.symbol || d.servingLine?.number },
-        direction: d.servingLine?.direction,
-        plannedWhen: planned,
-        when: toIsoStringOrNull(d.realDateTime || d.dateTime || d.when),
-        delay: d.delay || 0,
-        platform: d.servingLine?.platformName || d.platformName,
-        hasLive: !!(d.realDateTime || d.delay !== undefined)
-    };
-});
+            return {
+                tripId: tripPayload.line ? encodeTripId(tripPayload) : null,
+                dbTripId: d.dbTripId || null,
+                line: { name: d.servingLine?.symbol || d.servingLine?.number },
+                direction: d.servingLine?.direction,
+                plannedWhen: planned,
+                when: toIsoStringOrNull(d.realDateTime || d.dateTime || d.when),
+                delay: d.delay || 0,
+                platform: d.servingLine?.platformName || d.platformName,
+                hasLive: !!(d.realDateTime || d.delay !== undefined)
+            };
+        });
         res.json({ departures: result });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// NEU: Hochpräziser Fahrtverlauf von der DB
+app.get('/api/train-details/:tripId', async (req, res) => {
+    try {
+        const { tripId } = req.params;
+        const trip = await hafas.trip(tripId);
+        
+        const stopovers = trip.stopovers.map(s => ({
+            stop: { name: s.stop.name },
+            plannedArrival: s.plannedArrival,
+            arrival: s.prognosedArrival || s.arrival,
+            plannedDeparture: s.plannedDeparture,
+            departure: s.prognosedDeparture || s.departure,
+            platform: s.platform
+        }));
+        
+        res.json({ stopovers });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// VRR Fallback für Bus/Bahn
 app.get('/api/trips/:tripId', async (req, res) => {
     try {
         const payload = decodeTripId(req.params.tripId);
@@ -149,28 +170,7 @@ app.get('/api/trips/:tripId', async (req, res) => {
         res.json({ stopovers });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// NEU: Detail-Verlauf direkt von der DB (Hafas)
-app.get('/api/train-details/:tripId', async (req, res) => {
-    try {
-        const { tripId } = req.params;
-        // Wir fragen direkt bei der DB nach dem Trip
-        const trip = await hafas.trip(tripId);
-        
-        // Wir mappen die DB-Daten auf dein vorhandenes Format
-        const stopovers = trip.stopovers.map(s => ({
-            stop: { name: s.stop.name },
-            plannedArrival: s.plannedArrival,
-            arrival: s.prognosedArrival || s.arrival,
-            plannedDeparture: s.plannedDeparture,
-            departure: s.prognosedDeparture || s.departure,
-            platform: s.platform
-        }));
-        
-        res.json({ stopovers });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server läuft auf Port ${PORT}`);
