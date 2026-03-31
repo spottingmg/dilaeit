@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'node:path';
+
 import { fileURLToPath } from 'node:url';
 import { createClient } from 'db-hafas';
 
@@ -8,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const dbClient = createClient('dilaeit-app');
-
+app.use(express.static(path.join(__dirname, 'public')));
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
 const EFA_VERSION = process.env.EFA_VERSION || '10.4.18.18';
 
@@ -145,6 +146,7 @@ app.get('/api/trips/:tripId', async (req, res) => {
 });
 
 // Statische Dateien & Port
-app.use(express.static(path.join(__dirname, 'public')));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(` Server läuft auf Port ${PORT}`);
+});
