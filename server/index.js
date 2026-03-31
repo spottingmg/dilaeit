@@ -93,10 +93,12 @@ app.get('/api/stops/:id/departures', async (req, res) => {
                     departures.forEach(vDep => {
                         const line = vDep.servingLine?.symbol;
                         const dbMatch = dbRes.find(d => d.line.name === line);
-                        if (dbMatch) {
-                            vDep.delay = dbMatch.delay;
-                            if (dbMatch.when) vDep.realDateTime = dbMatch.when;
-                        }
+if (dbMatch) {
+    vDep.delay = dbMatch.delay;
+    vDep.dbTripId = dbMatch.tripId; 
+    if (dbMatch.when) vDep.realDateTime = dbMatch.when;
+}
+                        
                     });
                 } catch (e) { console.warn("DB-Hafas Fallback fehlgeschlagen"); }
             }
@@ -145,7 +147,28 @@ app.get('/api/trips/:tripId', async (req, res) => {
         res.json({ stopovers });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
+// NEU: Detail-Verlauf direkt von der DB (Hafas)
+app.get('/api/train-details/:tripId', async (req, res) => {
+    try {
+        const { tripId } = req.params;
+        // Wir fragen direkt bei der DB nach dem Trip
+        const trip = await hafas.trip(tripId);
+        
+        // Wir mappen die DB-Daten auf dein vorhandenes Format
+        const stopovers = trip.stopovers.map(s => ({
+            stop: { name: s.stop.name },
+            plannedArrival: s.plannedArrival,
+            arrival: s.prognosedArrival || s.arrival,
+            plannedDeparture: s.plannedDeparture,
+            departure: s.prognosedDeparture || s.departure,
+            platform: s.platform
+        }));
+        
+        res.json({ stopovers });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server läuft auf Port ${PORT}`);
