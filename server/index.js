@@ -2,11 +2,16 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// --- HAFAS SETUP (Korrekt für db-hafas v9+) ---
-// Wir importieren die Funktion als Default-Import
-import createHafas from 'db-hafas';
+// --- HAFAS SETUP (Namespace-Import für Node 25) ---
+import * as hafasModule from 'db-hafas';
 
-// Initialisierung
+// Wir extrahieren die Funktion aus dem Namespace
+const createHafas = hafasModule.createHafas || hafasModule.default?.createHafas || hafasModule.default;
+
+if (typeof createHafas !== 'function') {
+    throw new Error('Hafas-Bibliothek konnte nicht geladen werden. Struktur unbekannt.');
+}
+
 const hafas = createHafas('dilaeit-app');
 
 // --- PFADE ---
@@ -14,6 +19,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// ... restlicher Code
 
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -76,6 +82,18 @@ app.get('/api/locations', async (req, res) => {
 });
 
 app.get('/api/stops/:id/departures', async (req, res) => {
+    const dbRes = await hafas.departures(uicMatch[0], { 
+    duration: 60,
+    products: {
+        bus: false,        // Busse ignorieren (kommen vom VRR)
+        tram: false,       // Trams ignorieren
+        subway: false,     // U-Bahnen ignorieren
+        nationalExpress: true, 
+        national: true, 
+        regional: true, 
+        suburban: true     // S-Bahnen behalten
+    }
+});
     try {
         const { id } = req.params;
         const vrrData = await efaGet('XML_DM_REQUEST', {
