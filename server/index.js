@@ -5,17 +5,21 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-// --- HAFAS SETUP (Kugelsicherer Import) ---
-const dbHafasRaw = require('db-hafas');
+// --- HAFAS SETUP (Maximale Kompatibilität) ---
+const rawModule = require('db-hafas');
 
-// Falls dbHafasRaw direkt die Funktion ist, nehmen wir sie.
-// Falls es ein Objekt ist, nehmen wir .createHafas oder .default
-const createHafas = typeof dbHafasRaw === 'function' 
-    ? dbHafasRaw 
-    : (dbHafasRaw.createHafas || dbHafasRaw.default);
+// Wir suchen die Funktion in allen bekannten Export-Mustern
+const createHafas = 
+    (typeof rawModule === 'function' ? rawModule : null) || 
+    rawModule.createHafas || 
+    rawModule.default?.createHafas || 
+    (typeof rawModule.default === 'function' ? rawModule.default : null);
 
 if (typeof createHafas !== 'function') {
-    throw new Error('Hafas-Bibliothek konnte nicht als Funktion geladen werden.');
+    // Falls es immer noch scheitert, geben wir die Struktur im Log aus, 
+    // damit wir sehen, was Node.js 25 daraus gemacht hat.
+    console.error('DEBUG - Modul-Struktur:', JSON.stringify(Object.keys(rawModule)));
+    throw new Error('Hafas-Bibliothek konnte in keiner bekannten Struktur gefunden werden.');
 }
 
 const hafas = createHafas('dilaeit-app');
@@ -25,7 +29,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-
+// ... Rest deiner Routen
 
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
