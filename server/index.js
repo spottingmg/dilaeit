@@ -92,10 +92,10 @@ app.get('/api/stops/:id/departures', async (req, res) => {
                     const dbRes = await hafas.departures(uicMatch[0], { duration: 60 });
                     departures.forEach(vDep => {
                         const line = vDep.servingLine?.symbol;
-                        const dbMatch = dbRes.find(d => d.line.name === line);
+                       const dbMatch = dbRes.find(d => d.line.name === line);
 if (dbMatch) {
     vDep.delay = dbMatch.delay;
-    vDep.dbTripId = dbMatch.tripId; 
+    vDep.dbTripId = dbMatch.tripId; // <--- Das hier „parkt“ die ID im Datensatz
     if (dbMatch.when) vDep.realDateTime = dbMatch.when;
 }
                         
@@ -104,26 +104,28 @@ if (dbMatch) {
             }
         }
 
-        const result = departures.map(d => {
-            const planned = toIsoStringOrNull(d.dateTime || d.plannedWhen);
-            const tripPayload = {
-                line: d.servingLine?.id || null,
-                stopID: id,
-                tripCode: d.servingLine?.properties?.tripCode ?? null,
-                date: planned ? toYyyymmddUtc(planned) : null,
-                time: planned ? toHmmUtc(planned) : null
-            };
-            return {
-                tripId: tripPayload.line ? encodeTripId(tripPayload) : null,
-                line: { name: d.servingLine?.symbol || d.servingLine?.number },
-                direction: d.servingLine?.direction,
-                plannedWhen: planned,
-                when: toIsoStringOrNull(d.realDateTime || d.dateTime || d.when),
-                delay: d.delay || 0,
-                platform: d.servingLine?.platformName || d.platformName,
-                hasLive: !!(d.realDateTime || d.delay !== undefined)
-            };
-        });
+const result = departures.map(d => {
+    const planned = toIsoStringOrNull(d.dateTime || d.plannedWhen);
+    const tripPayload = {
+        line: d.servingLine?.id || null,
+        stopID: id,
+        tripCode: d.servingLine?.properties?.tripCode ?? null,
+        date: planned ? toYyyymmddUtc(planned) : null,
+        time: planned ? toHmmUtc(planned) : null
+    };
+
+    return {
+        tripId: tripPayload.line ? encodeTripId(tripPayload) : null,
+        dbTripId: d.dbTripId || null, // <--- DIESE ZEILE HINZUFÜGEN
+        line: { name: d.servingLine?.symbol || d.servingLine?.number },
+        direction: d.servingLine?.direction,
+        plannedWhen: planned,
+        when: toIsoStringOrNull(d.realDateTime || d.dateTime || d.when),
+        delay: d.delay || 0,
+        platform: d.servingLine?.platformName || d.platformName,
+        hasLive: !!(d.realDateTime || d.delay !== undefined)
+    };
+});
         res.json({ departures: result });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
