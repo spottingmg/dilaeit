@@ -5,18 +5,19 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-// --- HAFAS & PFADE SETUP ---
+// --- HAFAS SETUP ---
+// Wir laden nur die Hauptfunktion. Das DB-Profil ist der Standard.
 const { createHafas } = require('db-hafas');
-const { profile: dbProfile } = require('db-hafas/lib/db.js');
 
-// WICHTIG: Nur einmal deklarieren!
+// Initialisierung (User-Agent ist wichtig für die DB)
 const hafas = createHafas('dilaeit-app');
 
+// --- PFADE ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-
+// ... Rest des Codes bleibt identisch
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
 
