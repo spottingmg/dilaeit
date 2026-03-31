@@ -5,11 +5,17 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-// --- HAFAS SETUP ---
-// Wir laden nur die Hauptfunktion. Das DB-Profil ist der Standard.
-const { createHafas } = require('db-hafas');
+// --- HAFAS SETUP (Der sichere Weg für Node 25) ---
+const dbHafas = require('db-hafas');
 
-// Initialisierung (User-Agent ist wichtig für die DB)
+// Manche Versionen exportieren direkt, manche in einem Objekt. 
+// Das hier fängt beides ab:
+const createHafas = typeof dbHafas === 'function' ? dbHafas : dbHafas.createHafas;
+
+if (typeof createHafas !== 'function') {
+    throw new Error('Hafas-Bibliothek konnte nicht korrekt geladen werden.');
+}
+
 const hafas = createHafas('dilaeit-app');
 
 // --- PFADE ---
@@ -17,7 +23,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// ... Rest des Codes bleibt identisch
+
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
 
