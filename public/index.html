@@ -734,16 +734,19 @@
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
                 const actualTime  = dep.when ? new Date(dep.when) : null;
 
-                // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
+                               // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
                 let roundedDelay = null;
                 if (dep.delay !== null && dep.delay !== undefined) {
-                    roundedDelay = Math.round(dep.delay / 60);
+                    const mins = dep.delay / 60;
+                    // Verspätung (positiv): erst ab vollen Minuten anzeigen → floor
+                    // Verfrühung (negativ): erst ab vollen Minuten anzeigen → ceil
+                    roundedDelay = mins >= 0 ? Math.floor(mins) : Math.ceil(mins);
                 }
 
                 // Verfrühung: blau + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
                 const delayColor = roundedDelay === null ? ''
                     : roundedDelay > 0  ? 'text-red-500'
-                    : roundedDelay < 0  ? 'text-blue-400'
+                    : roundedDelay < 0  ? 'text-green-500'
                     : 'text-green-500';
                 const delaySign  = roundedDelay !== null && roundedDelay > 0 ? '+' : '';
                 const showDelay  = !isCancelled && roundedDelay !== null && roundedDelay !== 0;
