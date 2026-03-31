@@ -377,40 +377,52 @@ const timeColor = (diffSec <= 0 && dep.delay !== null) ? 'text-green-500' : '';
 }
 
 async function showTripDetails(dep) {
-    // 1. Detail-Ansicht öffnen und Platzhalter anzeigen
+    // 1. UI vorbereiten
     $('detail-view').classList.add('active');
     $('detail-line-badge').textContent = dep.line?.name || '??';
     $('detail-train-direction').textContent = dep.direction;
-    $('trip-itinerary').innerHTML = '<div class="py-10 text-center mono text-xs opacity-50"><i class="fas fa-circle-notch animate-spin mr-2"></i>Lade Verlauf...</div>';
+    
+    // Kleiner Hinweis im Loader, wenn wir DB-Präzision nutzen
+    const loaderText = dep.dbTripId ? 'Lade DB-Echtzeitdaten...' : 'Lade Verlauf...';
+    $('trip-itinerary').innerHTML = `
+        <div class="py-10 text-center mono text-xs opacity-50">
+            <i class="fas fa-circle-notch animate-spin mr-2"></i>${loaderText}
+        </div>`;
     
     try {
-        // 2. Daten für den VRR-Payload vorbereiten (wichtig für dein Backend)
-        // Wir nehmen die geplante Zeit, da diese der "Anker" für den Fahrplan ist
-        const plannedDate = new Date(dep.plannedWhen || dep.when);
+        let res;
+
+        // 2. ENTSCHEIDUNG: DB-Hafas oder VRR-EFA?
+        if (dep.dbTripId) {
+            // WEG A: Direkt zur DB für ICE/RE/S-Bahn (Sekundengenau!)
+            res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(dep.dbTripId)}`);
+        } else {
+            // WEG B: Der alte VRR-Weg für Busse & Straßenbahnen
+            const plannedDate = new Date(dep.plannedWhen || dep.when);
+            const dateStr = plannedDate.getFullYear() + 
+                            String(plannedDate.getMonth() + 1).padStart(2, '0') + 
+                            String(plannedDate.getDate()).padStart(2, '0');
+            const timeStr = String(plannedDate.getHours()).padStart(2, '0') + 
+                            String(plannedDate.getMinutes()).padStart(2, '0');
+
+            const payload = {
+                line: dep.line?.id,
+                stopID: state.currentStation.id,
+                tripCode: dep.tripCode || "0",
+                date: dateStr,
+                time: timeStr
+            };
+            
+            const encodedPayload = btoa(JSON.stringify(payload));
+            res = await fetch(`${API_BASE}/api/trips/${encodeURIComponent(encodedPayload)}`);
+        }
         
-        // Formatierung für das Backend (YYYYMMDD und HHMM)
-        const dateStr = plannedDate.getFullYear() + 
-                        String(plannedDate.getMonth() + 1).padStart(2, '0') + 
-                        String(plannedDate.getDate()).padStart(2, '0');
-        const timeStr = String(plannedDate.getHours()).padStart(2, '0') + 
-                        String(plannedDate.getMinutes()).padStart(2, '0');
-        // Wir erstellen ein Objekt, das genau so aussieht, wie es dein Backend in index.js (Zeile 300) erwartet
-        const payload = {
-            line: dep.line?.id,
-            stopID: state.currentStation.id,
-            tripCode: dep.tripCode || "0", // Der VRR braucht oft einen TripCode (0 ist Fallback)
-            date: dateStr,
-            time: timeStr
-        };
-        // 3. Den Request an das Backend senden Wir kodieren das Objekt als Base64 oder übergeben es als Parameter, da dein Backend 'req.params.id' als 'payload' parst.
-        const encodedPayload = btoa(JSON.stringify(payload));
-        const res = await fetch(`${API_BASE}/api/trips/${encodeURIComponent(encodedPayload)}`);
-        
-        if (!res.ok) throw new Error('Details nicht gefunden');
+        if (!res.ok) throw new Error('Details konnten nicht geladen werden');
         
         const data = await res.json();
         
-        // 4. Den Verlauf zeichnen
+        // 3. Den Verlauf zeichnen
+        // (Da wir im Backend beide Formate auf 'stopovers' gemappt haben, bleibt dieser Teil gleich)
         renderTripItinerary(data.stopovers || []);
         
     } catch (e) {
