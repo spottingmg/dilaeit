@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit - ÖPNV in Echtzeit</title>
+    <title>dilaeit - ÖPNV Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -194,9 +194,17 @@
             <div id="route-results" class="mt-2 text-sm text-gray-600 dark:text-gray-300"></div>
         </div>
 
-        <div id="trip-archive" class="mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
-            <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Archiv letzte Fahrten (48h)</h3>
-            <div id="archive-list" class="mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
+        <div id="trip-archive" class="mt-6 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 cursor-pointer select-none" onclick="toggleArchive()">
+                <div class="flex items-center gap-2">
+                    <i id="archive-chevron" class="fas fa-chevron-right text-[10px] text-gray-400 transition-transform duration-200"></i>
+                    <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Archiv letzte Fahrten (48h)</h3>
+                </div>
+                <button onclick="event.stopPropagation(); clearArchive()" class="text-[10px] text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-gray-200 dark:hover:bg-zinc-700">
+                    <i class="fas fa-trash-alt mr-1"></i>Leeren
+                </button>
+            </div>
+            <div id="archive-list" class="hidden px-4 pb-4 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
@@ -734,7 +742,7 @@
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
                 const actualTime  = dep.when ? new Date(dep.when) : null;
 
-                               // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
+                // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
                 let roundedDelay = null;
                 if (dep.delay !== null && dep.delay !== undefined) {
                     const mins = dep.delay / 60;
@@ -746,7 +754,7 @@
                 // Verfrühung: blau + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
                 const delayColor = roundedDelay === null ? ''
                     : roundedDelay > 0  ? 'text-red-500'
-                    : roundedDelay < 0  ? 'text-green-500'
+                    : roundedDelay < 0  ? 'text-blue-400'
                     : 'text-green-500';
                 const delaySign  = roundedDelay !== null && roundedDelay > 0 ? '+' : '';
                 const showDelay  = !isCancelled && roundedDelay !== null && roundedDelay !== 0;
@@ -838,27 +846,43 @@
                     .filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000)
                     .slice(0, 80);
                 localStorage.setItem(archiveKey, JSON.stringify(next));
-                renderArchive();
+                if (archiveOpen) renderArchive();
             } catch (e) { console.error('Archive error', e); }
         }
 
-        function renderArchive() {
+        let archiveOpen = false;
+
+        function toggleArchive() {
+            archiveOpen = !archiveOpen;
+            $('archive-list').classList.toggle('hidden', !archiveOpen);
+            $('archive-chevron').style.transform = archiveOpen ? 'rotate(90deg)' : '';
+            if (archiveOpen) renderArchive();
+        }
+
+        function clearArchive() {
+            localStorage.removeItem('dilaeit_trip_archive');
+            renderArchive();
+        }
+
+        function renderArchive(showAll = false) {
             const listEl = $('archive-list');
             listEl.innerHTML = '';
             let items;
             try { items = JSON.parse(localStorage.getItem('dilaeit_trip_archive') || '[]'); } catch { items = []; }
             items = items.filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000);
             if (items.length === 0) {
-                listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400">Noch keine Fahrten im Archiv.</div>';
+                listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400 text-xs py-1">Noch keine Fahrten im Archiv.</div>';
                 return;
             }
-            items.forEach(r => {
+            const PAGE = 5;
+            const visible = showAll ? items : items.slice(0, PAGE);
+            visible.forEach(r => {
                 const item = document.createElement('div');
-                item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700';
+                item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 cursor-pointer hover:border-red-400 transition-colors';
                 const time = new Date(r.timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
                 item.innerHTML = `
                     <div class="font-semibold text-xs">${r.station} • ${r.line}</div>
-                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time} • ${r.api.replace('https://','')}</div>`;
+                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time}</div>`;
                 item.onclick = () => {
                     state.currentStation = { id: r.stationId || r.data?.stop?.id || state.currentStation?.id, name: r.station };
                     state.currentRegion  = detectRegion(r.station);
@@ -867,6 +891,13 @@
                 };
                 listEl.appendChild(item);
             });
+            if (!showAll && items.length > PAGE) {
+                const btn = document.createElement('button');
+                btn.className = 'w-full text-center text-[11px] text-gray-400 hover:text-red-500 py-2 transition-colors';
+                btn.innerHTML = `<i class="fas fa-chevron-down mr-1"></i>+${items.length - PAGE} weitere`;
+                btn.onclick = () => renderArchive(true);
+                listEl.appendChild(btn);
+            }
         }
 
         // ─── Verbindungssuche ────────────────────────────────────────────────────────
