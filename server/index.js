@@ -2,217 +2,288 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
-
-// --- 1. PFADE DEFINIEREN (Suche an mehreren Positionen für Render) ---
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 
+// ─── Frontend-Pfad ermitteln ─────────────────────────────────────────────────
 const potentialPaths = [
-    path.join(process.cwd(), 'public'),      // Hauptverzeichnis
-    path.join(__dirname, '..', 'public'),   // Eine Ebene über /server
-    path.join(__dirname, 'public')          // Direkt im Ordner
+  path.join(process.cwd(), 'public'),
+  path.join(__dirname, '..', 'public'),
+  path.join(__dirname, 'public')
 ];
-
-let publicPath = potentialPaths[0]; 
+let publicPath = potentialPaths[0];
 for (const p of potentialPaths) {
-    if (fs.existsSync(path.join(p, 'index.html'))) {
-        publicPath = p;
-        break;
-    }
+  if (fs.existsSync(path.join(p, 'index.html'))) { publicPath = p; break; }
 }
-console.log('📂 Nutze Frontend-Pfad:', publicPath);
+console.log('📂 Frontend:', publicPath);
 
-// --- 2. HAFAS SETUP ---
-let hafas;
+// ─── db-hafas (optional) ─────────────────────────────────────────────────────
+// Dynamischer Import ist notwendig, weil db-hafas CommonJS ist und das Projekt
+// "type":"module" verwendet. createRequire() schlägt auf Render fehl und
+// bringt den gesamten Server zum Absturz – daher hier try/catch mit Fallback.
+let hafas = null;
 try {
-    const raw = require('db-hafas');
-    const createFn = (typeof raw === 'function' ? raw : null) || 
-                     raw.createHafas || 
-                     raw.default?.createHafas || 
-                     (typeof raw.default === 'function' ? raw.default : null);
-
-    if (typeof createFn !== 'function') throw new Error('Hafas-Funktion nicht gefunden');
+  const mod = await import('db-hafas');
+  const createFn = typeof mod.default === 'function' ? mod.default : mod.createHafas;
+  if (typeof createFn === 'function') {
     hafas = createFn('dilaeit-app');
-    console.log('✅ Hafas erfolgreich initialisiert');
+    console.log('✅ db-hafas initialisiert');
+  } else {
+    console.warn('⚠️  db-hafas: keine Factory-Funktion gefunden');
+  }
 } catch (e) {
-    console.error('❌ Fehler beim Laden von db-hafas:', e.message);
+  // Nicht fatal – VRR läuft auch ohne Hafas
+  console.warn('⚠️  db-hafas nicht verfügbar:', e.message, '→ nur VRR');
 }
 
-const app = express();
-
-// Statische Dateien servieren
-app.use(express.static(publicPath));
-
-// --- EFA KONFIGURATION ---
+// ─── EFA-Konfiguration ───────────────────────────────────────────────────────
+const app               = express();
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
-const EFA_VERSION = process.env.EFA_VERSION || '10.4.18.18';
+const EFA_VERSION       = process.env.EFA_VERSION       || '10.4.18.18';
 
-// --- HILFSFUNKTIONEN ---
+// ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
 function toIsoStringOrNull(v) {
-    if (!v) return null;
-    const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 function toYyyymmddUtc(iso) {
-    const d = new Date(iso);
-    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+  const d = new Date(iso);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`;
 }
 
 function toHmmUtc(iso) {
-    const d = new Date(iso);
-    return `${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  const d = new Date(iso);
+  return `${String(d.getUTCHours()).padStart(2,'0')}${String(d.getUTCMinutes()).padStart(2,'0')}`;
 }
 
 function encodeTripId(payload) {
-    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
 function decodeTripId(tripId) {
-    return JSON.parse(Buffer.from(tripId, 'base64url').toString('utf8'));
+  return JSON.parse(Buffer.from(tripId, 'base64url').toString('utf8'));
 }
 
 async function efaGet(endpoint, params) {
-    const url = new URL(`${OPEN_SERVICE_BASE}/${endpoint}`);
-    Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
-    });
-    const res = await fetch(url, { headers: { 'user-agent': 'dilaeit-vrr-proxy/0.1' } });
-    if (!res.ok) throw new Error(`EFA HTTP ${res.status}`);
-    return res.json();
+  const url = new URL(`${OPEN_SERVICE_BASE}/${endpoint}`);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+  });
+  const res  = await fetch(url, { headers: { 'user-agent': 'dilaeit-vrr-proxy/0.1' } });
+  const text = await res.text();
+  if (!res.ok) {
+    const err = new Error(`EFA HTTP ${res.status} ${endpoint}`);
+    err.status = res.status; err.body = text; throw err;
+  }
+  try { return JSON.parse(text); }
+  catch { const err = new Error(`EFA invalid JSON from ${endpoint}`); err.body = text; throw err; }
 }
 
-// --- API ROUTES ---
+// ─── Statische Dateien ───────────────────────────────────────────────────────
+app.use(express.static(publicPath));
+app.get('/', (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));
 
-app.get('/api/health', (req, res) => res.json({ ok: true, path: publicPath }));
+// ─── Health ──────────────────────────────────────────────────────────────────
+app.get('/api/health', (_req, res) => res.json({
+  ok: true, hafas: !!hafas, openServiceBase: OPEN_SERVICE_BASE
+}));
 
-// WICHTIG: Explizite Route für die Startseite (Fix für "Not Found")
-app.get('/', (req, res) => {
-    const indexPath = path.join(publicPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-    } else {
-        res.status(404).send(`Frontend nicht gefunden. Suche in: ${publicPath}`);
-    }
-});
-
+// ─── Stationssuche ───────────────────────────────────────────────────────────
 app.get('/api/locations', async (req, res) => {
-    try {
-        const query = (req.query.query || '').trim();
-        if (query.length < 2) return res.json({ locations: [] });
-        const data = await efaGet('XML_STOPFINDER_REQUEST', {
-            outputFormat: 'rapidJSON', version: EFA_VERSION, type_sf: 'any', name_sf: query
-        });
-        const locs = (data.locations || [])
-            .filter(l => l?.properties?.stopId)
-            .map(l => ({ id: String(l.properties.stopId), name: l.name, type: l.type }));
-        res.json({ locations: locs });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const query = (req.query.query || '').toString().trim();
+    if (query.length < 2) return res.json({ locations: [] });
+
+    const data = await efaGet('XML_STOPFINDER_REQUEST', {
+      outputFormat: 'rapidJSON', version: EFA_VERSION, language: 'de',
+      type_sf: 'any', name_sf: query, anyObjFilter_sf: 2, locationServerActive: 1
+    });
+
+    const locs = (data.locations || [])
+      .filter(l => l?.properties?.stopId && (l.type === 'stop' || l.type === 'platform'))
+      .slice(0, 12)
+      .map(l => ({ id: String(l.properties.stopId), name: l.name, type: l.type, source: 'VRR' }));
+
+    res.json({ locations: locs });
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-app.get('/api/stops/:id/departures', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const vrrData = await efaGet('XML_DM_REQUEST', {
-            outputFormat: 'rapidJSON', version: EFA_VERSION, mode: 'direct', type_dm: 'any', name_dm: id, useRealtime: 1
-        });
+// ─── Abfahrten ───────────────────────────────────────────────────────────────
+app.get('/api/stops/:stopId/departures', async (req, res) => {
+  try {
+    const stopId = String(req.params.stopId || '').trim();
+    if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
-        let departures = vrrData.departures || [];
-        const uicMatch = id.match(/80\d{5}/);
+    // ── ZEITFIX: ISO-String zeichenweise aufsplitten ──────────────────────────
+    // NICHT über new Date().getHours() – Render läuft in UTC, das ergäbe
+    // 2 Stunden Versatz zur deutschen Lokalzeit.
+    let itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute;
+    const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
+    if (whenRaw) {
+      const [datePart, timePart] = whenRaw.split('T');
+      const [y, mo, d] = datePart.split('-').map(Number);
+      const [h, mi]    = (timePart || '00:00').split(':').map(Number);
+      itdDateYear = y; itdDateMonth = mo; itdDateDay = d;
+      itdTimeHour = h; itdTimeMinute = mi;
+    } else {
+      const now = new Date();
+      itdDateYear = now.getFullYear(); itdDateMonth = now.getMonth()+1; itdDateDay = now.getDate();
+      itdTimeHour = now.getHours();    itdTimeMinute = now.getMinutes();
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
-        if (uicMatch && hafas) {
-            try {
-                const dbRes = await hafas.departures(uicMatch[0], { 
-                    duration: 60,
-                    products: {
-                        bus: false,
-                        tram: false,
-                        subway: false,
-                        nationalExpress: true,
-                        national: true,
-                        regional: true,
-                        suburban: true
-                    }
-                });
-                
-                departures.forEach(vDep => {
-                    const line = vDep.servingLine?.symbol || vDep.servingLine?.number;
-                    const dbMatch = dbRes.find(d => d.line.name === line);
-                    if (dbMatch) {
-                        vDep.delay = dbMatch.delay;
-                        vDep.dbTripId = dbMatch.tripId; 
-                        if (dbMatch.when) vDep.realDateTime = dbMatch.when;
-                    }
-                });
-            } catch (e) { console.warn("DB-Hafas Abgleich fehlgeschlagen"); }
-        }
+    const data = await efaGet('XML_DM_REQUEST', {
+      outputFormat: 'rapidJSON', version: EFA_VERSION,
+      mode: 'direct', type_dm: 'stopID', name_dm: stopId,
+      useRealtime: 1,
+      itdDateDay, itdDateMonth, itdDateYear,
+      itdTimeHour, itdTimeMinute,
+      itdTripDateTimeDepArr: 'dep',
+    });
 
-        const result = departures.map(d => {
-            const planned = toIsoStringOrNull(d.dateTime || d.plannedWhen);
-            const tripPayload = {
-                line: d.servingLine?.id || null,
-                stopID: id,
-                tripCode: d.servingLine?.properties?.tripCode ?? null,
-                date: planned ? toYyyymmddUtc(planned) : null,
-                time: planned ? toHmmUtc(planned) : null
-            };
+    const stopEvents = Array.isArray(data.stopEvents) ? data.stopEvents : [];
 
-            return {
-                tripId: tripPayload.line ? encodeTripId(tripPayload) : null,
-                dbTripId: d.dbTripId || null,
-                line: { name: d.servingLine?.symbol || d.servingLine?.number },
-                direction: d.servingLine?.direction,
-                plannedWhen: planned,
-                when: toIsoStringOrNull(d.realDateTime || d.dateTime || d.when),
-                delay: d.delay || 0,
-                platform: d.servingLine?.platformName || d.platformName,
-                hasLive: !!(d.realDateTime || d.delay !== undefined)
-            };
-        });
-        res.json({ departures: result });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    const departures = stopEvents.map(ev => {
+      const planned   = toIsoStringOrNull(ev.departureTimePlanned);
+      if (!planned) return null;
+
+      // estimated = null wenn kein Echtzeitsignal.
+      // NICHT auf planned defaulten: dann wäre delay=0 statt null und
+      // Verfrühungen würden als "pünktlich" angezeigt.
+      const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
+
+      // null = kein Signal | negativ = Verfrühung | positiv = Verspätung
+      const delaySec = estimated !== null
+        ? Math.round((Date.parse(estimated) - Date.parse(planned)) / 1000)
+        : null;
+
+      const platform =
+        ev.location?.properties?.platform ||
+        ev.location?.properties?.platformName ||
+        ev.location?.properties?.plannedPlatformName || null;
+
+      const lineName =
+        ev.transportation?.number ||
+        ev.transportation?.disassembledName ||
+        ev.transportation?.name || '???';
+
+      const productName  = (ev.transportation?.product?.name || '').toLowerCase();
+      const operatorName = ev.transportation?.operator?.name || null;
+
+      const tripPayload = {
+        line:     ev.transportation?.id || null,
+        stopID:   stopId,
+        tripCode: ev.transportation?.properties?.tripCode ?? null,
+        date:     toYyyymmddUtc(planned),
+        time:     toHmmUtc(planned)
+      };
+      const tripId = tripPayload.line && tripPayload.tripCode != null
+        ? encodeTripId(tripPayload) : null;
+
+      const cancelled = Array.isArray(ev.realtimeStatus) &&
+        ev.realtimeStatus.some(s => String(s).toUpperCase().includes('CANCEL'));
+
+      return {
+        plannedWhen:     planned,
+        when:            estimated ?? planned,
+        delay:           delaySec,
+        plannedPlatform: platform,
+        platform,
+        cancelled,
+        direction:       ev.transportation?.destination?.name || '',
+        tripId,
+        dbTripId:        null,  // ggf. unten per Hafas befüllt
+        prognosis:       { tripId, platform },
+        line: {
+          name:     String(lineName).replace(/^.*?\s+/, '').trim() || String(lineName),
+          product:  productName || 'bus',
+          operator: operatorName ? { name: operatorName } : undefined
+        },
+        _source: 'VRR OpenService'
+      };
+    }).filter(Boolean).slice(0, 60);
+
+    // ── Optionaler DB-Hafas-Abgleich (Züge an UIC-Haltestellen) ─────────────
+    if (hafas) {
+      const uicMatch = stopId.match(/^(80\d{5})$/);
+      if (uicMatch) {
+        try {
+          const dbRes = await hafas.departures(uicMatch[1], {
+            duration: 60,
+            products: { bus: false, tram: false, subway: false,
+                        nationalExpress: true, national: true, regional: true, suburban: true }
+          });
+          departures.forEach(dep => {
+            const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
+            if (dbMatch) {
+              if (dbMatch.delay !== undefined) dep.delay = dbMatch.delay;
+              if (dbMatch.tripId)             dep.dbTripId = dbMatch.tripId;
+              if (dbMatch.when)               dep.when = dbMatch.when;
+            }
+          });
+        } catch (e) { console.warn('DB-Hafas Abgleich fehlgeschlagen:', e.message); }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    res.json({ departures });
+  } catch (e) { console.error('departures error', e); res.status(502).json({ error: e.message }); }
 });
 
+// ─── DB-Zugdetails via Hafas ──────────────────────────────────────────────────
 app.get('/api/train-details/:tripId', async (req, res) => {
-    try {
-        const { tripId } = req.params;
-        const trip = await hafas.trip(tripId);
-        const stopovers = trip.stopovers.map(s => ({
-            stop: { name: s.stop.name },
-            plannedArrival: s.plannedArrival,
-            arrival: s.prognosedArrival || s.arrival,
-            plannedDeparture: s.plannedDeparture,
-            departure: s.prognosedDeparture || s.departure,
-            platform: s.platform
-        }));
-        res.json({ stopovers });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+  if (!hafas) return res.status(503).json({ error: 'hafas not available' });
+  try {
+    const trip = await hafas.trip(decodeURIComponent(req.params.tripId));
+    const stopovers = (trip.stopovers || []).map(s => ({
+      stop:             { name: s.stop?.name || '' },
+      plannedArrival:   s.plannedArrival,
+      arrival:          s.prognosedArrival   || s.arrival,
+      plannedDeparture: s.plannedDeparture,
+      departure:        s.prognosedDeparture || s.departure,
+      platform:         s.platform         || null,
+      plannedPlatform:  s.plannedPlatform   || s.platform || null,
+      cancelled:        s.cancelled || false,
+      additional:       false,
+    }));
+    res.json({ stopovers, source: 'Deutsche Bahn' });
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
+// ─── VRR-Fahrtverlauf ─────────────────────────────────────────────────────────
 app.get('/api/trips/:tripId', async (req, res) => {
-    try {
-        const payload = decodeTripId(req.params.tripId);
-        const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
-            outputFormat: 'rapidJSON', version: EFA_VERSION, mode: 'direct',
-            line: payload.line, stopID: payload.stopID, tripCode: payload.tripCode,
-            date: payload.date, time: payload.time, tStOTType: 'ALL', useRealtime: 1
-        });
-        const seq = data.transportation?.locationSequence || [];
-        const stopovers = seq.map(s => ({
-            stop: { name: s.name || '' },
-            plannedArrival: toIsoStringOrNull(s.arrivalTimePlanned),
-            arrival: toIsoStringOrNull(s.arrivalTimeEstimated),
-            plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
-            departure: toIsoStringOrNull(s.departureTimeEstimated)
-        }));
-        res.json({ stopovers });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const payload = decodeTripId(req.params.tripId);
+    const { line, stopID, tripCode, date, time } = payload || {};
+    if (!line || !stopID || tripCode == null || !date || !time)
+      return res.status(400).json({ error: 'tripId missing fields' });
+
+    const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
+      outputFormat: 'rapidJSON', version: EFA_VERSION,
+      mode: 'direct', line, stopID, tripCode, date, time,
+      tStOTType: 'ALL', useRealtime: 1
+    });
+
+    const seq       = data.transportation?.locationSequence || [];
+    const stopovers = (Array.isArray(seq) ? seq : []).map(s => ({
+      stop:             { name: s.name || s.parent?.name || '' },
+      plannedArrival:   toIsoStringOrNull(s.arrivalTimePlanned),
+      arrival:          toIsoStringOrNull(s.arrivalTimeEstimated),
+      plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
+      departure:        toIsoStringOrNull(s.departureTimeEstimated),
+      plannedPlatform:  s.properties?.plannedPlatformName || s.properties?.platformName || null,
+      platform:         s.properties?.platformName || s.properties?.platform || null,
+      cancelled:        false,
+      additional:       false,
+    }));
+
+    res.json({ stopovers, remarks: [], source: 'VRR OpenService' });
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server läuft auf Port ${PORT}`);
-});
+// ─── Server starten ───────────────────────────────────────────────────────────
+const port = Number(process.env.PORT || 8787);
+app.listen(port, '0.0.0.0', () => console.log(`🚀 dilaeit läuft auf Port ${port}`));
