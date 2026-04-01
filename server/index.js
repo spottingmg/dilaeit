@@ -218,11 +218,20 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
                         nationalExpress: true, national: true, regional: true, suburban: true }
           });
           departures.forEach(dep => {
-            const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
-            if (dbMatch) {
-              if (dbMatch.delay !== undefined) dep.delay = dbMatch.delay;
-              if (dbMatch.tripId)             dep.dbTripId = dbMatch.tripId;
-              if (dbMatch.when)               dep.when = dbMatch.when;
+            const isTrain = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS','S'].some(p => 
+              dep.line.name?.toUpperCase().startsWith(p + ' ') || 
+              dep.line.name?.toUpperCase().startsWith(p + '-') ||
+              dep.line.name?.toUpperCase() === p
+            );
+            if (isTrain) {
+              const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
+              if (dbMatch) {
+                // Bei Zügen überschreiben wir VRR-Daten komplett mit DB-Daten (mit Sekunden)
+                if (dbMatch.delay !== undefined) dep.delay = dbMatch.delay;
+                if (dbMatch.tripId)             dep.dbTripId = dbMatch.tripId;
+                if (dbMatch.when)               dep.when = dbMatch.when;
+                dep._source = 'Deutsche Bahn'; // Kennzeichnung für das Frontend
+              }
             }
           });
         } catch (e) { console.warn('DB-Hafas Abgleich fehlgeschlagen:', e.message); }
@@ -250,6 +259,7 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
                   if (dbMatch.delay !== undefined) dep.delay = dbMatch.delay;
                   if (dbMatch.tripId)             dep.dbTripId = dbMatch.tripId;
                   if (dbMatch.when)               dep.when = dbMatch.when;
+                  dep._source = 'Deutsche Bahn'; // Kennzeichnung für das Frontend
                 }
               }
             });
@@ -372,27 +382,70 @@ app.get('/api/trips/:tripId', async (req, res) => {
 app.get('/api/db/trip-details', async (req, res) => {
     const { number, date } = req.query;
     if (!number) return res.status(400).json({ error: 'Missing number' });
+    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
 
     try {
-        const trip = await hafas.trip(number, date || new Date().toISOString().slice(0, 10));
-        if (!trip) return res.status(404).json({ error: 'Trip not found' });
+        // Zuerst nach dem Namen suchen, um die tripId zu finden
+        const trips = await hafas.tripsByName(number, {
+            when: date ? new Date(date) : new Date(),
+            results: 1
+        });
 
-        // Stopover-Daten mit Sekunden-Genauigkeit
-        const stopovers = trip.stopovers || [];
-        const enrichedStopovers = await Promise.all(
-            stopovers.map(async (stop) => {
-                const stopDetails = await hafas.stop(stop.stop.id);
-                return {
-                    ...stop,
-                    stop: stopDetails
-                };
-            })
-        );
+        if (!trips || trips.length === 0) {
+            return res.status(404).json({ error: 'Trip not found' });
+        }
+
+        const trip = await hafas.trip(trips[0].id, {
+            stopovers: true,
+            remarks: true,
+            scheduled: true
+        });
+
+        if (!trip) return res.status(404).json({ error: 'Trip details not found' });
+
+        const stopovers = (trip.stopovers || []).map(s => {
+            const plannedArrival = s.plannedArrival ? new Date(s.plannedArrival).toISOString() : null;
+            const actualArrival = s.prognosedArrival || s.arrival;
+            const arrival = actualArrival ? new Date(actualArrival).toISOString() : null;
+
+            const plannedDeparture = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
+            const actualDeparture = s.prognosedDeparture || s.departure;
+            const departure = actualDeparture ? new Date(actualDeparture).toISOString() : null;
+
+            let arrivalDelaySec = null;
+            if (arrival && plannedArrival) {
+                arrivalDelaySec = Math.round((new Date(arrival) - new Date(plannedArrival)) / 1000);
+            }
+            let departureDelaySec = null;
+            if (departure && plannedDeparture) {
+                departureDelaySec = Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000);
+            }
+
+            return {
+                stop: { name: s.stop?.name || '', id: s.stop?.id },
+                plannedArrival,
+                arrival,
+                plannedDeparture,
+                departure,
+                arrivalDelaySec,
+                departureDelaySec,
+                platform: s.platform || null,
+                plannedPlatform: s.plannedPlatform || s.platform || null,
+                cancelled: s.cancelled || false,
+                additional: s.additional || false,
+                remarks: s.remarks || []
+            };
+        });
 
         res.json({
             tripId: trip.id,
             line: trip.line,
-            stopovers: enrichedStopovers,
+            stopovers,
+            remarks: (trip.remarks || []).map(r => ({
+                text: r.text || r.summary || '',
+                type: r.category || 'info'
+            })),
+            source: 'Deutsche Bahn (HAFAS)',
             operator: trip.operator,
             mode: trip.mode
         });
