@@ -5,42 +5,34 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-// --- LOGISCHER HAFAS-IMPORT ---
+// --- HAFAS SETUP ---
 let hafas;
 try {
-    // Schritt 1: Wir laden das Modul ganz "roh" via require
     const raw = require('db-hafas');
-    
-    // Schritt 2: Wir suchen die Funktion systematisch
-    // Wir probieren: Direkt-Export, .createHafas, oder .default.createHafas
     const createFn = (typeof raw === 'function' ? raw : null) || 
                      raw.createHafas || 
                      raw.default?.createHafas || 
                      (typeof raw.default === 'function' ? raw.default : null);
 
-    if (typeof createFn !== 'function') {
-        // Wenn wir hier landen, stimmt etwas mit der Installation nicht
-        console.error('Inhalt von db-hafas:', Object.keys(raw));
-        throw new Error('Keine gültige createHafas-Funktion gefunden.');
-    }
-
+    if (typeof createFn !== 'function') throw new Error('Hafas nicht gefunden');
     hafas = createFn('dilaeit-app');
     console.log('✅ Hafas erfolgreich initialisiert');
 } catch (e) {
-    console.error('❌ Schwerer Fehler beim Laden von db-hafas:', e.message);
-    // Wir werfen den Fehler nicht weiter, damit der Server wenigstens startet 
-    // und wir die Logs auf Render sehen können.
+    console.error('❌ Fehler beim Laden von db-hafas:', e.message);
 }
 
 // --- PFADE ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// WICHTIG: Render-Pfad-Fix für das Frontend
+// Wir schauen, ob 'public' neben der index.js liegt oder einen Ordner drüber
+const publicPath = path.join(__dirname, 'public'); 
+
 const app = express();
-// ... (der Rest deiner Routen bleibt gleich)
 
 // Statische Dateien (Frontend)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(publicPath));
 
 // --- EFA KONFIGURATION ---
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
@@ -85,6 +77,11 @@ async function efaGet(endpoint, params) {
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
+// FALLBACK: Wenn / aufgerufen wird, sende die index.html
+app.get('/', (req, res) => {
+    res.sendFile(path.join(publicPath, 'index.html'));
+});
+
 app.get('/api/locations', async (req, res) => {
     try {
         const query = (req.query.query || '').trim();
@@ -100,18 +97,6 @@ app.get('/api/locations', async (req, res) => {
 });
 
 app.get('/api/stops/:id/departures', async (req, res) => {
-    const dbRes = await hafas.departures(uicMatch[0], { 
-    duration: 60,
-    products: {
-        bus: false,        // Busse ignorieren (kommen vom VRR)
-        tram: false,       // Trams ignorieren
-        subway: false,     // U-Bahnen ignorieren
-        nationalExpress: true, 
-        national: true, 
-        regional: true, 
-        suburban: true     // S-Bahnen behalten
-    }
-});
     try {
         const { id } = req.params;
         const vrrData = await efaGet('XML_DM_REQUEST', {
@@ -121,9 +106,22 @@ app.get('/api/stops/:id/departures', async (req, res) => {
         let departures = vrrData.departures || [];
         const uicMatch = id.match(/80\d{5}/);
 
-        if (uicMatch) {
+        if (uicMatch && hafas) {
             try {
-                const dbRes = await hafas.departures(uicMatch[0], { duration: 60 });
+                // HIER ist jetzt die Filterung für Busse/Trams drin (nur Züge von DB)
+                const dbRes = await hafas.departures(uicMatch[0], { 
+                    duration: 60,
+                    products: {
+                        bus: false,
+                        tram: false,
+                        subway: false,
+                        nationalExpress: true,
+                        national: true,
+                        regional: true,
+                        suburban: true
+                    }
+                });
+                
                 departures.forEach(vDep => {
                     const line = vDep.servingLine?.symbol || vDep.servingLine?.number;
                     const dbMatch = dbRes.find(d => d.line.name === line);
@@ -162,12 +160,10 @@ app.get('/api/stops/:id/departures', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// NEU: Hochpräziser Fahrtverlauf von der DB
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
         const { tripId } = req.params;
         const trip = await hafas.trip(tripId);
-        
         const stopovers = trip.stopovers.map(s => ({
             stop: { name: s.stop.name },
             plannedArrival: s.plannedArrival,
@@ -176,14 +172,10 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             departure: s.prognosedDeparture || s.departure,
             platform: s.platform
         }));
-        
         res.json({ stopovers });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// VRR Fallback für Bus/Bahn
 app.get('/api/trips/:tripId', async (req, res) => {
     try {
         const payload = decodeTripId(req.params.tripId);
