@@ -233,24 +233,77 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
   } catch (e) { console.error('departures error', e); res.status(502).json({ error: e.message }); }
 });
 
-// ─── DB-Zugdetails via Hafas ──────────────────────────────────────────────────
+// ─── DB-Zugdetails via Hafas (sekundengenaue Echtzeitdaten) ──────────────────
 app.get('/api/train-details/:tripId', async (req, res) => {
-  if (!hafas) return res.status(503).json({ error: 'hafas not available' });
-  try {
-    const trip = await hafas.trip(decodeURIComponent(req.params.tripId));
-    const stopovers = (trip.stopovers || []).map(s => ({
-      stop:             { name: s.stop?.name || '' },
-      plannedArrival:   s.plannedArrival,
-      arrival:          s.prognosedArrival   || s.arrival,
-      plannedDeparture: s.plannedDeparture,
-      departure:        s.prognosedDeparture || s.departure,
-      platform:         s.platform         || null,
-      plannedPlatform:  s.plannedPlatform   || s.platform || null,
-      cancelled:        s.cancelled || false,
-      additional:       false,
-    }));
-    res.json({ stopovers, source: 'Deutsche Bahn' });
-  } catch (e) { res.status(502).json({ error: e.message }); }
+    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
+    try {
+        const tripId = decodeURIComponent(req.params.tripId);
+        const trip = await hafas.trip(tripId, {
+            polylines: false,
+            stopovers: true,
+            // Detaillierte Echtzeitdaten anfordern
+            remarks: true,
+            scheduled: false
+        });
+
+        const stopovers = (trip.stopovers || []).map(s => {
+            // DB-Hafas liefert ISO-Strings mit Sekunden (z.B. "2024-01-15T14:23:45+01:00")
+            // Diese werden 1:1 weitergegeben für sekundengenaue Anzeige
+            const plannedArrival = s.plannedArrival ? new Date(s.plannedArrival).toISOString() : null;
+            const actualArrival = s.prognosedArrival || s.arrival;
+            const arrival = actualArrival ? new Date(actualArrival).toISOString() : null;
+
+            const plannedDeparture = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
+            const actualDeparture = s.prognosedDeparture || s.departure;
+            const departure = actualDeparture ? new Date(actualDeparture).toISOString() : null;
+
+            // Verspätung/Verfrühung in Sekunden berechnen
+            let arrivalDelaySec = null;
+            if (arrival && plannedArrival) {
+                arrivalDelaySec = Math.round((new Date(arrival) - new Date(plannedArrival)) / 1000);
+            }
+            let departureDelaySec = null;
+            if (departure && plannedDeparture) {
+                departureDelaySec = Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000);
+            }
+
+            return {
+                stop: { name: s.stop?.name || '', id: s.stop?.id },
+                plannedArrival,
+                arrival,
+                plannedDeparture,
+                departure,
+                arrivalDelaySec,    // Neu: Verspätung in Sekunden für präzise Anzeige
+                departureDelaySec,  // Neu: Verspätung in Sekunden für präzise Anzeige
+                platform: s.platform || null,
+                plannedPlatform: s.plannedPlatform || s.platform || null,
+                cancelled: s.cancelled || false,
+                additional: s.additional || false,
+                remarks: s.remarks || []
+            };
+        });
+
+        // remarks aus dem Trip extrahieren (z.B. "Zug fällt aus", "Gleiswechsel")
+        const remarks = (trip.remarks || []).map(r => ({
+            text: r.text || r.summary || '',
+            type: r.category || 'info'
+        }));
+
+        res.json({
+            stopovers,
+            remarks,
+            source: 'Deutsche Bahn (HAFAS)',
+            tripId: trip.id,
+            line: trip.line ? {
+                name: trip.line.name,
+                product: trip.line.product,
+                operator: trip.line.operator?.name
+            } : null
+        });
+    } catch (e) {
+        console.error('train-details error:', e);
+        res.status(502).json({ error: e.message });
+    }
 });
 
 // ─── VRR-Fahrtverlauf ─────────────────────────────────────────────────────────
