@@ -1282,10 +1282,16 @@
                     } catch (e) { console.warn('DB-Suche fehlgeschlagen, Fallback zu VRR'); }
                 }
 
+                // Falls wir IMMER NOCH keine URL haben, aber es ein Zug ist, erzwingen wir eine Suche über die Nummer
+                if (!url && isTrainLine) {
+                    sourceName = 'Deutsche Bahn';
+                    // ... (hier wurde bereits oben gesucht, falls fehlgeschlagen bleibt url null)
+                }
+
                 // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
                 if (!url && vrrTripId) {
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                    sourceName = 'VRR OpenService';
+                    sourceName = isTrainLine ? 'Deutsche Bahn (Fallback)' : 'VRR OpenService';
                 }
                 
                 if (!url) throw new Error('Keine gültige Trip-ID gefunden');
