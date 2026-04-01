@@ -367,6 +367,41 @@ app.get('/api/trips/:tripId', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
+// ─── DB-Hafas Fahrten nach Nummer und Datum suchen (für Zeitreise)
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/db/trip-details', async (req, res) => {
+    const { number, date } = req.query;
+    if (!number) return res.status(400).json({ error: 'Missing number' });
+
+    try {
+        const trip = await hafas.trip(number, date || new Date().toISOString().slice(0, 10));
+        if (!trip) return res.status(404).json({ error: 'Trip not found' });
+
+        // Stopover-Daten mit Sekunden-Genauigkeit
+        const stopovers = trip.stopovers || [];
+        const enrichedStopovers = await Promise.all(
+            stopovers.map(async (stop) => {
+                const stopDetails = await hafas.stop(stop.stop.id);
+                return {
+                    ...stop,
+                    stop: stopDetails
+                };
+            })
+        );
+
+        res.json({
+            tripId: trip.id,
+            line: trip.line,
+            stopovers: enrichedStopovers,
+            operator: trip.operator,
+            mode: trip.mode
+        });
+    } catch (e) {
+        console.error('DB trip details error:', e);
+        res.status(500).json({ error: 'Trip details not found' });
+    }
+});
+
 // ─── Server starten ───────────────────────────────────────────────────────────
 const port = Number(process.env.PORT || 8787);
 app.listen(port, '0.0.0.0', () => console.log(`🚀 dilaeit läuft auf Port ${port}`));
