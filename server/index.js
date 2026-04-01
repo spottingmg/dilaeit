@@ -1,11 +1,31 @@
 import express from 'express';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-// --- HAFAS SETUP ---
+// --- 1. PFADE DEFINIEREN (Suche an mehreren Positionen für Render) ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const potentialPaths = [
+    path.join(process.cwd(), 'public'),      // Hauptverzeichnis
+    path.join(__dirname, '..', 'public'),   // Eine Ebene über /server
+    path.join(__dirname, 'public')          // Direkt im Ordner
+];
+
+let publicPath = potentialPaths[0]; 
+for (const p of potentialPaths) {
+    if (fs.existsSync(path.join(p, 'index.html'))) {
+        publicPath = p;
+        break;
+    }
+}
+console.log('📂 Nutze Frontend-Pfad:', publicPath);
+
+// --- 2. HAFAS SETUP ---
 let hafas;
 try {
     const raw = require('db-hafas');
@@ -14,38 +34,17 @@ try {
                      raw.default?.createHafas || 
                      (typeof raw.default === 'function' ? raw.default : null);
 
-    if (typeof createFn !== 'function') throw new Error('Hafas nicht gefunden');
+    if (typeof createFn !== 'function') throw new Error('Hafas-Funktion nicht gefunden');
     hafas = createFn('dilaeit-app');
     console.log('✅ Hafas erfolgreich initialisiert');
 } catch (e) {
     console.error('❌ Fehler beim Laden von db-hafas:', e.message);
 }
 
-// --- PFADE ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// process.cwd() ist auf Render das sicherste (Hauptverzeichnis)
-const publicPath = path.join(process.cwd(), 'public');
-
-console.log('📂 Suche Frontend in:', publicPath);
-
 const app = express();
 
-// Statische Dateien
+// Statische Dateien servieren
 app.use(express.static(publicPath));
-
-// Explizite Route für die Startseite
-app.get('/', (req, res) => {
-    const indexPath = path.join(publicPath, 'index.html');
-    res.sendFile(indexPath, (err) => {
-        if (err) {
-            console.error('❌ index.html nicht gefunden unter:', indexPath);
-            res.status(404).send('Frontend-Dateien (index.html) nicht gefunden.');
-        }
-    });
-});
-
 
 // --- EFA KONFIGURATION ---
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
@@ -88,11 +87,16 @@ async function efaGet(endpoint, params) {
 
 // --- API ROUTES ---
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.get('/api/health', (req, res) => res.json({ ok: true, path: publicPath }));
 
-// FALLBACK: Wenn / aufgerufen wird, sende die index.html
+// WICHTIG: Explizite Route für die Startseite (Fix für "Not Found")
 app.get('/', (req, res) => {
-    res.sendFile(path.join(publicPath, 'index.html'));
+    const indexPath = path.join(publicPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.status(404).send(`Frontend nicht gefunden. Suche in: ${publicPath}`);
+    }
 });
 
 app.get('/api/locations', async (req, res) => {
@@ -121,7 +125,6 @@ app.get('/api/stops/:id/departures', async (req, res) => {
 
         if (uicMatch && hafas) {
             try {
-                // HIER ist jetzt die Filterung für Busse/Trams drin (nur Züge von DB)
                 const dbRes = await hafas.departures(uicMatch[0], { 
                     duration: 60,
                     products: {
