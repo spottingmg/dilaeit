@@ -211,31 +211,24 @@
             showMessage('Suche nach Fahrt...', 'info');
             
             try {
-                // Auto-Erkennung: Zug → DB-Hafas, sonst VRR
-                const isTrainLine = isTrain(number);
-                
-                if (isTrainLine) {
-                    // Zug erkannt → suche zuerst in DB-Hafas
-                    const dbResult = await searchDbTrip(number, date);
-                    if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
-                        currentTripData = { number, date, results: [dbResult] };
-                        showTripResults(dbResult, 'Deutsche Bahn (HAFAS)');
-                        return;
-                    } else {
-                        showMessage('Keine DB-Hafas-Daten für diese Zugnummer gefunden.', 'error');
-                        return;
-                    }
+                // Suche in beiden Quellen parallel
+                const [dbResult, vrrResult] = await Promise.all([
+                    searchDbTrip(number, date),
+                    searchVrrTrip(number, date)
+                ]);
+
+                // Priorität: DB-Hafas zuerst, dann VRR
+                if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
+                    currentTripData = { number, date, results: [dbResult] };
+                    showTripResults(dbResult, 'Deutsche Bahn (HAFAS)');
+                    return;
+                } else if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
+                    currentTripData = { number, date, results: [vrrResult] };
+                    showTripResults(vrrResult, 'VRR OpenService');
+                    return;
                 } else {
-                    // Kein Zug → suche zuerst in VRR
-                    const vrrResult = await searchVrrTrip(number, date);
-                    if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
-                        currentTripData = { number, date, results: [vrrResult] };
-                        showTripResults(vrrResult, 'VRR OpenService');
-                        return;
-                    } else {
-                        showMessage('Keine VRR-Daten für diese Busnummer gefunden.', 'error');
-                        return;
-                    }
+                    showMessage('Keine Fahrt mit dieser Nummer gefunden.', 'error');
+                    return;
                 }
             } catch (e) {
                 console.error('Trip search error:', e);
