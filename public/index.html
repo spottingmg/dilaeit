@@ -744,11 +744,19 @@
 
                 // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
                 let roundedDelay = null;
+                let showSeconds = false;
                 if (dep.delay !== null && dep.delay !== undefined) {
-                    const mins = dep.delay / 60;
-                    // Verspätung (positiv): erst ab vollen Minuten anzeigen → floor
-                    // Verfrühung (negativ): erst ab vollen Minuten anzeigen → ceil
-                    roundedDelay = mins >= 0 ? Math.floor(mins) : Math.ceil(mins);
+                    const secs = dep.delay;
+                    const mins = secs / 60;
+                    // Bei Verspätung/Verfrühung >= 60 Sekunden: auf ganze Minuten runden
+                    // Bei < 60 Sekunden: Sekunden anzeigen für präzisere Anzeige
+                    if (Math.abs(secs) >= 60) {
+                        roundedDelay = secs >= 0 ? Math.floor(mins) : Math.ceil(mins);
+                    } else {
+                        // Zeige Sekunden bei kleinen Abweichungen
+                        roundedDelay = secs;
+                        showSeconds = true;
+                    }
                 }
 
                 // Verfrühung: blau + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
@@ -763,7 +771,7 @@
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
                             <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${roundedDelay}'</span>` : ''}
+                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${roundedDelay}${showSeconds ? 's' : "'"}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -1465,30 +1473,60 @@
                 const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
                 const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
 
-                const formatTime = (sched, actual, hasLive) => {
+                const formatTime = (sched, actual, hasLive, delaySec) => {
                     if (!sched) return '';
                     const isPast  = actual && actual.getTime() < Date.now();
-                    const delay   = actual && sched ? Math.round((actual - sched) / 60000) : null;
+                    // Wenn delaySec übergeben (von DB-Hafas), verwenden wir das direkt
+                    // Sonst berechnen wir aus der Differenz in Minuten
+                    let delay = delaySec !== undefined && delaySec !== null
+                        ? Math.round(delaySec / 60)  // Für Anzeige runden wir auf Minuten
+                        : (actual && sched ? Math.round((actual - sched) / 60000) : null);
+
                     // Soll-Zeit: deutlich sichtbar, nicht ausgeblendet
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    let delayStr  = '';
-                    if (delay !== null && delay !== 0) {
-                        const dc   = delay >= 1 ? 'text-red-500' : 'text-blue-400';
+
+                    // Delay-Anzeige mit Sekunden-Präzision wenn verfügbar
+                    let delayStr = '';
+                    if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
+                        const dc = delaySec >= 0 ? 'text-red-500' : 'text-blue-400';
+                        const sign = delaySec > 0 ? '+' : '';
+                        const absDelay = Math.abs(delaySec);
+                        if (absDelay >= 60) {
+                            // Bei >= 60 Sekunden: Minuten anzeigen
+                            delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${Math.round(absDelay / 60)}'</span>`;
+                        } else {
+                            // Bei < 60 Sekunden: Sekunden anzeigen für Präzision
+                            delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${absDelay}s</span>`;
+                        }
+                    } else if (delay !== null && delay !== 0) {
+                        const dc = delay >= 1 ? 'text-red-500' : 'text-blue-400';
                         const sign = delay > 0 ? '+' : '';
-                        delayStr   = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${Math.abs(delay)}'</span>`;
+                        delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${Math.abs(delay)}'</span>`;
                     }
+
                     // Keine Echtzeitdaten: nur Soll-Zeit, normal
                     if (!hasLive && !actual) {
                         return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
-                    const rtColor = delay !== null
-                        ? (delay >= 1 ? 'text-red-400' : (delay <= -1 ? 'text-blue-400' : 'text-green-400'))
-                        : 'text-green-400';
+
+                    // Bestimme Farbe basierend auf Verspätung/Verfrühung
+                    const rtColor = delaySec !== null && delaySec !== undefined
+                        ? (delaySec > 30 ? 'text-red-400' : (delaySec < -30 ? 'text-blue-400' : 'text-green-400'))
+                        : (delay !== null
+                            ? (delay >= 1 ? 'text-red-400' : (delay <= -1 ? 'text-blue-400' : 'text-green-400'))
+                            : 'text-green-400');
+
+                    // Bei DB-Hafas Daten oder wenn Sekunden verfügbar: immer mit Sekunden anzeigen
+                    const showSeconds = delaySec !== null && delaySec !== undefined;
+
                     if (isPast) {
                         // Echtzeit bestätigt – fett + Sekunden
+                        return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: showSeconds ? '2-digit' : '2-digit' })}</span>${delayStr}`;
+                    } else if (showSeconds) {
+                        // DB-Hafas Prognose mit Sekunden-Präzision
                         return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
                     } else {
-                        // Prognose – kursiv, aber lesbar
+                        // VRR Prognose – kursiv, aber lesbar
                         return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
                     }
                 };
@@ -1521,8 +1559,8 @@
                                 </div>
                             </div>
                             <div class="text-right mono text-[11px] leading-tight shrink-0">
-                                ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr)}</div>` : ''}
-                                ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep)}</div>` : ''}
+                                ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec)}</div>` : ''}
+                                ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep, stop.departureDelaySec)}</div>` : ''}
                             </div>
                         </div>
                     </div>`;
