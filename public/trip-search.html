@@ -244,20 +244,24 @@
         // ─── VRR Suche ───────────────────────────────────────────────────────────────
         async function searchVrrTrip(number, date) {
             try {
-                // VRR hat keine direkte Suche nach Trip-Nummer, daher probieren wir es mit einer generischen Suche
-                // und filtern dann nach der Nummer
-                const stations = await searchVrrStations('Düsseldorf'); // Beispiel-Station
-                if (!stations || stations.length === 0) return null;
+                // VRR Suche: Wir suchen nach der Nummer in den Abfahrten einer zentralen Station
+                // Um die Trefferquote zu erhöhen, probieren wir mehrere große Knotenpunkte
+                const hubs = ['Düsseldorf Hbf', 'Essen Hbf', 'Dortmund Hbf', 'Duisburg Hbf', 'Aachen Hbf'];
+                
+                for (const hub of hubs) {
+                    const stations = await searchVrrStations(hub);
+                    if (!stations || stations.length === 0) continue;
 
-                const departures = await getVrrDepartures(stations[0].id, date);
-                const matchingTrip = departures.find(d => 
-                    d.line?.name === number || 
-                    String(d.line?.name).toUpperCase() === String(number).toUpperCase()
-                );
+                    const departures = await getVrrDepartures(stations[0].id, date);
+                    const matchingTrip = departures.find(d => 
+                        d.line?.name === number || 
+                        String(d.line?.name).toUpperCase() === String(number).toUpperCase() ||
+                        String(d.line?.name).includes(number)
+                    );
 
-                if (matchingTrip) {
-                    const tripDetails = await getVrrTripDetails(matchingTrip.tripId);
-                    return tripDetails;
+                    if (matchingTrip && matchingTrip.tripId) {
+                        return await getVrrTripDetails(matchingTrip.tripId);
+                    }
                 }
                 return null;
             } catch (e) {
