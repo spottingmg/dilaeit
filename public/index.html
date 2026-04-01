@@ -1235,8 +1235,11 @@
 
         // ─── Trip-Details ────────────────────────────────────────────────────────────
         async function showTripDetails(dep) {
-            const tripId = dep.tripId || dep.prognosis?.tripId;
-            if (!tripId && !dep.dbTripId) return;
+            // tripId ist die VRR-ID, dbTripId ist die DB-Hafas-ID
+            const vrrTripId = dep.tripId || dep.prognosis?.tripId;
+            const dbTripId = dep.dbTripId;
+            
+            if (!vrrTripId && !dbTripId) return;
 
             const lineName = dep.line?.name || dep.line?.id || '???';
             const modal    = $('detail-view');
@@ -1255,36 +1258,38 @@
                 let url;
                 let sourceName = 'VRR OpenService';
                 
-                if (dep.dbTripId) {
-                    // DB-Hafas-TripId vorhanden → immer DB nutzen
-                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dep.dbTripId)}`;
-                    sourceName = 'Deutsche Bahn (HAFAS)';
+                // PRIORITÄT: Wenn wir eine DB-TripId haben, nutzen wir diese IMMER für Züge
+                if (dbTripId) {
+                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`;
+                    sourceName = 'Deutsche Bahn';
                 } else if (isTrainLine) {
-                    // Zug erkannt, aber keine DB-TripId → Suche nach Trip-Nummer
+                    // Falls wir noch keine DB-ID haben, versuchen wir sie über die Zugnummer zu finden
                     const number = dep.line?.name || dep.line?.id || '';
                     const date = $('query-date').value || new Date().toISOString().slice(0, 10);
                     const searchUrl = `${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`;
-                    const searchRes = await fetch(searchUrl, {
-                        signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
-                    });
-                    if (searchRes.ok) {
-                        const searchData = await searchRes.json();
-                        if (searchData?.tripId) {
-                            url = `${API_BASE}/api/train-details/${encodeURIComponent(searchData.tripId)}`;
-                            sourceName = 'Deutsche Bahn (HAFAS)';
-                        } else {
-                            // Fallback zu VRR
-                            url = `${API_BASE}/api/trips/${encodeURIComponent(tripId)}`;
+                    
+                    try {
+                        const searchRes = await fetch(searchUrl, {
+                            signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
+                        });
+                        if (searchRes.ok) {
+                            const searchData = await searchRes.json();
+                            if (searchData?.tripId) {
+                                url = `${API_BASE}/api/train-details/${encodeURIComponent(searchData.tripId)}`;
+                                sourceName = 'Deutsche Bahn';
+                            }
                         }
-                    } else {
-                        // Fallback zu VRR
-                        url = `${API_BASE}/api/trips/${encodeURIComponent(tripId)}`;
-                    }
-                } else {
-                    // Kein Zug → VRR
-                    url = `${API_BASE}/api/trips/${encodeURIComponent(tripId)}`;
+                    } catch (e) { console.warn('DB-Suche fehlgeschlagen, Fallback zu VRR'); }
+                }
+
+                // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
+                if (!url && vrrTripId) {
+                    url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
+                    sourceName = 'VRR OpenService';
                 }
                 
+                if (!url) throw new Error('Keine gültige Trip-ID gefunden');
+
                 const res = await fetch(url, {
                     signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined
                 });
