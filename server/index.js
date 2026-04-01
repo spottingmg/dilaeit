@@ -19,7 +19,8 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-import { createHafas } from 'db-hafas';
+import hafasModule from 'db-hafas';
+const createHafas = hafasModule.createHafas || hafasModule;
 let hafas = null;
 try {
   hafas = createHafas('dilaeit-app');
