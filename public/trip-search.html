@@ -254,24 +254,28 @@
             dropdown.innerHTML = '';
 
             if (trips.length === 0) {
-                dropdown.classList.add('hidden');
+                dropdown.innerHTML = '<div class="px-4 py-3 text-sm text-gray-500 italic">Keine Fahrten gefunden.</div>';
+                dropdown.classList.remove('hidden');
                 return;
             }
 
             trips.forEach(trip => {
                 const item = document.createElement('div');
-                item.className = 'px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center justify-between';
+                item.className = 'px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center justify-between group/item';
                 
                 const time = trip.plannedDeparture ? new Date(trip.plannedDeparture).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
                 
                 item.innerHTML = `
                     <div class="flex-1 min-w-0">
-                        <div class="text-sm font-bold text-red-600 italic">${trip.name}</div>
-                        <div class="text-xs text-gray-500 truncate">Richtung: ${trip.direction || 'Unbekannt'}</div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-black text-red-600 italic group-hover/item:text-red-500">${trip.name}</span>
+                            <span class="text-gray-400 text-xs">→</span>
+                        </div>
+                        <div class="text-sm font-bold truncate text-gray-700 dark:text-gray-200">${trip.direction || 'Unbekannt'}</div>
                     </div>
                     <div class="text-right ml-4">
-                        <div class="text-xs font-mono font-bold">${time}</div>
-                        <div class="text-[10px] text-gray-400 uppercase">Start</div>
+                        <div class="text-sm font-mono font-bold text-gray-800 dark:text-gray-100">${time}</div>
+                        <div class="text-[9px] text-gray-500 uppercase tracking-widest">Start</div>
                     </div>
                 `;
 
