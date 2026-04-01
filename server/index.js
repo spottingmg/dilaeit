@@ -19,11 +19,10 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-import hafasModule from 'db-hafas';
-const createHafas = hafasModule.createHafas || hafasModule;
+import { createDbHafas } from 'db-hafas';
 let hafas = null;
 try {
-  hafas = createHafas('dilaeit-app');
+  hafas = createDbHafas('dilaeit-app');
   console.log('✅ db-hafas initialisiert');
 } catch (e) {
   console.warn('⚠️  db-hafas konnte nicht initialisiert werden:', e.message);
@@ -277,7 +276,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
     if (!hafas) return res.status(503).json({ error: 'hafas not available' });
     try {
         const tripId = decodeURIComponent(req.params.tripId);
-        const trip = await hafas.trip(tripId, {
+        const { trip } = await hafas.trip(tripId, {
             polylines: false,
             stopovers: true,
             // Detaillierte Echtzeitdaten anfordern
@@ -384,13 +383,13 @@ app.get('/api/db/trips-by-name', async (req, res) => {
     if (!hafas) return res.status(503).json({ error: 'hafas not available' });
 
     try {
-        const trips = await hafas.tripsByName(query, {
+        const result = await hafas.tripsByName(query, {
             when: date ? new Date(date) : new Date(),
             results: 20
         });
 
         res.json({
-            trips: (trips || []).map(t => ({
+            trips: (result.trips || []).map(t => ({
                 id: t.id,
                 name: t.line?.name || t.direction || 'Unbekannt',
                 direction: t.direction,
@@ -416,28 +415,28 @@ app.get('/api/db/trip-details', async (req, res) => {
 
         // Wenn keine direkte tripId übergeben wurde, suchen wir nach dem Namen
         if (!finalTripId) {
-            let trips = await hafas.tripsByName(number, {
+            let result = await hafas.tripsByName(number, {
                 when: date ? new Date(date) : new Date(),
                 results: 3
             });
 
-            if ((!trips || trips.length === 0) && isNaN(number)) {
+            if ((!result.trips || result.trips.length === 0) && isNaN(number)) {
                 const cleanNumber = number.replace(/^[A-Z]+\s*/i, '');
                 if (cleanNumber !== number) {
-                    trips = await hafas.tripsByName(cleanNumber, {
+                    result = await hafas.tripsByName(cleanNumber, {
                         when: date ? new Date(date) : new Date(),
                         results: 3
                     });
                 }
             }
 
-            if (!trips || trips.length === 0) {
+            if (!result.trips || result.trips.length === 0) {
                 return res.status(404).json({ error: 'Trip not found' });
             }
-            finalTripId = trips[0].id;
+            finalTripId = result.trips[0].id;
         }
 
-        const trip = await hafas.trip(finalTripId, {
+        const { trip } = await hafas.trip(finalTripId, {
             stopovers: true,
             remarks: true,
             scheduled: true
