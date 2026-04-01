@@ -206,10 +206,11 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
       };
     }).filter(Boolean).slice(0, 60);
 
-    // ── Optionaler DB-Hafas-Abgleich (Züge an UIC-Haltestellen) ─────────────
+    // ── Optionaler DB-Hafas-Abgleich (Züge) ──────────────────────────────────
     if (hafas) {
       const uicMatch = stopId.match(/^(80\d{5})$/);
       if (uicMatch) {
+        // UIC-Haltestelle: direkte Abfrage
         try {
           const dbRes = await hafas.departures(uicMatch[1], {
             duration: 60,
@@ -225,6 +226,35 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
             }
           });
         } catch (e) { console.warn('DB-Hafas Abgleich fehlgeschlagen:', e.message); }
+      } else {
+        // Nicht-UIC-Haltestelle: Suche nach der Station und Abgleich nur für Züge
+        try {
+          const stationSearch = await hafas.locations(stopId, { results: 1 });
+          if (stationSearch?.length > 0) {
+            const station = stationSearch[0];
+            const dbRes = await hafas.departures(station.id, {
+              duration: 60,
+              products: { bus: false, tram: false, subway: false,
+                          nationalExpress: true, national: true, regional: true, suburban: true }
+            });
+            departures.forEach(dep => {
+              // Nur Züge mit DB-Hafas abgleichen
+              const isTrain = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS','S'].some(p => 
+                dep.line.name?.toUpperCase().startsWith(p + ' ') || 
+                dep.line.name?.toUpperCase().startsWith(p + '-') ||
+                dep.line.name?.toUpperCase() === p
+              );
+              if (isTrain) {
+                const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
+                if (dbMatch) {
+                  if (dbMatch.delay !== undefined) dep.delay = dbMatch.delay;
+                  if (dbMatch.tripId)             dep.dbTripId = dbMatch.tripId;
+                  if (dbMatch.when)               dep.when = dbMatch.when;
+                }
+              }
+            });
+          }
+        } catch (e) { console.warn('DB-Hafas Abgleich für Nicht-UIC fehlgeschlagen:', e.message); }
       }
     }
     // ─────────────────────────────────────────────────────────────────────────
