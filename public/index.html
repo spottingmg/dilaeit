@@ -1232,7 +1232,10 @@
             const modal    = $('detail-view');
             const itinerary = $('trip-itinerary');
             modal.classList.add('active');
-            const loaderText = dep.dbTripId ? 'Lade DB-Echtzeitdaten...' : 'Lade Verlauf...';
+            
+            // Auto-Erkennung: Zug → DB-Hafas, sonst VRR
+            const isTrainLine = isTrain(dep.line);
+            const loaderText = isTrainLine ? 'Lade DB-Echtzeitdaten...' : 'Lade Verlauf...';
             itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i><div class="text-xs mono opacity-50 mt-3">${loaderText}</div></div>`;
             $('detail-line-badge').textContent = lineName;
             $('detail-train-direction').textContent = dep.direction || 'Unbekanntes Ziel';
@@ -1240,13 +1243,38 @@
             currentTripDetail = dep;
             try {
                 let url;
+                let sourceName = 'VRR OpenService';
+                
                 if (dep.dbTripId) {
-                    // Zug mit DB-Hafas-TripId → sekundengenaue DB-Daten
+                    // DB-Hafas-TripId vorhanden → immer DB nutzen
                     url = `${API_BASE}/api/train-details/${encodeURIComponent(dep.dbTripId)}`;
+                    sourceName = 'Deutsche Bahn (HAFAS)';
+                } else if (isTrainLine) {
+                    // Zug erkannt, aber keine DB-TripId → Suche nach Trip-Nummer
+                    const number = dep.line?.name || dep.line?.id || '';
+                    const date = $('query-date').value || new Date().toISOString().slice(0, 10);
+                    const searchUrl = `${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`;
+                    const searchRes = await fetch(searchUrl, {
+                        signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
+                    });
+                    if (searchRes.ok) {
+                        const searchData = await searchRes.json();
+                        if (searchData?.tripId) {
+                            url = `${API_BASE}/api/train-details/${encodeURIComponent(searchData.tripId)}`;
+                            sourceName = 'Deutsche Bahn (HAFAS)';
+                        } else {
+                            // Fallback zu VRR
+                            url = `${API_BASE}/api/trips/${encodeURIComponent(tripId)}`;
+                        }
+                    } else {
+                        // Fallback zu VRR
+                        url = `${API_BASE}/api/trips/${encodeURIComponent(tripId)}`;
+                    }
                 } else {
-                    // VRR-Weg für Busse & Stadtbahnen
+                    // Kein Zug → VRR
                     url = `${API_BASE}/api/trips/${encodeURIComponent(tripId)}`;
                 }
+                
                 const res = await fetch(url, {
                     signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined
                 });
@@ -1254,7 +1282,6 @@
                 const data = await res.json();
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
-                const sourceName = data?.source  || 'VRR OpenService';
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
             } catch (e) {
