@@ -70,7 +70,8 @@
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6">
         <header class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
+      <h1 class="text-3xl font-black italic tracking-tighter">
+  <a href="https://dilaeit.onrender.com/" class="text-red-600 hover:text-red-700 transition-colors">dilaeit</a></h1>
             <div class="flex items-center gap-6">
                 <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform">
                     <i class="fas fa-moon dark:hidden"></i>
@@ -147,6 +148,24 @@
             results: []
         };
 
+        // ─── Zug-Erkennung ───────────────────────────────────────────────────────────
+        function isTrain(lineName) {
+            if (!lineName) return false;
+            const name = (lineName || '').toUpperCase();
+            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
+            const prefixMatches = (p) => {
+                if (name === p) return true;
+                if (name.startsWith(p + ' ') || name.startsWith(p + '-')) return true;
+                // Handles patterns like "RS1" / "RE4" where there is no delimiter.
+                if (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1))) return true;
+                return false;
+            };
+            if (trainPrefixes.some(prefixMatches)) return true;
+            // S-Bahn in den NRW-APIs kommt oft als "S 8" oder "S8"
+            if (/^S\s*\d+/.test(name)) return true;
+            return false;
+        }
+
         // ─── Init ────────────────────────────────────────────────────────────────────
         function init() {
             setupEventListeners();
@@ -193,20 +212,41 @@
             showMessage('Suche nach Fahrt...', 'info');
             
             try {
-                // Suche in VRR-Daten
-                const vrrResult = await searchVrrTrip(number, date);
-                if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
-                    currentTripData = { number, date, results: [vrrResult] };
-                    showTripResults(vrrResult, 'VRR OpenService');
-                    return;
-                }
-
-                // Suche in DB-Hafas-Daten
-                const dbResult = await searchDbTrip(number, date);
-                if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
-                    currentTripData = { number, date, results: [dbResult] };
-                    showTripResults(dbResult, 'Deutsche Bahn (HAFAS)');
-                    return;
+                // Auto-Erkennung: Zug → DB-Hafas, sonst VRR
+                const isTrainLine = isTrain(number);
+                
+                if (isTrainLine) {
+                    // Zug erkannt → suche zuerst in DB-Hafas
+                    const dbResult = await searchDbTrip(number, date);
+                    if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
+                        currentTripData = { number, date, results: [dbResult] };
+                        showTripResults(dbResult, 'Deutsche Bahn (HAFAS)');
+                        return;
+                    }
+                    
+                    // Fallback zu VRR
+                    const vrrResult = await searchVrrTrip(number, date);
+                    if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
+                        currentTripData = { number, date, results: [vrrResult] };
+                        showTripResults(vrrResult, 'VRR OpenService');
+                        return;
+                    }
+                } else {
+                    // Kein Zug → suche zuerst in VRR
+                    const vrrResult = await searchVrrTrip(number, date);
+                    if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
+                        currentTripData = { number, date, results: [vrrResult] };
+                        showTripResults(vrrResult, 'VRR OpenService');
+                        return;
+                    }
+                    
+                    // Fallback zu DB-Hafas
+                    const dbResult = await searchDbTrip(number, date);
+                    if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
+                        currentTripData = { number, date, results: [dbResult] };
+                        showTripResults(dbResult, 'Deutsche Bahn (HAFAS)');
+                        return;
+                    }
                 }
 
                 showMessage('Keine Fahrt mit dieser Nummer gefunden.', 'error');
