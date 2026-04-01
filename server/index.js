@@ -1,25 +1,43 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'module';
 
-// --- HAFAS SETUP (Namespace-Import für Node 25) ---
-import * as hafasModule from 'db-hafas';
+const require = createRequire(import.meta.url);
 
-// Wir extrahieren die Funktion aus dem Namespace
-const createHafas = hafasModule.createHafas || hafasModule.default?.createHafas || hafasModule.default;
+// --- LOGISCHER HAFAS-IMPORT ---
+let hafas;
+try {
+    // Schritt 1: Wir laden das Modul ganz "roh" via require
+    const raw = require('db-hafas');
+    
+    // Schritt 2: Wir suchen die Funktion systematisch
+    // Wir probieren: Direkt-Export, .createHafas, oder .default.createHafas
+    const createFn = (typeof raw === 'function' ? raw : null) || 
+                     raw.createHafas || 
+                     raw.default?.createHafas || 
+                     (typeof raw.default === 'function' ? raw.default : null);
 
-if (typeof createHafas !== 'function') {
-    throw new Error('Hafas-Bibliothek konnte nicht geladen werden. Struktur unbekannt.');
+    if (typeof createFn !== 'function') {
+        // Wenn wir hier landen, stimmt etwas mit der Installation nicht
+        console.error('Inhalt von db-hafas:', Object.keys(raw));
+        throw new Error('Keine gültige createHafas-Funktion gefunden.');
+    }
+
+    hafas = createFn('dilaeit-app');
+    console.log('✅ Hafas erfolgreich initialisiert');
+} catch (e) {
+    console.error('❌ Schwerer Fehler beim Laden von db-hafas:', e.message);
+    // Wir werfen den Fehler nicht weiter, damit der Server wenigstens startet 
+    // und wir die Logs auf Render sehen können.
 }
-
-const hafas = createHafas('dilaeit-app');
 
 // --- PFADE ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// ... restlicher Code
+// ... (der Rest deiner Routen bleibt gleich)
 
 // Statische Dateien (Frontend)
 app.use(express.static(path.join(__dirname, 'public')));
