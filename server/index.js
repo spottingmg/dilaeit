@@ -384,37 +384,68 @@ app.get('/api/trips/:tripId', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// ─── DB-Hafas Fahrten nach Nummer und Datum suchen (für Zeitreise)
+// ─── DB-Hafas Fahrten nach Name suchen (für Autocomplete)
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/api/db/trip-details', async (req, res) => {
-    const { number, date } = req.query;
-    if (!number) return res.status(400).json({ error: 'Missing number' });
+app.get('/api/db/trips-by-name', async (req, res) => {
+    const { query, date } = req.query;
+    if (!query) return res.status(400).json({ error: 'Missing query' });
     if (!hafas) return res.status(503).json({ error: 'hafas not available' });
 
     try {
-        // Zuerst nach dem Namen suchen, um die tripId zu finden
-        let trips = await hafas.tripsByName(number, {
+        const trips = await hafas.tripsByName(query, {
             when: date ? new Date(date) : new Date(),
-            results: 3 // Mehr Ergebnisse anfordern, um bessere Trefferchance zu haben
+            results: 10
         });
 
-        // Fallback: Falls nichts gefunden wurde, probiere es ohne Präfix (falls vorhanden)
-        if ((!trips || trips.length === 0) && isNaN(number)) {
-            const cleanNumber = number.replace(/^[A-Z]+\s*/i, '');
-            if (cleanNumber !== number) {
-                trips = await hafas.tripsByName(cleanNumber, {
-                    when: date ? new Date(date) : new Date(),
-                    results: 3
-                });
+        res.json({
+            trips: (trips || []).map(t => ({
+                id: t.id,
+                name: t.line?.name || t.direction || 'Unbekannt',
+                direction: t.direction,
+                line: t.line,
+                plannedDeparture: t.plannedDeparture || (t.stopovers?.[0]?.plannedDeparture)
+            }))
+        });
+    } catch (e) {
+        console.error('DB trips by name error:', e);
+        res.status(500).json({ error: 'Error searching for trips' });
+    }
+});
+
+// ─── DB-Hafas Fahrten nach Nummer und Datum suchen (für Zeitreise)
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/db/trip-details', async (req, res) => {
+    const { number, date, tripId } = req.query;
+    if (!number && !tripId) return res.status(400).json({ error: 'Missing number or tripId' });
+    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
+
+    try {
+        let finalTripId = tripId;
+
+        // Wenn keine direkte tripId übergeben wurde, suchen wir nach dem Namen
+        if (!finalTripId) {
+            let trips = await hafas.tripsByName(number, {
+                when: date ? new Date(date) : new Date(),
+                results: 3
+            });
+
+            if ((!trips || trips.length === 0) && isNaN(number)) {
+                const cleanNumber = number.replace(/^[A-Z]+\s*/i, '');
+                if (cleanNumber !== number) {
+                    trips = await hafas.tripsByName(cleanNumber, {
+                        when: date ? new Date(date) : new Date(),
+                        results: 3
+                    });
+                }
             }
+
+            if (!trips || trips.length === 0) {
+                return res.status(404).json({ error: 'Trip not found' });
+            }
+            finalTripId = trips[0].id;
         }
 
-        if (!trips || trips.length === 0) {
-            return res.status(404).json({ error: 'Trip not found' });
-        }
-
-        // Wir nehmen das erste Ergebnis, das eine gültige ID hat
-        const trip = await hafas.trip(trips[0].id, {
+        const trip = await hafas.trip(finalTripId, {
             stopovers: true,
             remarks: true,
             scheduled: true
