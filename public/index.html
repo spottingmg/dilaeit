@@ -1585,7 +1585,7 @@
                                         const cls      = changed ? 'platform-changed' : 'text-gray-500 dark:text-gray-400';
                                         const label    = changed
                                             ? `Gleis <span class="line-through opacity-50">${planned}</span> → <span>${actual}</span>`
-                                            : `Gleis/Bst. ${display}`;
+                                            : `Gleis ${display}`;
                                         return `<span class="${cls} font-semibold">${label}</span>`;
                                     })()}
                                     ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
