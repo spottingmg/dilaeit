@@ -24,15 +24,31 @@ try {
 // --- PFADE ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// --- PFADE ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// WICHTIG: Render-Pfad-Fix für das Frontend
-// Wir schauen, ob 'public' neben der index.js liegt oder einen Ordner drüber
-const publicPath = path.join(__dirname, 'public'); 
+// process.cwd() ist auf Render das sicherste (Hauptverzeichnis)
+const publicPath = path.join(process.cwd(), 'public');
+
+console.log('📂 Suche Frontend in:', publicPath);
 
 const app = express();
 
-// Statische Dateien (Frontend)
+// Statische Dateien
 app.use(express.static(publicPath));
+
+// Explizite Route für die Startseite
+app.get('/', (req, res) => {
+    const indexPath = path.join(publicPath, 'index.html');
+    res.sendFile(indexPath, (err) => {
+        if (err) {
+            console.error('❌ index.html nicht gefunden unter:', indexPath);
+            res.status(404).send('Frontend-Dateien (index.html) nicht gefunden.');
+        }
+    });
+});
+
 
 // --- EFA KONFIGURATION ---
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
