@@ -145,16 +145,23 @@
         </header>
 
         <div class="search-container space-y-4">
-            <div class="relative group">
-                <input 
-                    type="text" 
-                    id="station-search" 
-                    placeholder="Haltestelle suchen..." 
-                    autocomplete="off"
-                    class="w-full bg-gray-100 dark:bg-zinc-900 border-none rounded-2xl py-5 pl-14 pr-4 text-lg focus:ring-2 focus:ring-red-500/50 transition-all outline-none shadow-sm"
-                >
-                <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
-                <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results"></div>
+            <div class="flex gap-2">
+                <div class="relative group flex-1">
+                    <input 
+                        type="text" 
+                        id="station-search" 
+                        placeholder="Haltestelle suchen..." 
+                        autocomplete="off"
+                        class="w-full bg-gray-100 dark:bg-zinc-900 border-none rounded-2xl py-5 pl-14 pr-4 text-lg focus:ring-2 focus:ring-red-500/50 transition-all outline-none shadow-sm"
+                    >
+                    <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
+                    <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results"></div>
+                </div>
+                <a href="trip-search.html" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2">
+                    <i class="fas fa-train"></i>
+                    <span class="hidden md:inline">Zug-/Busnummer</span>
+                    <span class="md:hidden">Nummer</span>
+                </a>
             </div>
 
             <div class="flex gap-3 items-center overflow-x-auto pb-2 no-scrollbar">
@@ -1578,7 +1585,7 @@
                                         const cls      = changed ? 'platform-changed' : 'text-gray-500 dark:text-gray-400';
                                         const label    = changed
                                             ? `Gleis <span class="line-through opacity-50">${planned}</span> → <span>${actual}</span>`
-                                            : `Gleis ${display}`;
+                                            : `Gleis/Bst. ${display}`;
                                         return `<span class="${cls} font-semibold">${label}</span>`;
                                     })()}
                                     ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
