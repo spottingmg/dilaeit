@@ -19,22 +19,13 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-// Dynamischer Import ist notwendig, weil db-hafas CommonJS ist und das Projekt
-// "type":"module" verwendet. createRequire() schlägt auf Render fehl und
-// bringt den gesamten Server zum Absturz – daher hier try/catch mit Fallback.
+import { createHafas } from 'db-hafas';
 let hafas = null;
 try {
-  const mod = await import('db-hafas');
-  const createFn = typeof mod.default === 'function' ? mod.default : mod.createHafas;
-  if (typeof createFn === 'function') {
-    hafas = createFn('dilaeit-app');
-    console.log('✅ db-hafas initialisiert');
-  } else {
-    console.warn('⚠️  db-hafas: keine Factory-Funktion gefunden');
-  }
+  hafas = createHafas('dilaeit-app');
+  console.log('✅ db-hafas initialisiert');
 } catch (e) {
-  // Nicht fatal – VRR läuft auch ohne Hafas
-  console.warn('⚠️  db-hafas nicht verfügbar:', e.message, '→ nur VRR');
+  console.warn('⚠️  db-hafas konnte nicht initialisiert werden:', e.message);
 }
 
 // ─── EFA-Konfiguration ───────────────────────────────────────────────────────
@@ -394,7 +385,7 @@ app.get('/api/db/trips-by-name', async (req, res) => {
     try {
         const trips = await hafas.tripsByName(query, {
             when: date ? new Date(date) : new Date(),
-            results: 10
+            results: 20
         });
 
         res.json({
