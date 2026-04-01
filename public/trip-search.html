@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Fahrtensuche - dilaeit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f3f4f6;
+            --text-primary: #111827;
+            --text-secondary: #4b5563;
+            --accent: #ef4444;
+            --success: #22c55e;
+            --error: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        .dark {
+            --bg-primary: #121212;
+            --bg-secondary: #1e1e1e;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .trip-item {
+            border-bottom: 1px solid rgba(156, 163, 175, 0.1);
+        }
+
+        .itinerary-line {
+            position: absolute;
+            left: 14px; top: 0; bottom: 0;
+            width: 2px;
+            background-color: #374151;
+            z-index: 0;
+        }
+
+        .itinerary-item {
+            padding-left: 32px;
+            margin-bottom: 0.45rem;
+            min-height: 48px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .itinerary-item-content { margin-left: 12px; }
+        
+        .precision-time { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .thin-prognosis { font-weight: 300; }
+        
+        .delay-positive { color: #ef4444; }
+        .delay-negative { color: #3b82f6; }
+        .delay-zero { color: #22c55e; }
+    </style>
+</head>
+<body class="dark transition-colors duration-300">
+    <div class="max-w-4xl mx-auto px-4 py-6">
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
+            <div class="flex items-center gap-6">
+                <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform">
+                    <i class="fas fa-moon dark:hidden"></i>
+                    <i class="fas fa-sun hidden dark:block text-yellow-500"></i>
+                </button>
+            </div>
+        </header>
+
+        <div class="space-y-6">
+            <!-- Hauptsuche -->
+            <div class="p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-4">Fahrtensuche</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="relative">
+                        <input id="trip-number-input" type="text" placeholder="Zug-/Busnummer (z.B. IC2201, 722)" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-lg" />
+                        <i class="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    </div>
+                    <div class="relative">
+                        <input id="trip-date-input" type="date" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="search-trip-btn" class="px-6 py-3 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-500 transition">Suchen</button>
+                        <button id="clear-trip-btn" class="px-6 py-3 bg-gray-600 text-white font-semibold rounded-xl hover:bg-gray-500 transition">Leeren</button>
+                    </div>
+                </div>
+                <div id="trip-search-results" class="mt-4 text-sm text-gray-600 dark:text-gray-300"></div>
+            </div>
+
+            <!-- Zeitreise-Navigation -->
+            <div id="trip-navigation" class="hidden p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <button id="prev-day-btn" class="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-500 transition">
+                            <i class="fas fa-chevron-left mr-2"></i>Vorheriger Tag
+                        </button>
+                        <button id="next-day-btn" class="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-500 transition">
+                            <i class="fas fa-chevron-right mr-2"></i>Nächster Tag
+                        </button>
+                    </div>
+                    <div class="text-right text-sm text-gray-500">
+                        <span id="current-trip-date-display">--</span>
+                        <div class="text-xs text-gray-400">Fahrt: <span id="current-trip-number-display">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fahrtverlauf -->
+            <div id="trip-itinerary-container" class="hidden p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">Fahrtverlauf</h3>
+                    <div class="text-sm text-gray-500">
+                        <span id="trip-source-display">Quelle: --</span>
+                    </div>
+                </div>
+                <div id="trip-itinerary" class="space-y-6 relative">
+                    <div class="itinerary-line"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ─── Konfiguration ───────────────────────────────────────────────────────────
+        const API_BASE = (() => {
+            const saved = localStorage.getItem('dilaeit_api_base');
+            if (saved) return saved;
+            return '';
+        })();
+
+        // ─── Globale Variablen ───────────────────────────────────────────────────────
+        let currentTripData = {
+            number: null,
+            date: null,
+            results: []
+        };
+
+        // ─── Init ────────────────────────────────────────────────────────────────────
+        function init() {
+            setupEventListeners();
+            setupDefaultDate();
+            attachThemeToggle();
+        }
+
+        function setupDefaultDate() {
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, '0');
+            const d = String(today.getDate()).padStart(2, '0');
+            document.getElementById('trip-date-input').value = `${y}-${m}-${d}`;
+        }
+
+        function attachThemeToggle() {
+            document.getElementById('theme-toggle').addEventListener('click', () => {
+                document.body.classList.toggle('dark');
+            });
+        }
+
+        function setupEventListeners() {
+            document.getElementById('search-trip-btn').addEventListener('click', handleTripSearch);
+            document.getElementById('clear-trip-btn').addEventListener('click', clearTripSearch);
+            document.getElementById('trip-number-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleTripSearch();
+            });
+            
+            // Zeitreise-Buttons
+            document.getElementById('prev-day-btn').addEventListener('click', () => changeTripDate(-1));
+            document.getElementById('next-day-btn').addEventListener('click', () => changeTripDate(1));
+        }
+
+        // ─── Suche nach Fahrt ───────────────────────────────────────────────────────
+        async function handleTripSearch() {
+            const number = document.getElementById('trip-number-input').value.trim();
+            const date = document.getElementById('trip-date-input').value;
+            
+            if (!number) {
+                showMessage('Bitte gib eine Zug-/Busnummer ein (z.B. IC2201, 722)', 'error');
+                return;
+            }
+
+            showMessage('Suche nach Fahrt...', 'info');
+            
+            try {
+                // Suche in VRR-Daten
+                const vrrResult = await searchVrrTrip(number, date);
+                if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
+                    currentTripData = { number, date, results: [vrrResult] };
+                    showTripResults(vrrResult, 'VRR OpenService');
+                    return;
+                }
+
+                // Suche in DB-Hafas-Daten
+                const dbResult = await searchDbTrip(number, date);
+                if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
+                    currentTripData = { number, date, results: [dbResult] };
+                    showTripResults(dbResult, 'Deutsche Bahn (HAFAS)');
+                    return;
+                }
+
+                showMessage('Keine Fahrt mit dieser Nummer gefunden.', 'error');
+            } catch (e) {
+                console.error('Trip search error:', e);
+                showMessage('Fehler bei der Suche.', 'error');
+            }
+        }
+
+        // ─── VRR Suche ───────────────────────────────────────────────────────────────
+        async function searchVrrTrip(number, date) {
+            try {
+                // VRR hat keine direkte Suche nach Trip-Nummer, daher probieren wir es mit einer generischen Suche
+                // und filtern dann nach der Nummer
+                const stations = await searchVrrStations('Düsseldorf'); // Beispiel-Station
+                if (!stations || stations.length === 0) return null;
+
+                const departures = await getVrrDepartures(stations[0].id, date);
+                const matchingTrip = departures.find(d => 
+                    d.line?.name === number || 
+                    String(d.line?.name).toUpperCase() === String(number).toUpperCase()
+                );
+
+                if (matchingTrip) {
+                    const tripDetails = await getVrrTripDetails(matchingTrip.tripId);
+                    return tripDetails;
+                }
+                return null;
+            } catch (e) {
+                console.warn('VRR trip search failed:', e);
+                return null;
+            }
+        }
+
+        // ─── DB Suche ────────────────────────────────────────────────────────────────
+        async function searchDbTrip(number, date) {
+            try {
+                // DB-Hafas Suche nach Trip-Nummer
+                const trips = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`);
+                if (!trips.ok) return null;
+                const data = await trips.json();
+                return data || null;
+            } catch (e) {
+                console.warn('DB trip search failed:', e);
+                return null;
+            }
+        }
+
+        // ─── Hilfsfunktionen für VRR ─────────────────────────────────────────────────
+        async function searchVrrStations(query) {
+            const res = await fetch(`${API_BASE}/api/locations?query=${encodeURIComponent(query)}`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            return data?.locations || [];
+        }
+
+        async function getVrrDepartures(stopId, date) {
+            const res = await fetch(`${API_BASE}/api/stops/${encodeURIComponent(stopId)}/departures?when=${encodeURIComponent(date)}T12:00:00&duration=120&results=40`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            return data?.departures || [];
+        }
+
+        async function getVrrTripDetails(tripId) {
+            const res = await fetch(`${API_BASE}/api/trips/${encodeURIComponent(tripId)}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data;
+        }
+
+        // ─── Anzeige ─────────────────────────────────────────────────────────────────
+        function showTripResults(tripData, source) {
+            document.getElementById('trip-navigation').classList.remove('hidden');
+            document.getElementById('trip-itinerary-container').classList.remove('hidden');
+            
+            document.getElementById('current-trip-number-display').textContent = currentTripData.number;
+            document.getElementById('current-trip-date-display').textContent = formatDate(currentTripData.date);
+            document.getElementById('trip-source-display').textContent = `Quelle: ${source}`;
+            
+            renderTripItinerary(tripData);
+        }
+
+        function renderTripItinerary(tripData) {
+            const container = document.getElementById('trip-itinerary');
+            container.innerHTML = '';
+            
+            const stopovers = tripData.stopovers || [];
+            
+            stopovers.forEach((stop, index) => {
+                const item = document.createElement('div');
+                item.className = 'relative itinerary-item';
+                
+                const schedArr = stop.plannedArrival ? new Date(stop.plannedArrival) : null;
+                const actualArr = stop.arrival ? new Date(stop.arrival) : null;
+                const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const actualDep = stop.departure ? new Date(stop.departure) : null;
+                
+                const arrTime = schedArr ? schedArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                const depTime = schedDep ? schedDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                
+                const arrActual = actualArr ? actualArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                const depActual = actualDep ? actualDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                
+                const arrDelay = actualArr && schedArr ? Math.round((actualArr - schedArr) / 60000) : null;
+                const depDelay = actualDep && schedDep ? Math.round((actualDep - schedDep) / 60000) : null;
+                
+                const arrDelayClass = arrDelay > 0 ? 'delay-positive' : (arrDelay < 0 ? 'delay-negative' : 'delay-zero');
+                const depDelayClass = depDelay > 0 ? 'delay-positive' : (depDelay < 0 ? 'delay-negative' : 'delay-zero');
+                
+                item.innerHTML = `
+                    <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 bg-red-600"></div>
+                    <div class="itinerary-item-content">
+                        <div class="flex justify-between items-start gap-2">
+                            <div class="min-w-0">
+                                <h4 class="font-semibold text-sm">${stop.stop.name}</h4>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    Gleis: ${stop.platform || '---'}
+                                </div>
+                            </div>
+                            <div class="text-right mono text-xs leading-tight shrink-0">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span class="text-gray-600 text-[10px]">AN</span>
+                                    <span class="font-mono">${arrTime}</span>
+                                    ${arrActual ? `<span class="precision-time ${arrDelayClass}">${arrActual}</span>` : ''}
+                                    ${arrDelay !== null ? `<span class="text-[9px] ${arrDelayClass}">${arrDelay > 0 ? '+' : ''}${arrDelay}'</span>` : ''}
+                                </div>
+                                <div class="flex items-center justify-end gap-1">
+                                    <span class="text-gray-600 text-[10px]">AB</span>
+                                    <span class="font-mono">${depTime}</span>
+                                    ${depActual ? `<span class="precision-time ${depDelayClass}">${depActual}</span>` : ''}
+                                    ${depDelay !== null ? `<span class="text-[9px] ${depDelayClass}">${depDelay > 0 ? '+' : ''}${depDelay}'</span>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // ─── Zeitreise ───────────────────────────────────────────────────────────────
+        function changeTripDate(days) {
+            if (!currentTripData.number) return;
+            
+            const currentDate = new Date(currentTripData.date);
+            const newDate = new Date(currentDate);
+            newDate.setDate(currentDate.getDate() + days);
+            
+            const y = newDate.getFullYear();
+            const m = String(newDate.getMonth() + 1).padStart(2, '0');
+            const d = String(newDate.getDate()).padStart(2, '0');
+            const newDateString = `${y}-${m}-${d}`;
+            
+            currentTripData.date = newDateString;
+            document.getElementById('trip-date-input').value = newDateString;
+            document.getElementById('current-trip-date-display').textContent = formatDate(newDateString);
+            
+            // Neue Suche für das geänderte Datum
+            handleTripSearch();
+        }
+
+        // ─── UI-Hilfsfunktionen ─────────────────────────────────────────────────────
+        function showMessage(text, type = 'info') {
+            const container = document.getElementById('trip-search-results');
+            container.innerHTML = `<div class="text-${type === 'error' ? 'red' : 'gray'}-500">${text}</div>`;
+        }
+
+        function formatDate(dateString) {
+            const d = new Date(dateString);
+            return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+
+        function clearTripSearch() {
+            document.getElementById('trip-number-input').value = '';
+            document.getElementById('trip-date-input').value = '';
+            document.getElementById('trip-navigation').classList.add('hidden');
+            document.getElementById('trip-itinerary-container').classList.add('hidden');
+            document.getElementById('trip-search-results').innerHTML = '';
+            currentTripData = { number: null, date: null, results: [] };
+        }
+
+        // ─── Init ────────────────────────────────────────────────────────────────────
+        init();
+    </script>
+</body>
+</html>
