@@ -24,9 +24,6 @@ try {
 // --- PFADE ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// --- PFADE ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // process.cwd() ist auf Render das sicherste (Hauptverzeichnis)
 const publicPath = path.join(process.cwd(), 'public');
