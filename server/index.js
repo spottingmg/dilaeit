@@ -19,10 +19,11 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-import { createDbHafas } from 'db-hafas';
+import hafasModule from 'db-hafas';
+const createHafas = hafasModule.createHafas || hafasModule;
 let hafas = null;
 try {
-  hafas = createDbHafas('dilaeit-app');
+  hafas = createHafas('dilaeit-app');
   console.log('✅ db-hafas initialisiert');
 } catch (e) {
   console.warn('⚠️  db-hafas konnte nicht initialisiert werden:', e.message);
@@ -385,7 +386,8 @@ app.get('/api/db/trips-by-name', async (req, res) => {
     try {
         const result = await hafas.tripsByName(query, {
             when: date ? new Date(date) : new Date(),
-            results: 20
+            results: 20,
+            onlyCurrentlyRunning: false // WICHTIG: Erlaubt die Suche nach Fahrten in der Zukunft/Vergangenheit
         });
 
         res.json({
@@ -399,7 +401,7 @@ app.get('/api/db/trips-by-name', async (req, res) => {
         });
     } catch (e) {
         console.error('DB trips by name error:', e);
-        res.status(500).json({ error: 'Error searching for trips' });
+        res.status(500).json({ error: 'Error searching for trips', details: e.message });
     }
 });
 
