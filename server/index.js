@@ -218,11 +218,15 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
                         nationalExpress: true, national: true, regional: true, suburban: true }
           });
           departures.forEach(dep => {
-            const isTrain = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS','S'].some(p => 
-              dep.line.name?.toUpperCase().startsWith(p + ' ') || 
-              dep.line.name?.toUpperCase().startsWith(p + '-') ||
-              dep.line.name?.toUpperCase() === p
-            );
+            const name = (dep.line?.name || '').toUpperCase();
+            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
+            const isTrain = trainPrefixes.some(p => 
+              name === p || 
+              name.startsWith(p + ' ') || 
+              name.startsWith(p + '-') ||
+              (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1)))
+            ) || /^S\s*\d+/i.test(name);
+
             if (isTrain) {
               const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
               if (dbMatch) {
@@ -247,12 +251,15 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
                           nationalExpress: true, national: true, regional: true, suburban: true }
             });
             departures.forEach(dep => {
-              // Nur Züge mit DB-Hafas abgleichen
-              const isTrain = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS','S'].some(p => 
-                dep.line.name?.toUpperCase().startsWith(p + ' ') || 
-                dep.line.name?.toUpperCase().startsWith(p + '-') ||
-                dep.line.name?.toUpperCase() === p
-              );
+              const name = (dep.line?.name || '').toUpperCase();
+              const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
+              const isTrain = trainPrefixes.some(p => 
+                name === p || 
+                name.startsWith(p + ' ') || 
+                name.startsWith(p + '-') ||
+                (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1)))
+              ) || /^S\s*\d+/i.test(name);
+
               if (isTrain) {
                 const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
                 if (dbMatch) {
@@ -386,15 +393,27 @@ app.get('/api/db/trip-details', async (req, res) => {
 
     try {
         // Zuerst nach dem Namen suchen, um die tripId zu finden
-        const trips = await hafas.tripsByName(number, {
+        let trips = await hafas.tripsByName(number, {
             when: date ? new Date(date) : new Date(),
-            results: 1
+            results: 3 // Mehr Ergebnisse anfordern, um bessere Trefferchance zu haben
         });
+
+        // Fallback: Falls nichts gefunden wurde, probiere es ohne Präfix (falls vorhanden)
+        if ((!trips || trips.length === 0) && isNaN(number)) {
+            const cleanNumber = number.replace(/^[A-Z]+\s*/i, '');
+            if (cleanNumber !== number) {
+                trips = await hafas.tripsByName(cleanNumber, {
+                    when: date ? new Date(date) : new Date(),
+                    results: 3
+                });
+            }
+        }
 
         if (!trips || trips.length === 0) {
             return res.status(404).json({ error: 'Trip not found' });
         }
 
+        // Wir nehmen das erste Ergebnis, das eine gültige ID hat
         const trip = await hafas.trip(trips[0].id, {
             stopovers: true,
             remarks: true,
