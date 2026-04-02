@@ -308,7 +308,9 @@
             try {
                 // Wenn wir eine explizite ID haben, nutzen wir diese direkt
                 if (explicitTripId) {
-                    const dbResult = await fetch(`${API_BASE}/api/db/trip-details?tripId=${encodeURIComponent(explicitTripId)}&date=${encodeURIComponent(date)}`).then(r => r.ok ? r.json() : null);
+                    const dbResult = await fetch(`${API_BASE}/api/db/trip-details?tripId=${encodeURIComponent(explicitTripId)}&date=${encodeURIComponent(date)}`, {
+                        signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+                    }).then(r => r.ok ? r.json() : null);
                     if (dbResult) {
                         showTripResults(dbResult, 'Deutsche Bahn');
                         return;
@@ -373,9 +375,11 @@
         async function searchDbTrip(number, date) {
             try {
                 // DB-Hafas Suche nach Trip-Nummer
-                const trips = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`);
-                if (!trips.ok) return null;
-                const data = await trips.json();
+                const res = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, {
+                    signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
+                });
+                if (!res.ok) return null;
+                const data = await res.json();
                 return data || null;
             } catch (e) {
                 console.warn('DB trip search failed:', e);
@@ -407,10 +411,13 @@
 
         // ─── Anzeige ─────────────────────────────────────────────────────────────────
         function showTripResults(tripData, source) {
+            showMessage('', 'info'); // Suchmeldung löschen
             document.getElementById('trip-navigation').classList.remove('hidden');
             document.getElementById('trip-itinerary-container').classList.remove('hidden');
             
-            document.getElementById('current-trip-number-display').textContent = currentTripData.number;
+            // Falls der Name im tripData steht, nutzen wir diesen
+            const displayName = tripData.line?.name || currentTripData.number;
+            document.getElementById('current-trip-number-display').textContent = displayName;
             document.getElementById('current-trip-date-display').textContent = formatDate(currentTripData.date);
             document.getElementById('trip-source-display').textContent = `Quelle: ${source}`;
             
