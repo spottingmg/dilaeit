@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createDbHafas as createHafas } from 'db-hafas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -19,7 +20,6 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-import { createDbHafas as createHafas } from 'db-hafas';
 let hafas = null;
 try {
   hafas = createHafas('dilaeit-app');
@@ -109,15 +109,15 @@ app.get('/api/db/locations', async (req, res) => {
     if (query.length < 2) return res.json({ locations: [] });
     if (!hafas) return res.status(503).json({ error: 'DB-Hafas nicht initialisiert' });
 
-    const locations = await hafas.locations(query, { results: 12 });
-    const locs = (locations || [])
-      .filter(l => l.type === 'stop' || l.type === 'station')
-      .map(l => ({
-        id: String(l.id),
-        name: l.name,
-        type: l.type,
-        source: 'DB'
-      }));
+    const result = await hafas.locations(query, { results: 12 });
+    const locs = (result || [])
+        .filter(l => l.type === 'stop' || l.type === 'station')
+        .map(l => ({
+            id: String(l.id),
+            name: l.name,
+            type: l.type,
+            source: 'DB'
+        }));
 
     res.json({ locations: locs });
   } catch (e) { 
@@ -272,11 +272,12 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
       if (uicMatch) {
         // UIC-Haltestelle: direkte Abfrage
         try {
-          const { departures: dbRes } = await hafas.departures(uicMatch[1], {
+          const result = await hafas.departures(uicMatch[1], {
             duration: 60,
             products: { bus: false, tram: false, subway: false,
                         nationalExpress: true, national: true, regional: true, suburban: true }
           });
+          const dbRes = result.departures || [];
           departures.forEach(dep => {
             const name = (dep.line?.name || '').toUpperCase();
             const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
@@ -303,13 +304,14 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
         // Nicht-UIC-Haltestelle: Suche nach der Station und Abgleich nur für Züge
         try {
           const stationSearch = await hafas.locations(stopId, { results: 1 });
-          if (stationSearch?.length > 0) {
+          if (Array.isArray(stationSearch) && stationSearch.length > 0) {
             const station = stationSearch[0];
-            const { departures: dbRes } = await hafas.departures(station.id, {
+            const result = await hafas.departures(station.id, {
               duration: 60,
               products: { bus: false, tram: false, subway: false,
                           nationalExpress: true, national: true, regional: true, suburban: true }
             });
+            const dbRes = result.departures || [];
             departures.forEach(dep => {
               const name = (dep.line?.name || '').toUpperCase();
               const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
@@ -345,13 +347,16 @@ app.get('/api/train-details/:tripId', async (req, res) => {
     if (!hafas) return res.status(503).json({ error: 'hafas not available' });
     try {
         const tripId = decodeURIComponent(req.params.tripId);
-        const trip = await hafas.trip(tripId, {
+        const result = await hafas.trip(tripId, {
             polylines: false,
             stopovers: true,
             // Detaillierte Echtzeitdaten anfordern
             remarks: true,
             scheduled: false
         });
+        const trip = result.trip;
+
+        if (!trip) throw new Error('Trip not found');
 
         const stopovers = (trip.stopovers || []).map(s => {
             // DB-Hafas liefert ISO-Strings mit Sekunden (z.B. "2024-01-15T14:23:45+01:00")
@@ -506,11 +511,12 @@ app.get('/api/db/trip-details', async (req, res) => {
             finalTripId = result.trips[0].id;
         }
 
-        const trip = await hafas.trip(finalTripId, {
+        const resTrip = await hafas.trip(finalTripId, {
             stopovers: true,
             remarks: true,
             scheduled: true
         });
+        const trip = resTrip.trip;
 
         if (!trip) return res.status(404).json({ error: 'Trip details not found' });
 
