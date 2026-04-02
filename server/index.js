@@ -83,7 +83,7 @@ app.get('/api/health', (_req, res) => res.json({
   ok: true, hafas: !!hafas, openServiceBase: OPEN_SERVICE_BASE
 }));
 
-// ─── Stationssuche ───────────────────────────────────────────────────────────
+// ─── Stationssuche (VRR) ─────────────────────────────────────────────────────
 app.get('/api/locations', async (req, res) => {
   try {
     const query = (req.query.query || '').toString().trim();
@@ -100,6 +100,72 @@ app.get('/api/locations', async (req, res) => {
       .map(l => ({ id: String(l.properties.stopId), name: l.name, type: l.type, source: 'VRR' }));
 
     res.json({ locations: locs });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// ─── Stationssuche (DB) ──────────────────────────────────────────────────────
+app.get('/api/db/locations', async (req, res) => {
+  try {
+    const query = (req.query.query || '').toString().trim();
+    if (query.length < 2) return res.json({ locations: [] });
+    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
+
+    const locations = await hafas.locations(query, { results: 12 });
+    const locs = (locations || [])
+      .filter(l => l.type === 'stop' || l.type === 'station')
+      .map(l => ({
+        id: String(l.id),
+        name: l.name,
+        type: l.type,
+        source: 'DB'
+      }));
+
+    res.json({ locations: locs });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// ─── Abfahrten (DB) ──────────────────────────────────────────────────────────
+app.get('/api/db/stops/:stopId/departures', async (req, res) => {
+  try {
+    const stopId = String(req.params.stopId || '').trim();
+    if (!stopId) return res.status(400).json({ error: 'missing stopId' });
+    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
+
+    const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
+    const when = whenRaw ? new Date(whenRaw) : new Date();
+
+    const result = await hafas.departures(stopId, {
+      when,
+      duration: 120,
+      results: 60,
+      remarks: true,
+      stopovers: false
+    });
+
+    const departures = (result.departures || []).map(d => {
+      const planned = d.plannedWhen ? new Date(d.plannedWhen).toISOString() : null;
+      const actual = d.when ? new Date(d.when).toISOString() : planned;
+      const delaySec = d.delay !== undefined ? d.delay : (d.when && d.plannedWhen ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000) : null);
+
+      return {
+        plannedWhen: planned,
+        when: actual,
+        delay: delaySec,
+        platform: d.platform || d.plannedPlatform || null,
+        plannedPlatform: d.plannedPlatform || null,
+        cancelled: d.cancelled || false,
+        direction: d.direction || 'Unbekannt',
+        tripId: d.tripId,
+        dbTripId: d.tripId,
+        line: {
+          name: d.line?.name || '???',
+          product: d.line?.product || 'train'
+        },
+        _source: 'Deutsche Bahn'
+      };
+    });
+
+    res.json({ departures });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
