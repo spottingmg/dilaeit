@@ -19,11 +19,10 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-import hafasModule from 'db-hafas';
-const createHafas = hafasModule.createHafas || hafasModule;
+import { createDbHafas } from 'db-hafas';
 let hafas = null;
 try {
-  hafas = createHafas('dilaeit-app');
+  hafas = createDbHafas('dilaeit-app');
   console.log('✅ db-hafas initialisiert');
 } catch (e) {
   console.warn('⚠️  db-hafas konnte nicht initialisiert werden:', e.message);
