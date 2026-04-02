@@ -145,23 +145,31 @@
         </header>
 
         <div class="search-container space-y-4">
-            <div class="flex gap-2">
-                <div class="relative group flex-1">
-                    <input 
-                        type="text" 
-                        id="station-search" 
-                        placeholder="Haltestelle suchen..." 
-                        autocomplete="off"
-                        class="w-full bg-gray-100 dark:bg-zinc-900 border-none rounded-2xl py-5 pl-14 pr-4 text-lg focus:ring-2 focus:ring-red-500/50 transition-all outline-none shadow-sm"
-                    >
-                    <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
-                    <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results"></div>
+            <div class="flex flex-col gap-3">
+                <!-- Quelle-Umschalter -->
+                <div class="flex bg-gray-100 dark:bg-zinc-900 p-1 rounded-xl self-start">
+                    <button id="source-vrr" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm">VRR</button>
+                    <button id="source-db" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300">Deutsche Bahn</button>
                 </div>
-                <a href="trip-search.html" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2">
-                    <i class="fas fa-train"></i>
-                    <span class="hidden md:inline">Zug-/Busnummer</span>
-                    <span class="md:hidden">Nummer</span>
-                </a>
+                
+                <div class="flex gap-2">
+                    <div class="relative group flex-1">
+                        <input 
+                            type="text" 
+                            id="station-search" 
+                            placeholder="Haltestelle suchen (VRR)..." 
+                            autocomplete="off"
+                            class="w-full bg-gray-100 dark:bg-zinc-900 border-none rounded-2xl py-5 pl-14 pr-4 text-lg focus:ring-2 focus:ring-red-500/50 transition-all outline-none shadow-sm"
+                        >
+                        <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
+                        <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results"></div>
+                    </div>
+                    <a href="trip-search.html" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2 shadow-lg shadow-red-600/20">
+                        <i class="fas fa-train"></i>
+                        <span class="hidden md:inline">Zug-/Busnummer</span>
+                        <span class="md:hidden">Nummer</span>
+                    </a>
+                </div>
             </div>
 
             <div class="flex gap-3 items-center overflow-x-auto pb-2 no-scrollbar">
@@ -317,7 +325,8 @@
             lastRequestTime: 0,
             searchCache:     new Map(),
             // FIX 2: Departures-Cache – gleiche Station+Zeit nicht nochmal fetchen
-            departureCache:  new Map()
+            departureCache:  new Map(),
+            source:          'VRR' // Standardquelle für die Suche
         };
 
         const $ = id => document.getElementById(id);
@@ -328,6 +337,29 @@
         let fastestDepartureApi = null;
 
         // VRR-Zugriff passiert serverseitig über /api; wir brauchen keine DNS-Workarounds im Browser.
+
+        function setSource(src) {
+            state.source = src;
+            const vrrBtn = $('source-vrr');
+            const dbBtn = $('source-db');
+            const input = $('station-search');
+
+            if (src === 'VRR') {
+                vrrBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
+                dbBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
+                input.placeholder = 'Haltestelle suchen (VRR)...';
+            } else {
+                dbBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
+                vrrBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
+                input.placeholder = 'Haltestelle suchen (Deutsche Bahn)...';
+            }
+            
+            // Suche zurücksetzen
+            input.value = '';
+            $('search-results').innerHTML = '';
+            $('search-results').classList.add('hidden');
+            state.lastSearchQuery = '';
+        }
 
         function detectRegion(stationName) {
             if (!stationName) return 'NATIONAL';
@@ -414,6 +446,11 @@
             $('station-search').addEventListener('focus', () => {
                 if ($('search-results').children.length > 0) $('search-results').classList.remove('hidden');
             });
+
+            // Quelle-Umschalter
+            $('source-vrr').addEventListener('click', () => setSource('VRR'));
+            $('source-db').addEventListener('click', () => setSource('DB'));
+
             $('reset-query').addEventListener('click', () => {
                 setupDefaultDateTime();
                 if (state.currentStation) refreshDepartures();
@@ -540,7 +577,8 @@
                 let didRetry = false;
 
                 try {
-                    const res = await fetch(`${API_BASE}/api/locations?query=${encodeURIComponent(query)}`, { signal: activeSearchController.signal });
+                    const apiPath = state.source === 'DB' ? '/api/db/locations' : '/api/locations';
+                    const res = await fetch(`${API_BASE}${apiPath}?query=${encodeURIComponent(query)}`, { signal: activeSearchController.signal });
                     clearTimeout(timeoutId);
 
                     // BUG 3 FIX: Session-Check VOR dem JSON-Parse, nicht danach –
@@ -559,7 +597,7 @@
                             const name = r.name;
                             const id   = r.id;
                             return { ...r, name, id,
-                                sourceRegion: 'NRW',
+                                sourceRegion: r.source || 'NRW',
                                 score: calculateSimilarity(query, name) * 100
                             };
                         })
@@ -816,23 +854,25 @@
 
             const dateVal = $('query-date').value;
             const timeVal = $('query-time').value;
-            // Wir senden das Datum und die Uhrzeit direkt als ISO-ähnlichen String, 
-            // damit der Server die lokale Zeit (ohne UTC-Versatz) extrahieren kann.
             const timestamp = `${dateVal}T${timeVal}:00`;
 
-            const cacheKey = `${state.currentStation.id}|${timestamp.slice(0, 16)}`;
+            const cacheKey = `${state.currentStation.id}|${timestamp.slice(0, 16)}|${state.source}`;
             if (state.departureCache.has(cacheKey)) {
                 state.departures = state.departureCache.get(cacheKey);
                 renderDepartures();
                 return;
             }
             try {
-                const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${encodeURIComponent(timestamp)}&duration=120&results=40`;
+                const apiPath = state.source === 'DB' 
+                    ? `/api/db/stops/${encodeURIComponent(state.currentStation.id)}/departures`
+                    : `/api/stops/${encodeURIComponent(state.currentStation.id)}/departures`;
+
+                const url = `${API_BASE}${apiPath}?when=${encodeURIComponent(timestamp)}&duration=120&results=40`;
                 const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 state.isRateLimited = false;
-                state.departures = (data?.departures || []).map(d => ({ ...d, sourceApi: 'VRR OpenService' }));
+                state.departures = (data?.departures || []).map(d => ({ ...d, sourceApi: state.source === 'DB' ? 'Deutsche Bahn' : 'VRR OpenService' }));
                 state.departureCache.set(cacheKey, state.departures);
                 setTimeout(() => state.departureCache.delete(cacheKey), 60000);
                 buildLineFilter();
