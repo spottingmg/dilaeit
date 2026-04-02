@@ -19,7 +19,7 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-import createHafas from 'db-hafas';
+import { createDbHafas as createHafas } from 'db-hafas';
 let hafas = null;
 try {
   hafas = createHafas('dilaeit-app');
@@ -272,7 +272,7 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
       if (uicMatch) {
         // UIC-Haltestelle: direkte Abfrage
         try {
-          const dbRes = await hafas.departures(uicMatch[1], {
+          const { departures: dbRes } = await hafas.departures(uicMatch[1], {
             duration: 60,
             products: { bus: false, tram: false, subway: false,
                         nationalExpress: true, national: true, regional: true, suburban: true }
@@ -305,7 +305,7 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
           const stationSearch = await hafas.locations(stopId, { results: 1 });
           if (stationSearch?.length > 0) {
             const station = stationSearch[0];
-            const dbRes = await hafas.departures(station.id, {
+            const { departures: dbRes } = await hafas.departures(station.id, {
               duration: 60,
               products: { bus: false, tram: false, subway: false,
                           nationalExpress: true, national: true, regional: true, suburban: true }
@@ -345,7 +345,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
     if (!hafas) return res.status(503).json({ error: 'hafas not available' });
     try {
         const tripId = decodeURIComponent(req.params.tripId);
-        const { trip } = await hafas.trip(tripId, {
+        const trip = await hafas.trip(tripId, {
             polylines: false,
             stopovers: true,
             // Detaillierte Echtzeitdaten anfordern
@@ -506,7 +506,7 @@ app.get('/api/db/trip-details', async (req, res) => {
             finalTripId = result.trips[0].id;
         }
 
-        const { trip } = await hafas.trip(finalTripId, {
+        const trip = await hafas.trip(finalTripId, {
             stopovers: true,
             remarks: true,
             scheduled: true
