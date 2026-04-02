@@ -19,10 +19,10 @@ for (const p of potentialPaths) {
 console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional) ─────────────────────────────────────────────────────
-import { createDbHafas } from 'db-hafas';
+import { createHafas } from 'db-hafas';
 let hafas = null;
 try {
-  hafas = createDbHafas('dilaeit-app');
+  hafas = createHafas('dilaeit-app');
   console.log('✅ db-hafas initialisiert');
 } catch (e) {
   console.warn('⚠️  db-hafas konnte nicht initialisiert werden:', e.message);
@@ -107,7 +107,7 @@ app.get('/api/db/locations', async (req, res) => {
   try {
     const query = (req.query.query || '').toString().trim();
     if (query.length < 2) return res.json({ locations: [] });
-    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
+    if (!hafas) return res.status(503).json({ error: 'DB-Hafas nicht initialisiert' });
 
     const locations = await hafas.locations(query, { results: 12 });
     const locs = (locations || [])
@@ -120,7 +120,10 @@ app.get('/api/db/locations', async (req, res) => {
       }));
 
     res.json({ locations: locs });
-  } catch (e) { res.status(502).json({ error: e.message }); }
+  } catch (e) { 
+    console.error('DB Location search error:', e.message);
+    res.status(502).json({ error: e.message }); 
+  }
 });
 
 // ─── Abfahrten (DB) ──────────────────────────────────────────────────────────
@@ -465,7 +468,7 @@ app.get('/api/db/trips-by-name', async (req, res) => {
             }))
         });
     } catch (e) {
-        console.error('DB trips by name error:', e);
+        console.error('DB trips by name error:', e.message);
         res.status(500).json({ error: 'Error searching for trips', details: e.message });
     }
 });
