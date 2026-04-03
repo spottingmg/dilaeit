@@ -111,65 +111,62 @@ app.get('/api/locations', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// ─── Stationssuche (DB) ──────────────────────────────────────────────────────
+// ─── Stationssuche (DB) – via v6.db.transport.rest, kein Hafas nötig ────────
 app.get('/api/db/locations', async (req, res) => {
   try {
     const query = (req.query.query || '').toString().trim();
     if (query.length < 2) return res.json({ locations: [] });
-    if (!hafas) return res.status(503).json({ error: 'DB-Hafas nicht initialisiert' });
 
-    const result = await hafas.locations(query, { results: 12 });
-    const locs = (result || [])
-        .filter(l => l.type === 'stop' || l.type === 'station')
-        .map(l => ({
-            id: String(l.id),
-            name: l.name,
-            type: l.type,
-            source: 'DB'
-        }));
+    const url = `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=12&fuzzy=true`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`DB API ${r.status}`);
+    const data = await r.json();
+
+    const locs = (Array.isArray(data) ? data : [])
+      .filter(l => l.type === 'stop' || l.type === 'station')
+      .map(l => ({ id: String(l.id), name: l.name, type: l.type, source: 'DB' }));
 
     res.json({ locations: locs });
-  } catch (e) { 
-    console.error('DB Location search error:', e.message);
-    res.status(502).json({ error: e.message }); 
+  } catch (e) {
+    console.error('DB locations error:', e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 
-// ─── Abfahrten (DB) ──────────────────────────────────────────────────────────
+// ─── Abfahrten (DB) – via v6.db.transport.rest ───────────────────────────────
 app.get('/api/db/stops/:stopId/departures', async (req, res) => {
   try {
     const stopId = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
-    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
 
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
-    const when = whenRaw ? new Date(whenRaw) : new Date();
+    const when    = whenRaw || new Date().toISOString();
 
-    const result = await hafas.departures(stopId, {
-      when,
-      duration: 120,
-      results: 60,
-      remarks: true,
-      stopovers: false
-    });
+    const url = `https://v6.db.transport.rest/stops/${encodeURIComponent(stopId)}/departures` +
+                `?when=${encodeURIComponent(when)}&duration=120&results=60&remarks=true`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) throw new Error(`DB API ${r.status}`);
+    const data = await r.json();
 
-    const departures = (result.departures || []).map(d => {
-      const planned = d.plannedWhen ? new Date(d.plannedWhen).toISOString() : null;
-      const actual = d.when ? new Date(d.when).toISOString() : planned;
-      const delaySec = d.delay !== undefined ? d.delay : (d.when && d.plannedWhen ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000) : null);
-
+    const departures = (data.departures || []).map(d => {
+      const planned  = d.plannedWhen  ? new Date(d.plannedWhen).toISOString()  : null;
+      const actual   = d.when         ? new Date(d.when).toISOString()          : planned;
+      const delaySec = d.delay !== undefined ? d.delay
+                     : (d.when && d.plannedWhen)
+                       ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000)
+                       : null;
       return {
-        plannedWhen: planned,
-        when: actual,
-        delay: delaySec,
-        platform: d.platform || d.plannedPlatform || null,
+        plannedWhen:     planned,
+        when:            actual,
+        delay:           delaySec,
+        platform:        d.platform        || d.plannedPlatform || null,
         plannedPlatform: d.plannedPlatform || null,
-        cancelled: d.cancelled || false,
-        direction: d.direction || 'Unbekannt',
-        tripId: d.tripId,
-        dbTripId: d.tripId,
+        cancelled:       d.cancelled       || false,
+        direction:       d.direction       || 'Unbekannt',
+        tripId:          d.tripId,
+        dbTripId:        d.tripId,
         line: {
-          name: d.line?.name || '???',
+          name:    d.line?.name    || '???',
           product: d.line?.product || 'train'
         },
         _source: 'Deutsche Bahn'
@@ -351,78 +348,49 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
   } catch (e) { console.error('departures error', e); res.status(502).json({ error: e.message }); }
 });
 
-// ─── DB-Zugdetails via Hafas (sekundengenaue Echtzeitdaten) ──────────────────
+// ─── DB-Zugdetails – via v6.db.transport.rest (kein Hafas, kein Firewall-Problem)
 app.get('/api/train-details/:tripId', async (req, res) => {
-    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
     try {
         const tripId = decodeURIComponent(req.params.tripId);
-        const result = await hafas.trip(tripId, {
-            polylines: false,
-            stopovers: true,
-            // Detaillierte Echtzeitdaten anfordern
-            remarks: true,
-            scheduled: false
-        });
-        const trip = result.trip;
+        const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`;
+        const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) throw new Error(`DB API ${r.status}`);
+        const data = await r.json();
+        // v6.db.transport.rest gibt { trip: {...} } zurück
+        const trip = data.trip ?? data;
+        if (!trip?.stopovers) throw new Error('Keine Stopover-Daten');
 
-        if (!trip) throw new Error('Trip not found');
-
-        const stopovers = (trip.stopovers || []).map(s => {
-            // DB-Hafas liefert ISO-Strings mit Sekunden (z.B. "2024-01-15T14:23:45+01:00")
-            // Diese werden 1:1 weitergegeben für sekundengenaue Anzeige
-            const plannedArrival = s.plannedArrival ? new Date(s.plannedArrival).toISOString() : null;
-            const actualArrival = s.prognosedArrival || s.arrival;
-            const arrival = actualArrival ? new Date(actualArrival).toISOString() : null;
-
+        const stopovers = trip.stopovers.map(s => {
+            const plannedArrival   = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
+            const arrival          = s.arrival          ? new Date(s.arrival).toISOString()          : null;
             const plannedDeparture = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
-            const actualDeparture = s.prognosedDeparture || s.departure;
-            const departure = actualDeparture ? new Date(actualDeparture).toISOString() : null;
+            const departure        = s.departure        ? new Date(s.departure).toISOString()        : null;
 
-            // Verspätung/Verfrühung in Sekunden berechnen
-            let arrivalDelaySec = null;
-            if (arrival && plannedArrival) {
-                arrivalDelaySec = Math.round((new Date(arrival) - new Date(plannedArrival)) / 1000);
-            }
-            let departureDelaySec = null;
-            if (departure && plannedDeparture) {
-                departureDelaySec = Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000);
-            }
+            const arrivalDelaySec   = arrival   && plannedArrival   ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000) : null;
+            const departureDelaySec = departure && plannedDeparture ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000) : null;
 
             return {
-                stop: { name: s.stop?.name || '', id: s.stop?.id },
-                plannedArrival,
-                arrival,
-                plannedDeparture,
-                departure,
-                arrivalDelaySec,    // Neu: Verspätung in Sekunden für präzise Anzeige
-                departureDelaySec,  // Neu: Verspätung in Sekunden für präzise Anzeige
-                platform: s.platform || null,
-                plannedPlatform: s.plannedPlatform || s.platform || null,
-                cancelled: s.cancelled || false,
-                additional: s.additional || false,
-                remarks: s.remarks || []
+                stop:             { name: s.stop?.name || '', id: s.stop?.id },
+                plannedArrival, arrival, plannedDeparture, departure,
+                arrivalDelaySec, departureDelaySec,
+                platform:         s.platform        || null,
+                plannedPlatform:  s.plannedPlatform || s.platform || null,
+                cancelled:        s.cancelled       || false,
+                additional:       s.additional      || false,
+                remarks:          s.remarks         || []
             };
         });
 
-        // remarks aus dem Trip extrahieren (z.B. "Zug fällt aus", "Gleiswechsel")
-        const remarks = (trip.remarks || []).map(r => ({
-            text: r.text || r.summary || '',
-            type: r.category || 'info'
-        }));
+        const remarks = (trip.remarks || []).map(r => ({ text: r.text || r.summary || '', type: r.category || 'info' }));
 
         res.json({
-            stopovers,
-            remarks,
-            source: 'Deutsche Bahn (HAFAS)',
+            stopovers, remarks,
+            source: 'Deutsche Bahn',
             tripId: trip.id,
-            line: trip.line ? {
-                name: trip.line.name,
-                product: trip.line.product,
-                operator: trip.line.operator?.name
-            } : null
+            line: trip.line ? { name: trip.line.name, product: trip.line.product, operator: trip.line.operator?.name } : null
         });
     } catch (e) {
-        console.error('train-details error:', e);
+        console.error('train-details error:', e.message);
         res.status(502).json({ error: e.message });
     }
 });
@@ -458,128 +426,117 @@ app.get('/api/trips/:tripId', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// ─── DB-Hafas Fahrten nach Name suchen (für Autocomplete)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Fahrten nach Nummer suchen (Autocomplete) – via v6.db.transport.rest ────
+// v6.db.transport.rest hat keinen tripsByName-Endpunkt, aber wir können
+// /trips/{id} und /journeys verwenden. Für Autocomplete nutzen wir
+// eine Suche nach der Liniennummer über departures einer großen Station.
 app.get('/api/db/trips-by-name', async (req, res) => {
     const { query, date } = req.query;
     if (!query) return res.status(400).json({ error: 'Missing query' });
-    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
-
-    // db-hafas v6: tripsByName existiert nicht immer – robuster Aufruf mit Fallback
-    if (typeof hafas.tripsByName !== 'function') {
-        return res.status(503).json({ error: 'tripsByName nicht in dieser hafas-Version verfügbar' });
-    }
 
     try {
-        const when = date ? new Date(date) : new Date();
-        // db-hafas v6 Signatur: tripsByName(lineNameOrNumber, opt)
-        const result = await hafas.tripsByName(query, { when, results: 20 });
+        // Große NRW-Bahnhöfe als Suchbasis (Düsseldorf Hbf EVA: 8000085)
+        const when = date ? `${date}T08:00:00` : new Date().toISOString();
+        const url  = `https://v6.db.transport.rest/stops/8000085/departures` +
+                     `?when=${encodeURIComponent(when)}&duration=720&results=200&remarks=false`;
 
-        const trips = (result?.trips || []).map(t => ({
-            id: t.id,
-            name: t.line?.name || query,
-            direction: t.direction || (t.stopovers?.at(-1)?.stop?.name) || 'Unbekannt',
-            line: t.line,
-            plannedDeparture: t.stopovers?.[0]?.plannedDeparture || null
-        }));
+        const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) throw new Error(`DB API ${r.status}`);
+        const data = await r.json();
+
+        const q = query.trim().toUpperCase().replace(/\s+/g, '');
+        const matches = (data.departures || []).filter(d => {
+            const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
+            return name === q || name.includes(q) || d.tripId?.includes(query);
+        });
+
+        // Deduplizieren nach tripId
+        const seen = new Set();
+        const trips = matches
+            .filter(d => { if (!d.tripId || seen.has(d.tripId)) return false; seen.add(d.tripId); return true; })
+            .slice(0, 15)
+            .map(d => ({
+                id:               d.tripId,
+                name:             d.line?.name || query,
+                direction:        d.direction  || 'Unbekannt',
+                line:             d.line,
+                plannedDeparture: d.plannedWhen || null
+            }));
 
         res.json({ trips });
     } catch (e) {
-        console.error('DB trips-by-name error:', e.message);
-        // Nicht mit 500 crashen – leeres Array zurückgeben damit Dropdown "Keine Fahrten" zeigt
+        console.error('trips-by-name error:', e.message);
         res.json({ trips: [], error: e.message });
     }
 });
 
-// ─── DB-Hafas Fahrten nach Nummer und Datum suchen (für Zeitreise)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Fahrtverlauf nach Nummer/TripId – via v6.db.transport.rest ──────────────
 app.get('/api/db/trip-details', async (req, res) => {
     const { number, date, tripId } = req.query;
     if (!number && !tripId) return res.status(400).json({ error: 'Missing number or tripId' });
-    if (!hafas) return res.status(503).json({ error: 'hafas not available' });
 
     try {
         let finalTripId = tripId;
 
-        // Wenn keine direkte tripId übergeben wurde, suchen wir nach dem Namen
+        // Wenn keine direkte tripId, erst über trips-by-name die ID ermitteln
         if (!finalTripId) {
-            if (typeof hafas.tripsByName !== 'function') {
-                return res.status(503).json({ error: 'tripsByName nicht verfügbar' });
-            }
+            const when = date ? `${date}T08:00:00` : new Date().toISOString();
+            const url  = `https://v6.db.transport.rest/stops/8000085/departures` +
+                         `?when=${encodeURIComponent(when)}&duration=720&results=300&remarks=false`;
 
-            const when = date ? new Date(date) : new Date();
-            let result = await hafas.tripsByName(number, { when, results: 5 });
+            const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+            if (!r.ok) throw new Error(`DB API ${r.status}`);
+            const data = await r.json();
 
-            // Fallback: Präfix entfernen (z.B. "RE 10618" → "10618")
-            if ((!result?.trips?.length)) {
-                const cleanNumber = number.replace(/^[A-Za-z]+\s*/i, '').trim();
-                if (cleanNumber && cleanNumber !== number) {
-                    result = await hafas.tripsByName(cleanNumber, { when, results: 5 });
-                }
-            }
+            const q = number.trim().toUpperCase().replace(/\s+/g, '');
+            const match = (data.departures || []).find(d => {
+                const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
+                return name === q || d.tripId?.toUpperCase().includes(q);
+            });
 
-            if (!result?.trips?.length) {
-                return res.status(404).json({ error: 'Fahrt nicht gefunden' });
-            }
-            finalTripId = result.trips[0].id;
+            if (!match?.tripId) return res.status(404).json({ error: 'Fahrt nicht gefunden' });
+            finalTripId = match.tripId;
         }
 
-        // hafas.trip() Aufruf – Signatur in v6: hafas.trip(id, opt)
-        const resTrip = await hafas.trip(finalTripId, { stopovers: true, remarks: true });
-        // db-hafas v6 gibt { trip } zurück
-        const trip = resTrip?.trip ?? resTrip;
+        // Fahrtverlauf laden
+        const tripUrl = `https://v6.db.transport.rest/trips/${encodeURIComponent(finalTripId)}?stopovers=true&remarks=true`;
+        const tr = await fetch(tripUrl, { signal: AbortSignal.timeout(10000) });
+        if (!tr.ok) throw new Error(`DB trip API ${tr.status}`);
+        const tData = await tr.json();
+        const trip  = tData.trip ?? tData;
+        if (!trip?.stopovers) throw new Error('Keine Stopover-Daten');
 
-        if (!trip) return res.status(404).json({ error: 'Trip details not found' });
-
-        const stopovers = (trip.stopovers || []).map(s => {
-            const plannedArrival = s.plannedArrival ? new Date(s.plannedArrival).toISOString() : null;
-            const actualArrival = s.prognosedArrival || s.arrival;
-            const arrival = actualArrival ? new Date(actualArrival).toISOString() : null;
-
+        const stopovers = trip.stopovers.map(s => {
+            const plannedArrival   = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
+            const arrival          = s.arrival          ? new Date(s.arrival).toISOString()          : null;
             const plannedDeparture = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
-            const actualDeparture = s.prognosedDeparture || s.departure;
-            const departure = actualDeparture ? new Date(actualDeparture).toISOString() : null;
-
-            let arrivalDelaySec = null;
-            if (arrival && plannedArrival) {
-                arrivalDelaySec = Math.round((new Date(arrival) - new Date(plannedArrival)) / 1000);
-            }
-            let departureDelaySec = null;
-            if (departure && plannedDeparture) {
-                departureDelaySec = Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000);
-            }
+            const departure        = s.departure        ? new Date(s.departure).toISOString()        : null;
 
             return {
-                stop: { name: s.stop?.name || '', id: s.stop?.id },
-                plannedArrival,
-                arrival,
-                plannedDeparture,
-                departure,
-                arrivalDelaySec,
-                departureDelaySec,
-                platform: s.platform || null,
-                plannedPlatform: s.plannedPlatform || s.platform || null,
-                cancelled: s.cancelled || false,
-                additional: s.additional || false,
-                remarks: s.remarks || []
+                stop:             { name: s.stop?.name || '', id: s.stop?.id },
+                plannedArrival, arrival, plannedDeparture, departure,
+                arrivalDelaySec:   arrival   && plannedArrival   ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000) : null,
+                departureDelaySec: departure && plannedDeparture ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000) : null,
+                platform:         s.platform        || null,
+                plannedPlatform:  s.plannedPlatform || s.platform || null,
+                cancelled:        s.cancelled       || false,
+                additional:       s.additional      || false,
+                remarks:          s.remarks         || []
             };
         });
 
         res.json({
-            tripId: trip.id,
-            line: trip.line,
+            tripId:   trip.id,
+            line:     trip.line,
             stopovers,
-            remarks: (trip.remarks || []).map(r => ({
-                text: r.text || r.summary || '',
-                type: r.category || 'info'
-            })),
-            source: 'Deutsche Bahn (HAFAS)',
-            operator: trip.operator,
-            mode: trip.mode
+            remarks:  (trip.remarks || []).map(r => ({ text: r.text || r.summary || '', type: r.category || 'info' })),
+            source:   'Deutsche Bahn',
+            operator: trip.line?.operator,
+            mode:     trip.line?.product
         });
     } catch (e) {
-        console.error('DB trip details error:', e);
-        res.status(500).json({ error: 'Trip details not found' });
+        console.error('DB trip-details error:', e.message);
+        res.status(500).json({ error: e.message });
     }
 });
 
