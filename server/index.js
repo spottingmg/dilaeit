@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createDbHafas as createHafas } from 'db-hafas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -19,13 +18,23 @@ for (const p of potentialPaths) {
 }
 console.log('📂 Frontend:', publicPath);
 
-// ─── db-hafas (optional) ─────────────────────────────────────────────────────
+// ─── db-hafas (optional, dynamischer Import wegen CJS/ESM-Mix) ───────────────
+// WICHTIG: `import { createDbHafas } from 'db-hafas'` funktioniert NICHT –
+// db-hafas v6 hat keinen Named Export, nur einen Default Export.
+// Deshalb dynamischer Import mit try/catch als Fallback.
 let hafas = null;
 try {
-  hafas = createHafas('dilaeit-app');
-  console.log('✅ db-hafas initialisiert');
+  const mod = await import('db-hafas');
+  // db-hafas v6: default export ist die createHafas-Funktion direkt
+  const createFn = mod.default ?? mod.createDbHafas ?? mod.createHafas;
+  if (typeof createFn === 'function') {
+    hafas = createFn('dilaeit-app');
+    console.log('✅ db-hafas initialisiert');
+  } else {
+    console.warn('⚠️  db-hafas: kein gültiger Default-Export gefunden. Exports:', Object.keys(mod));
+  }
 } catch (e) {
-  console.warn('⚠️  db-hafas konnte nicht initialisiert werden:', e.message);
+  console.warn('⚠️  db-hafas nicht verfügbar:', e.message, '→ nur VRR');
 }
 
 // ─── EFA-Konfiguration ───────────────────────────────────────────────────────
@@ -456,25 +465,29 @@ app.get('/api/db/trips-by-name', async (req, res) => {
     if (!query) return res.status(400).json({ error: 'Missing query' });
     if (!hafas) return res.status(503).json({ error: 'hafas not available' });
 
-    try {
-        const result = await hafas.tripsByName(query, {
-            when: date ? new Date(date) : new Date(),
-            results: 20,
-            onlyCurrentlyRunning: false // WICHTIG: Erlaubt die Suche nach Fahrten in der Zukunft/Vergangenheit
-        });
+    // db-hafas v6: tripsByName existiert nicht immer – robuster Aufruf mit Fallback
+    if (typeof hafas.tripsByName !== 'function') {
+        return res.status(503).json({ error: 'tripsByName nicht in dieser hafas-Version verfügbar' });
+    }
 
-        res.json({
-            trips: (result.trips || []).map(t => ({
-                id: t.id,
-                name: t.line?.name || t.direction || 'Unbekannt',
-                direction: t.direction,
-                line: t.line,
-                plannedDeparture: t.plannedDeparture || (t.stopovers?.[0]?.plannedDeparture)
-            }))
-        });
+    try {
+        const when = date ? new Date(date) : new Date();
+        // db-hafas v6 Signatur: tripsByName(lineNameOrNumber, opt)
+        const result = await hafas.tripsByName(query, { when, results: 20 });
+
+        const trips = (result?.trips || []).map(t => ({
+            id: t.id,
+            name: t.line?.name || query,
+            direction: t.direction || (t.stopovers?.at(-1)?.stop?.name) || 'Unbekannt',
+            line: t.line,
+            plannedDeparture: t.stopovers?.[0]?.plannedDeparture || null
+        }));
+
+        res.json({ trips });
     } catch (e) {
-        console.error('DB trips by name error:', e.message);
-        res.status(500).json({ error: 'Error searching for trips', details: e.message });
+        console.error('DB trips-by-name error:', e.message);
+        // Nicht mit 500 crashen – leeres Array zurückgeben damit Dropdown "Keine Fahrten" zeigt
+        res.json({ trips: [], error: e.message });
     }
 });
 
@@ -490,33 +503,31 @@ app.get('/api/db/trip-details', async (req, res) => {
 
         // Wenn keine direkte tripId übergeben wurde, suchen wir nach dem Namen
         if (!finalTripId) {
-            let result = await hafas.tripsByName(number, {
-                when: date ? new Date(date) : new Date(),
-                results: 3
-            });
+            if (typeof hafas.tripsByName !== 'function') {
+                return res.status(503).json({ error: 'tripsByName nicht verfügbar' });
+            }
 
-            if ((!result.trips || result.trips.length === 0) && isNaN(number)) {
-                const cleanNumber = number.replace(/^[A-Z]+\s*/i, '');
-                if (cleanNumber !== number) {
-                    result = await hafas.tripsByName(cleanNumber, {
-                        when: date ? new Date(date) : new Date(),
-                        results: 3
-                    });
+            const when = date ? new Date(date) : new Date();
+            let result = await hafas.tripsByName(number, { when, results: 5 });
+
+            // Fallback: Präfix entfernen (z.B. "RE 10618" → "10618")
+            if ((!result?.trips?.length)) {
+                const cleanNumber = number.replace(/^[A-Za-z]+\s*/i, '').trim();
+                if (cleanNumber && cleanNumber !== number) {
+                    result = await hafas.tripsByName(cleanNumber, { when, results: 5 });
                 }
             }
 
-            if (!result.trips || result.trips.length === 0) {
-                return res.status(404).json({ error: 'Trip not found' });
+            if (!result?.trips?.length) {
+                return res.status(404).json({ error: 'Fahrt nicht gefunden' });
             }
             finalTripId = result.trips[0].id;
         }
 
-        const resTrip = await hafas.trip(finalTripId, {
-            stopovers: true,
-            remarks: true,
-            scheduled: true
-        });
-        const trip = resTrip.trip;
+        // hafas.trip() Aufruf – Signatur in v6: hafas.trip(id, opt)
+        const resTrip = await hafas.trip(finalTripId, { stopovers: true, remarks: true });
+        // db-hafas v6 gibt { trip } zurück
+        const trip = resTrip?.trip ?? resTrip;
 
         if (!trip) return res.status(404).json({ error: 'Trip details not found' });
 
