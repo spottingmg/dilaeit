@@ -232,19 +232,25 @@
             tripSearchTimer = setTimeout(async () => {
                 try {
                     const res = await fetch(`${API_BASE}/api/db/trips-by-name?query=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`);
+                    
                     if (!res.ok) {
-                        if (res.status === 503) {
-                            dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium">DB-Hafas nicht verfügbar.</div>';
-                        } else {
-                            dropdown.classList.add('hidden');
-                        }
+                        const errText = res.status === 503
+                            ? 'DB-Hafas nicht verfügbar – bitte Server prüfen.'
+                            : `Serverfehler (${res.status})`;
+                        dropdown.innerHTML = `<div class="px-4 py-4 text-sm text-red-500 font-medium">${errText}</div>`;
                         return;
                     }
+
                     const data = await res.json();
+                    // data.error kann trotz 200 gesetzt sein (z.B. tripsByName nicht verfügbar)
+                    if (data.error && (!data.trips || data.trips.length === 0)) {
+                        dropdown.innerHTML = `<div class="px-4 py-4 text-sm text-orange-400 font-medium"><i class="fas fa-exclamation-triangle mr-2"></i>${data.error}</div>`;
+                        return;
+                    }
                     renderTripDropdown(data.trips || []);
                 } catch (e) {
                     console.error('Autocomplete error:', e);
-                    dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium">Netzwerkfehler bei der Suche.</div>';
+                    dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium"><i class="fas fa-wifi mr-2"></i>Netzwerkfehler – Server erreichbar?</div>';
                 }
             }, 300);
         }
