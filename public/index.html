@@ -354,11 +354,13 @@
                 input.placeholder = 'Haltestelle suchen (Deutsche Bahn)...';
             }
             
-            // Suche zurücksetzen
+            // Suche zurücksetzen + Cache leeren (VRR- und DB-Ergebnisse nicht vermischen)
             input.value = '';
             $('search-results').innerHTML = '';
             $('search-results').classList.add('hidden');
             state.lastSearchQuery = '';
+            state.searchCache.clear();
+            if (activeSearchController) { activeSearchController.abort(); activeSearchController = null; }
         }
 
         function detectRegion(stationName) {
