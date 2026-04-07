@@ -359,7 +359,14 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             const plannedDeparture = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
             const departure        = s.departure        ? new Date(s.departure).toISOString()        : null;
             return {
-                stop: { name: s.stop?.name || '', id: s.stop?.id },
+                stop: {
+                    name: s.stop?.name || '',
+                    id:   s.stop?.id,
+                    // Koordinaten für Karte mitgeben
+                    location: s.stop?.location
+                        ? { latitude: s.stop.location.latitude, longitude: s.stop.location.longitude }
+                        : null
+                },
                 plannedArrival, arrival, plannedDeparture, departure,
                 arrivalDelaySec:   arrival   && plannedArrival   ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000) : null,
                 departureDelaySec: departure && plannedDeparture ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000) : null,
