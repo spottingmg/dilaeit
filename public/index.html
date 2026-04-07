@@ -310,17 +310,49 @@
                 <div class="flex gap-3 mt-2 flex-wrap" id="wagon-legend"></div>
             </div>
 
-            <div class="flex-1 relative">
+            <div class="flex-1 relative" id="panel-itinerary">
                 <div class="itinerary-line"></div>
                 <div id="trip-itinerary" class="space-y-10 relative z-10"></div>
             </div>
 
-            <footer class="mt-12 py-6 border-t border-gray-100 dark:border-zinc-900 flex justify-between items-center text-[10px] text-gray-500 mono">
-                <span id="detail-trip-id">TRIP: --</span>
-                <span class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                    ECHTZEIT AKTIV
-                </span>
+            <footer class="mt-8 pt-4 border-t border-gray-100 dark:border-zinc-900">
+                <!-- Tabs: Fahrtverlauf / Historische Pünktlichkeit / Zuglauf -->
+                <div class="flex gap-1 mb-4">
+                    <button onclick="switchDetailTab('itinerary')" id="tab-itinerary"
+                        class="detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors bg-red-600 text-white">
+                        Fahrtverlauf
+                    </button>
+                    <button onclick="switchDetailTab('punctuality')" id="tab-punctuality"
+                        class="detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors bg-zinc-800 text-gray-400 hover:text-white">
+                        Pünktlichkeit
+                    </button>
+                    <button onclick="switchDetailTab('zuglauf')" id="tab-zuglauf"
+                        class="detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors bg-zinc-800 text-gray-400 hover:text-white">
+                        Zuglauf
+                    </button>
+                </div>
+
+                <!-- Historische Pünktlichkeit -->
+                <div id="panel-punctuality" class="hidden">
+                    <div id="punctuality-content" class="text-xs text-gray-400">
+                        <i class="fas fa-spinner fa-spin mr-1"></i>Lade Statistiken...
+                    </div>
+                </div>
+
+                <!-- Zuglauf-Übersicht -->
+                <div id="panel-zuglauf" class="hidden">
+                    <div id="zuglauf-content" class="text-xs text-gray-400">
+                        <i class="fas fa-spinner fa-spin mr-1"></i>Lade Zuglauf...
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center text-[10px] text-gray-500 mono mt-4 pt-4 border-t border-zinc-900">
+                    <span id="detail-trip-id">TRIP: --</span>
+                    <span class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                        ECHTZEIT AKTIV
+                    </span>
+                </div>
             </footer>
         </div>
     </div>
@@ -931,6 +963,8 @@
                 setTimeout(() => state.departureCache.delete(cacheKey), 60000);
                 buildLineFilter();
                 renderDepartures();
+                // Echtzeit-Daten im Hintergrund in IndexedDB speichern
+                autoSaveDepartures(state.departures);
             } catch (err) {
                 console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
                 $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
@@ -1361,6 +1395,7 @@
             const modal    = $('detail-view');
             const itinerary = $('trip-itinerary');
             modal.classList.add('active');
+            switchDetailTab('itinerary'); // immer auf Fahrtverlauf zurücksetzen
             
             // Auto-Erkennung: Zug → DB-Hafas, sonst VRR
             const isTrainLine = isTrain(dep.line);
@@ -2027,6 +2062,291 @@
             const result = await Notification.requestPermission();
             return result === 'granted';
         }
+
+        // ─── Detail-Tabs ─────────────────────────────────────────────────────────────
+        function switchDetailTab(tab) {
+            ['itinerary','punctuality','zuglauf'].forEach(t => {
+                const panel = $(`panel-${t}`);
+                const btn   = $(`tab-${t}`);
+                if (!panel || !btn) return;
+                const active = t === tab;
+                panel.classList.toggle('hidden', !active);
+                btn.className = `detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'
+                }`;
+            });
+            if (tab === 'punctuality' && currentTripDetail) renderPunctualityHistory(currentTripDetail);
+            if (tab === 'zuglauf'     && currentTripDetail) renderZuglauf(currentTripDetail);
+        }
+
+        // ─── Historische Pünktlichkeit (IndexedDB) ───────────────────────────────────
+        const IDB_NAME    = 'dilaeit_rt';
+        const IDB_VERSION = 1;
+        const IDB_STORE   = 'departures';
+
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+                req.onupgradeneeded = e => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(IDB_STORE)) {
+                        const store = db.createObjectStore(IDB_STORE, { keyPath: 'key' });
+                        store.createIndex('lineDate', ['lineName','dateStr'], { unique: false });
+                        store.createIndex('ts', 'ts', { unique: false });
+                    }
+                };
+                req.onsuccess = e => resolve(e.target.result);
+                req.onerror   = e => reject(e.target.error);
+            });
+        }
+
+        // Echtzeit-Abfahrt in IndexedDB speichern
+        async function saveRtDeparture(dep) {
+            if (dep.delay === null || dep.delay === undefined) return; // kein Signal → nicht speichern
+            try {
+                const db    = await openDB();
+                const now   = new Date();
+                const dateStr = now.toISOString().slice(0,10);
+                const key   = `${dep.line?.name}|${dep.plannedWhen}|${dep.direction}`;
+                const record = {
+                    key,
+                    lineName:  dep.line?.name || '?',
+                    direction: dep.direction  || '',
+                    dateStr,
+                    plannedWhen: dep.plannedWhen,
+                    delaySec: dep.delay,
+                    cancelled: dep.cancelled || false,
+                    ts: Date.now()
+                };
+                const tx    = db.transaction(IDB_STORE, 'readwrite');
+                tx.objectStore(IDB_STORE).put(record);
+                // Einträge älter als 60 Tage löschen
+                const cutoff = Date.now() - 60 * 86400000;
+                const idx    = tx.objectStore(IDB_STORE).index('ts');
+                const range  = IDBKeyRange.upperBound(cutoff);
+                idx.openCursor(range).onsuccess = e => {
+                    const cursor = e.target.result;
+                    if (cursor) { cursor.delete(); cursor.continue(); }
+                };
+            } catch (e) { console.warn('IDB save error:', e); }
+        }
+
+        // Pünktlichkeits-Statistik für eine Linie aus IndexedDB laden und anzeigen
+        async function renderPunctualityHistory(dep) {
+            const el = $('punctuality-content');
+            if (!el) return;
+            el.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Statistiken...';
+
+            try {
+                const db       = await openDB();
+                const lineName = dep.line?.name || '?';
+                const tx       = db.transaction(IDB_STORE, 'readonly');
+                const store    = tx.objectStore(IDB_STORE);
+                const index    = store.index('lineDate');
+
+                // Alle Einträge für diese Linie holen (alle Daten)
+                const records = await new Promise((resolve, reject) => {
+                    const results = [];
+                    // Wir iterieren über alle Einträge und filtern nach Linienname
+                    store.openCursor().onsuccess = e => {
+                        const cursor = e.target.result;
+                        if (cursor) {
+                            if (cursor.value.lineName === lineName) results.push(cursor.value);
+                            cursor.continue();
+                        } else {
+                            resolve(results);
+                        }
+                    };
+                    store.openCursor().onerror = reject;
+                });
+
+                if (records.length === 0) {
+                    el.innerHTML = `
+                        <div class="text-center py-6 text-gray-500">
+                            <i class="fas fa-chart-bar text-2xl mb-2 block opacity-30"></i>
+                            Noch keine Daten für <b class="text-white">${lineName}</b> gespeichert.<br>
+                            <span class="text-[10px] mt-1 block">Daten werden automatisch gesammelt sobald du Abfahrten dieser Linie siehst.</span>
+                        </div>`;
+                    return;
+                }
+
+                // Statistiken berechnen
+                const total     = records.length;
+                const cancelled = records.filter(r => r.cancelled).length;
+                const withDelay = records.filter(r => !r.cancelled && r.delaySec !== null);
+                const onTime    = withDelay.filter(r => r.delaySec < 60).length;
+                const delayed   = withDelay.filter(r => r.delaySec >= 60).length;
+                const avgDelay  = withDelay.length
+                    ? Math.round(withDelay.reduce((s, r) => s + Math.max(0, r.delaySec), 0) / withDelay.length)
+                    : 0;
+                const maxDelay  = withDelay.length
+                    ? Math.max(...withDelay.map(r => r.delaySec))
+                    : 0;
+
+                const pctOnTime = total > 0 ? Math.round((onTime / total) * 100) : 0;
+                const pctColor  = pctOnTime >= 80 ? 'text-green-400' : pctOnTime >= 60 ? 'text-yellow-400' : 'text-red-400';
+
+                // Nach Wochentag gruppieren
+                const byDay = {};
+                withDelay.forEach(r => {
+                    const day = new Date(r.ts).getDay(); // 0=So, 1=Mo, ...
+                    if (!byDay[day]) byDay[day] = [];
+                    byDay[day].push(r.delaySec);
+                });
+                const dayNames = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+                const dayBars  = [1,2,3,4,5,6,0].map(d => {
+                    const vals = byDay[d] || [];
+                    const avg  = vals.length ? Math.round(vals.reduce((s,v) => s+Math.max(0,v),0) / vals.length / 60) : 0;
+                    return { name: dayNames[d], avg, count: vals.length };
+                });
+                const maxBar = Math.max(...dayBars.map(b => b.avg), 1);
+
+                el.innerHTML = `
+                    <div class="space-y-4">
+                        <!-- Hauptzahl -->
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-3xl font-black ${pctColor}">${pctOnTime}%</div>
+                                <div class="text-[10px] text-gray-500">pünktlich (< 1 Min)</div>
+                            </div>
+                            <div class="text-right text-[10px] text-gray-400 space-y-0.5">
+                                <div><span class="text-white font-bold">${total}</span> Fahrten gespeichert</div>
+                                <div><span class="text-red-400 font-bold">${cancelled}</span> ausgefallen</div>
+                                <div>Ø Verspätung <span class="text-red-400 font-bold">${Math.round(avgDelay/60)}'</span></div>
+                                <div>Max <span class="text-red-500 font-bold">+${Math.round(maxDelay/60)}'</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Fortschrittsbalken Pünktlichkeit -->
+                        <div>
+                            <div class="flex justify-between text-[10px] text-gray-500 mb-1">
+                                <span>Pünktlich</span><span>Mit Verspätung</span>
+                            </div>
+                            <div class="h-2 rounded-full bg-zinc-800 overflow-hidden">
+                                <div class="h-full rounded-full bg-green-500 transition-all" style="width:${pctOnTime}%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Balkendiagramm nach Wochentag -->
+                        <div>
+                            <div class="text-[10px] text-gray-500 mb-2 uppercase tracking-wider">Ø Verspätung nach Wochentag</div>
+                            <div class="flex items-end gap-1 h-16">
+                                ${dayBars.map(b => {
+                                    const h   = maxBar > 0 ? Math.round((b.avg / maxBar) * 100) : 0;
+                                    const col = b.avg === 0 ? 'bg-green-600' : b.avg <= 2 ? 'bg-yellow-500' : 'bg-red-500';
+                                    return `<div class="flex-1 flex flex-col items-center gap-0.5">
+                                        <div class="text-[8px] text-gray-500">${b.avg > 0 ? '+'+b.avg+"'" : ''}</div>
+                                        <div class="w-full ${col} rounded-t transition-all" style="height:${Math.max(4,h)}%"></div>
+                                        <div class="text-[9px] text-gray-500">${b.name}</div>
+                                    </div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+            } catch (e) {
+                el.innerHTML = `<span class="text-red-500">Fehler: ${e.message}</span>`;
+            }
+        }
+
+        // Abfahrten automatisch in IndexedDB speichern wenn Echtzeit vorhanden
+        // (wird nach jedem refreshDepartures() aufgerufen)
+        async function autoSaveDepartures(departures) {
+            for (const dep of departures) {
+                if (dep.delay !== null && dep.delay !== undefined) {
+                    await saveRtDeparture(dep);
+                }
+            }
+        }
+
+        // ─── Zuglauf-Übersicht ────────────────────────────────────────────────────────
+        async function renderZuglauf(dep) {
+            const el = $('zuglauf-content');
+            if (!el) return;
+            el.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Zuglauf...';
+
+            const lineName = dep.line?.name || '';
+            const dbTripId = dep.dbTripId || dep.tripId;
+
+            if (!dbTripId || !isTrain(dep.line)) {
+                el.innerHTML = `<div class="text-center py-4 text-gray-500 text-xs">
+                    Zuglauf nur für DB-Züge verfügbar.
+                </div>`;
+                return;
+            }
+
+            try {
+                // DB REST liefert bei /trips/:id die gesamte Fahrt inkl. Origin/Destination
+                const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false`;
+                const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const data = await r.json();
+                const trip = data.trip ?? data;
+
+                const stops    = trip.stopovers || [];
+                if (!stops.length) throw new Error('Keine Halte gefunden');
+
+                const origin   = stops[0].stop?.name || '?';
+                const dest     = stops[stops.length-1].stop?.name || '?';
+                const operator = trip.line?.operator?.name || '';
+                const product  = trip.line?.product || '';
+
+                // Aktuellen Halt hervorheben
+                const now = Date.now();
+                let currentIdx = -1;
+                stops.forEach((s, i) => {
+                    const t = new Date(s.departure || s.arrival || s.plannedDeparture || s.plannedArrival || 0).getTime();
+                    if (t <= now) currentIdx = i;
+                });
+
+                el.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="flex items-start justify-between text-xs">
+                            <div>
+                                <div class="font-black text-white text-sm">${lineName}</div>
+                                <div class="text-gray-400">${origin} → ${dest}</div>
+                                ${operator ? `<div class="text-[10px] text-gray-600">${operator}</div>` : ''}
+                            </div>
+                            <div class="text-[10px] text-gray-500 text-right">
+                                <div>${stops.length} Halte</div>
+                                <div class="uppercase">${product}</div>
+                            </div>
+                        </div>
+                        <div class="space-y-0 max-h-64 overflow-y-auto rounded-xl border border-zinc-800">
+                            ${stops.map((s, i) => {
+                                const isFirst   = i === 0;
+                                const isLast    = i === stops.length - 1;
+                                const isCurrent = i === currentIdx;
+                                const isPast    = i < currentIdx;
+                                const depT  = s.plannedDeparture || s.plannedArrival;
+                                const timeStr = depT ? new Date(depT).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+                                const delay = (() => {
+                                    const act  = s.departure || s.arrival;
+                                    const plan = s.plannedDeparture || s.plannedArrival;
+                                    if (!act || !plan) return '';
+                                    const d = Math.round((new Date(act) - new Date(plan)) / 60000);
+                                    if (d <= 0) return '';
+                                    return `<span class="text-red-400 text-[9px] ml-1">+${d}'</span>`;
+                                })();
+                                const cancelled = s.cancelled
+                                    ? '<span class="text-red-500 text-[9px] ml-1">[entfällt]</span>' : '';
+                                const bg = isCurrent
+                                    ? 'bg-red-600/20 border-l-2 border-red-500'
+                                    : isPast ? 'opacity-40' : '';
+                                const dot = isCurrent ? '🔴' : isPast ? '·' : '○';
+                                return `<div class="flex items-center gap-2 px-3 py-1.5 text-xs ${bg} ${isFirst||isLast?'font-bold':''}">
+                                    <span class="text-[10px] w-3 text-center">${dot}</span>
+                                    <span class="flex-1 truncate ${s.cancelled?'line-through text-gray-500':''}">${s.stop?.name||''}</span>
+                                    <span class="font-mono text-gray-400 shrink-0">${timeStr}${delay}${cancelled}</span>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+            } catch (e) {
+                el.innerHTML = `<div class="text-red-500 text-xs">Fehler: ${e.message}</div>`;
+            }
+        }
+
+        // ─── autoSaveDepartures in refreshDepartures einbinden ────────────────────────
 
         // Alle 90s watched trips prüfen
         setInterval(checkWatchedTrips, 90000);
