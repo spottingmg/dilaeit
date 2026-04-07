@@ -74,6 +74,24 @@
             font-weight: bold;
         }
 
+        /* Wagenreihung */
+        .wagon { display: inline-flex; flex-direction: column; align-items: center; font-size: 9px; }
+        .wagon-body { border: 1.5px solid #4b5563; border-radius: 3px; padding: 2px 5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; min-width: 28px; text-align: center; }
+        .wagon-loco { background: #ef4444; color: white; border-color: #ef4444; }
+        .wagon-1st  { background: #f59e0b22; border-color: #f59e0b; color: #f59e0b; }
+        .wagon-2nd  { background: #3b82f622; border-color: #3b82f6; color: #9bb3cc; }
+        .wagon-bistro { background: #22c55e22; border-color: #22c55e; color: #22c55e; }
+        .wagon-disabled { background: #8b5cf622; border-color: #8b5cf6; color: #a78bfa; }
+
+        /* Zugposition – Fortschrittsbalken */
+        .trip-progress-bar { height: 4px; background: #27272a; border-radius: 2px; overflow: hidden; }
+        .trip-progress-fill { height: 100%; background: linear-gradient(90deg, #ef4444, #f97316); border-radius: 2px; transition: width 1s ease; }
+
+        /* Umstieg-Ampel */
+        .transfer-ok     { color: #22c55e; }
+        .transfer-tight  { color: #f59e0b; }
+        .transfer-risky  { color: #ef4444; }
+
         .detail-view {
             display: none;
             position: fixed;
@@ -250,7 +268,7 @@
 
     <div id="detail-view" class="detail-view">
         <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen flex flex-col">
-            <header class="flex items-center gap-3 mb-10">
+            <header class="flex items-center gap-3 mb-4">
                 <button id="close-detail" class="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-zinc-900 flex items-center justify-center hover:scale-105 transition-transform">
                     <i class="fas fa-chevron-left"></i>
                 </button>
@@ -262,7 +280,35 @@
                     </div>
                     <p id="detail-operator" class="text-[10px] text-gray-500 mt-1 uppercase tracking-widest">--</p>
                 </div>
+                <!-- Push-Benachrichtigung abonnieren -->
+                <button id="push-subscribe-btn" title="Fahrt beobachten"
+                    class="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-700 flex items-center justify-center hover:border-yellow-400 transition-colors text-gray-400 hover:text-yellow-400">
+                    <i class="far fa-bell"></i>
+                </button>
             </header>
+
+            <!-- Aktuelle Zugposition (Fortschrittsbalken) -->
+            <div id="trip-position-bar" class="hidden mb-4 p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-xs">
+                <div class="flex justify-between text-gray-400 mb-2">
+                    <span id="pos-origin" class="truncate max-w-[40%]">--</span>
+                    <span id="pos-status" class="text-yellow-400 font-bold text-center flex-1"></span>
+                    <span id="pos-dest" class="truncate max-w-[40%] text-right">--</span>
+                </div>
+                <div class="trip-progress-bar">
+                    <div id="pos-fill" class="trip-progress-fill" style="width:0%"></div>
+                </div>
+                <div id="pos-next" class="mt-2 text-[10px] text-gray-500"></div>
+            </div>
+
+            <!-- Wagenreihung -->
+            <div id="wagon-section" class="hidden mb-4 p-3 rounded-xl bg-zinc-900 border border-zinc-800">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-gray-400"><i class="fas fa-train-subway mr-1"></i>Wagenreihung</span>
+                    <span id="wagon-source" class="text-[9px] text-gray-600"></span>
+                </div>
+                <div id="wagon-display" class="flex gap-1 overflow-x-auto pb-1 flex-wrap"></div>
+                <div class="flex gap-3 mt-2 flex-wrap" id="wagon-legend"></div>
+            </div>
 
             <div class="flex-1 relative">
                 <div class="itinerary-line"></div>
@@ -354,13 +400,11 @@
                 input.placeholder = 'Haltestelle suchen (Deutsche Bahn)...';
             }
             
-            // Suche zurücksetzen + Cache leeren (VRR- und DB-Ergebnisse nicht vermischen)
+            // Suche zurücksetzen
             input.value = '';
             $('search-results').innerHTML = '';
             $('search-results').classList.add('hidden');
             state.lastSearchQuery = '';
-            state.searchCache.clear();
-            if (activeSearchController) { activeSearchController.abort(); activeSearchController = null; }
         }
 
         function detectRegion(stationName) {
@@ -460,7 +504,15 @@
             $('theme-toggle').addEventListener('click', () => document.body.classList.toggle('dark'));
             const apiBtn = document.getElementById('api-base-btn');
             if (apiBtn) apiBtn.addEventListener('click', setApiBaseFromPrompt);
-            $('close-detail').addEventListener('click', () => $('detail-view').classList.remove('active'));
+            $('close-detail').addEventListener('click', () => {
+                $('detail-view').classList.remove('active');
+                $('wagon-section').classList.add('hidden');
+                $('trip-position-bar').classList.add('hidden');
+            });
+            $('push-subscribe-btn').addEventListener('click', async () => {
+                await requestNotificationPermission();
+                if (currentTripDetail) toggleWatch(currentTripDetail);
+            });
             document.addEventListener('click', e => {
                 if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
             });
@@ -1087,7 +1139,7 @@
             const cardId = `journey-${index}`;
             const detailId = `journey-detail-${index}`;
 
-            // Legs rendern
+            // Legs rendern mit Umsteigeampel zwischen den Verbindungen
             const legsHtml = legs.map((leg, li) => {
                 const isWalk = !leg.line;
                 const legDep = leg.plannedDeparture ? new Date(leg.plannedDeparture) : null;
@@ -1105,6 +1157,28 @@
                     const sign = d > 0 ? '+' : '';
                     return `<span class="font-mono text-gray-400 line-through mr-1 text-[10px]">${base}</span><span class="font-mono ${col}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} <span class="text-[9px]">${sign}${d}'</span></span>`;
                 };
+
+                // Umsteigeampel zwischen diesem und dem nächsten Leg
+                let transferHtml = '';
+                if (li < legs.length - 1 && !isWalk && leg.line) {
+                    const nextLeg = legs[li + 1];
+                    if (nextLeg && !(!nextLeg.line)) {
+                        const arrTime  = legArrAct || legArr;
+                        const depNext  = nextLeg.departure ? new Date(nextLeg.departure) : (nextLeg.plannedDeparture ? new Date(nextLeg.plannedDeparture) : null);
+                        if (arrTime && depNext) {
+                            const transferMin = Math.round((depNext - arrTime) / 60000);
+                            // Ampel: ≥10min = grün, 5-9min = gelb, <5min = rot
+                            const cls  = transferMin >= 10 ? 'transfer-ok' : transferMin >= 5 ? 'transfer-tight' : 'transfer-risky';
+                            const icon = transferMin >= 10 ? 'fa-circle-check' : transferMin >= 5 ? 'fa-circle-exclamation' : 'fa-circle-xmark';
+                            const label = transferMin < 5 ? 'Umstieg knapp!' : transferMin < 10 ? 'Umstieg eng' : 'Umstieg komfortabel';
+                            transferHtml = `<div class="flex items-center gap-2 py-1.5 px-3 text-[11px] ${cls}">
+                                <i class="fas ${icon}"></i>
+                                <span class="font-semibold">${transferMin} Min Umstieg</span>
+                                <span class="text-gray-500 text-[10px]">– ${label}</span>
+                            </div>`;
+                        }
+                    }
+                }
 
                 if (isWalk) {
                     const walkMin = leg.duration ? Math.round(leg.duration / 60) : '?';
@@ -1145,7 +1219,7 @@
                             <span>${fmtT(legArr, legArrAct)}</span>
                         </div>
                     </div>
-                </div>`;
+                </div>${transferHtml}`;
             }).join('');
 
             return `
@@ -1347,6 +1421,10 @@
                 const remarks  = data?.remarks   || [];
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
+                // Neue Features
+                updateTripPosition(stops);
+                loadWagonFormation(dep);
+                updatePushButton(dep);
             } catch (e) {
                 console.error('Trip details failed', e);
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
@@ -1657,6 +1735,237 @@
                 container.appendChild(remarksContainer);
             }
         }
+
+        // ─── Wagenreihung ────────────────────────────────────────────────────────────
+        async function loadWagonFormation(dep) {
+            const lineName = dep.line?.name || '';
+            if (!isTrain(dep.line)) return;
+
+            const section  = $('wagon-section');
+            const display  = $('wagon-display');
+            const srcLabel = $('wagon-source');
+            section.classList.remove('hidden');
+            display.innerHTML = '<span class="text-[10px] text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-1"></i>Lade Wagenreihung...</span>';
+
+            // Zugnummer extrahieren (z.B. "RE 10618" → "10618", "ICE 104" → "104")
+            const numMatch = lineName.match(/\d+/);
+            const trainNum = numMatch ? numMatch[0] : null;
+            if (!trainNum) { section.classList.add('hidden'); return; }
+
+            const date = $('query-date').value || new Date().toISOString().slice(0,10);
+            const year = date.slice(0,4);
+
+            // Versuch 1: DB Wagenstand-API (inoffiziell, aber öffentlich)
+            try {
+                const dbUrl = `https://www.bahn.de/web/api/reiseloesung/auslastung?zugnummer=${trainNum}&datum=${date}`;
+                // DB-API ist CORS-gesperrt vom Browser → direkt nur serverseitig möglich
+                // Stattdessen: vagonweb.cz scraper (öffentlich, CORS-offen)
+            } catch {}
+
+            // Versuch 2: vagonweb.cz
+            try {
+                const vagonUrl = `https://www.vagonweb.cz/razeni/razeni.php?zeme=DB&rok=${year}&cislo=${trainNum}&lang=de`;
+                // vagonweb.cz hat CORS → wir holen es über unseren Backend-Proxy
+                const res = await fetch(`${API_BASE}/api/wagon-formation?train=${encodeURIComponent(trainNum)}&year=${year}`, {
+                    signal: AbortSignal.timeout(6000)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.wagons?.length) {
+                        renderWagonFormation(data.wagons, data.source || 'vagonweb.cz');
+                        return;
+                    }
+                }
+            } catch {}
+
+            // Fallback: keine Daten
+            section.classList.add('hidden');
+        }
+
+        function renderWagonFormation(wagons, source) {
+            const display  = $('wagon-display');
+            const legend   = $('wagon-legend');
+            const srcLabel = $('wagon-source');
+            srcLabel.textContent = `Quelle: ${source}`;
+            display.innerHTML = '';
+            legend.innerHTML  = '';
+
+            const legendItems = new Map();
+
+            wagons.forEach((w, i) => {
+                const el = document.createElement('div');
+                el.className = 'wagon';
+
+                let cls = 'wagon-2nd';
+                let label = w.class || w.type || String(i+1);
+
+                if (/lok|loco|trieb/i.test(w.type || '')) { cls = 'wagon-loco'; label = '🚂'; }
+                else if (w.class === '1' || /1\.kl|1st/i.test(w.type || '')) { cls = 'wagon-1st'; legendItems.set('1. Klasse','wagon-1st'); }
+                else if (/bistro|speise|restaurant/i.test(w.type || '')) { cls = 'wagon-bistro'; legendItems.set('Bistro/Speise','wagon-bistro'); label = '🍽'; }
+                else if (/behin|roll|wheelchair|disable/i.test(w.type || '')) { cls = 'wagon-disabled'; legendItems.set('Barrierefrei','wagon-disabled'); label = '♿'; }
+                else { legendItems.set('2. Klasse','wagon-2nd'); }
+
+                el.innerHTML = `<div class="wagon-body ${cls}">${label}</div><div class="text-gray-600 mt-0.5">${w.number || ''}</div>`;
+                el.title = [w.type, w.class ? w.class+'. Klasse' : '', w.number ? 'Wagen '+w.number : ''].filter(Boolean).join(' · ');
+                display.appendChild(el);
+            });
+
+            // Legende
+            legendItems.forEach((cls, name) => {
+                const span = document.createElement('span');
+                span.className = `text-[9px] flex items-center gap-1`;
+                span.innerHTML = `<span class="wagon-body ${cls} inline-block" style="font-size:8px;padding:1px 4px">&nbsp;</span><span class="text-gray-500">${name}</span>`;
+                legend.appendChild(span);
+            });
+        }
+
+        // ─── Aktuelle Zugposition ────────────────────────────────────────────────────
+        function updateTripPosition(stopovers) {
+            const bar = $('trip-position-bar');
+            if (!stopovers?.length) { bar.classList.add('hidden'); return; }
+
+            const now  = Date.now();
+            const all  = stopovers.map(s => ({
+                name:    s.stop?.name || '',
+                planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
+                actual:  new Date(s.departure || s.arrival || s.plannedDeparture || s.plannedArrival || 0).getTime(),
+            })).filter(s => s.planned > 0);
+
+            if (!all.length) { bar.classList.add('hidden'); return; }
+
+            const first = all[0];
+            const last  = all[all.length - 1];
+
+            // Vergangene Halte (actual < now) und zukünftige trennen
+            const past   = all.filter(s => s.actual <= now);
+            const future = all.filter(s => s.actual > now);
+            const nextStop = future[0] || null;
+            const lastPast = past[past.length - 1] || null;
+
+            // Fortschritt = Anteil der zurückgelegten Zeit
+            const totalTime = last.planned - first.planned;
+            const elapsed   = now - first.planned;
+            const pct = totalTime > 0 ? Math.min(100, Math.max(0, (elapsed / totalTime) * 100)) : 0;
+
+            bar.classList.remove('hidden');
+            $('pos-origin').textContent = first.name;
+            $('pos-dest').textContent   = last.name;
+            $('pos-fill').style.width   = pct.toFixed(1) + '%';
+
+            if (pct <= 0) {
+                $('pos-status').textContent = 'Noch nicht gestartet';
+            } else if (pct >= 100) {
+                $('pos-status').textContent = 'Ziel erreicht';
+            } else {
+                $('pos-status').textContent = `${Math.round(pct)}% gefahren`;
+            }
+
+            if (nextStop) {
+                const minLeft = Math.round((nextStop.actual - now) / 60000);
+                $('pos-next').innerHTML = `<i class="fas fa-map-marker-alt mr-1 text-red-500"></i>Nächster Halt: <b class="text-white">${nextStop.name}</b> in ~${minLeft} Min`;
+            } else if (lastPast) {
+                $('pos-next').innerHTML = `<i class="fas fa-flag-checkered mr-1 text-green-500"></i>Letzter Halt: <b class="text-white">${lastPast.name}</b>`;
+            }
+        }
+
+        // ─── Push-Benachrichtigungen ─────────────────────────────────────────────────
+        const PUSH_KEY = 'dilaeit_watched_trips';
+
+        function getWatchedTrips() {
+            try { return JSON.parse(localStorage.getItem(PUSH_KEY) || '[]'); } catch { return []; }
+        }
+
+        function isWatched(tripKey) {
+            return getWatchedTrips().some(t => t.key === tripKey);
+        }
+
+        function makeTripKey(dep) {
+            return `${dep.line?.name}|${dep.plannedWhen?.slice(0,16)}|${dep.direction}`;
+        }
+
+        function toggleWatch(dep) {
+            const key  = makeTripKey(dep);
+            let trips  = getWatchedTrips();
+            const idx  = trips.findIndex(t => t.key === key);
+            if (idx >= 0) {
+                trips.splice(idx, 1);
+            } else {
+                trips.push({
+                    key,
+                    line:      dep.line?.name,
+                    direction: dep.direction,
+                    when:      dep.plannedWhen,
+                    tripId:    dep.tripId || dep.dbTripId,
+                    saved:     Date.now()
+                });
+            }
+            localStorage.setItem(PUSH_KEY, JSON.stringify(trips.filter(t => Date.now() - t.saved < 86400000 * 2)));
+            updatePushButton(dep);
+        }
+
+        function updatePushButton(dep) {
+            const btn = $('push-subscribe-btn');
+            if (!btn || !dep) return;
+            const watching = isWatched(makeTripKey(dep));
+            if (watching) {
+                btn.innerHTML = '<i class="fas fa-bell text-yellow-400"></i>';
+                btn.title = 'Fahrt wird beobachtet – klicken zum Entfernen';
+                btn.classList.add('border-yellow-400');
+            } else {
+                btn.innerHTML = '<i class="far fa-bell"></i>';
+                btn.title = 'Fahrt beobachten (Benachrichtigung bei Verspätung)';
+                btn.classList.remove('border-yellow-400');
+            }
+        }
+
+        // Watched-Trips im Hintergrund auf Verspätung prüfen
+        async function checkWatchedTrips() {
+            const trips = getWatchedTrips().filter(t => {
+                const when = new Date(t.when);
+                const diff = when - Date.now();
+                return diff > -3600000 && diff < 7200000; // 1h vergangen bis 2h in Zukunft
+            });
+            for (const trip of trips) {
+                if (!trip.tripId) continue;
+                try {
+                    const res  = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(trip.tripId)}`);
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    const dep  = data.stopovers?.find(s => s.departureDelaySec !== null);
+                    if (dep && dep.departureDelaySec >= 300) {
+                        showLocalNotification(
+                            `${trip.line} → ${trip.direction}`,
+                            `Verspätung: +${Math.round(dep.departureDelaySec/60)} Min bei ${dep.stop?.name}`
+                        );
+                    }
+                } catch {}
+            }
+        }
+
+        function showLocalNotification(title, body) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, { body, icon: '/favicon.ico', tag: title });
+            } else {
+                // Fallback: visuelles Toast-Banner
+                const toast = document.createElement('div');
+                toast.className = 'fixed bottom-4 right-4 z-[200] bg-zinc-900 border border-yellow-400 text-white rounded-2xl px-4 py-3 shadow-2xl max-w-xs text-sm';
+                toast.innerHTML = `<div class="font-bold text-yellow-400 mb-1">${title}</div><div class="text-gray-300 text-xs">${body}</div>`;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 6000);
+            }
+        }
+
+        // Notification-Berechtigung anfragen
+        async function requestNotificationPermission() {
+            if (!('Notification' in window)) return false;
+            if (Notification.permission === 'granted') return true;
+            if (Notification.permission === 'denied') return false;
+            const result = await Notification.requestPermission();
+            return result === 'granted';
+        }
+
+        // Alle 90s watched trips prüfen
+        setInterval(checkWatchedTrips, 90000);
 
         init();
     </script>
