@@ -1624,41 +1624,59 @@
                 const fmt2 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : null;
                 const fmt3 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
 
-                const schedStr = fmt2(schedTime) || '';
+                // Badge nur ab ±60s, darunter kein Label (aber trotzdem Ist-Farbe)
+                const makeDelayBadge = (sec) => {
+                    if (sec === null || sec === undefined) return { badge: '', timeCls: '' };
+                    const abs = Math.abs(sec);
+                    const timeCls = sec >= 60  ? 'text-red-400'
+                                  : sec <= -60 ? 'text-blue-400'
+                                  : sec !== 0  ? 'text-green-400'  // 1-59s: grün aber kein badge
+                                  :              'text-green-400';
+                    if (abs < 60) return { badge: '', timeCls };
+                    const sign  = sec > 0 ? '+' : '-';
+                    const label = `${sign}${Math.round(abs / 60)}'`;
+                    const cls   = sec > 0 ? 'delay-pos' : 'delay-neg';
+                    return { badge: `<span class="itin-delay ${cls}">${label}</span>`, timeCls };
+                };
 
-                // Echtzeit-String: mit Sekunden wenn vorhanden, sonst leer
-                // Falls kein actualTime aber delaySec bekannt → Ist-Zeit aus Soll+Delay berechnen
-                let effectiveActual = actualTime;
-                if (!effectiveActual && delaySec !== null && schedTime) {
-                    effectiveActual = new Date(schedTime.getTime() + delaySec * 1000);
-                }
-                const actualStr = effectiveActual ? fmt3(effectiveActual) : null;
+                // Ankunft (nicht am Starthalt)
+                const pArrD   = !isFirst ? pArr : null;
+                const aArrD   = !isFirst ? aArr : null;
+                const arrDSec = !isFirst
+                    ? (stop.arrivalDelaySec   ?? (aArrD && pArrD ? Math.round((aArrD - pArrD) / 1000) : delaySec))
+                    : null;
+                const arrEff  = aArrD || (pArrD && arrDSec !== null ? new Date(pArrD.getTime() + arrDSec * 1000) : null);
+                const { badge: arrBadge, timeCls: arrCls } = makeDelayBadge(arrDSec);
 
-                // Delay-Badge: zeige immer wenn Signal vorhanden (auch bei 0s = pünktlich)
-                // Verfrühung (negativ) = blau/grün, Verspätung (positiv) = rot, pünktlich = grün
-                let delayHtml = '';
-                if (delaySec !== null) {
-                    const abs  = Math.abs(delaySec);
-                    const sign = delaySec > 0 ? '+' : delaySec < 0 ? '-' : '';
-                    // Farbe: rot ab +60s, grün/blau für pünktlich oder Verfrühung
-                    const cls = delaySec >= 60  ? 'delay-pos'
-                              : delaySec > 0    ? 'delay-pos'   // 1–59s Verspätung: auch rot
-                              : delaySec < 0    ? 'delay-neg'   // Verfrühung: blau
-                              :                   'delay-zero';  // exakt 0 = grün
-                    const label = delaySec === 0
-                        ? '+0'
-                        : abs >= 60
-                            ? `${sign}${Math.round(abs / 60)}'`
-                            : `${sign}${abs}s`;
-                    delayHtml = `<span class="itin-delay ${cls}">${label}</span>`;
-                }
+                // Abfahrt (nicht am Endhalt)
+                const pDepD   = !isLast ? pDep : null;
+                const aDepD   = !isLast ? aDep : null;
+                const depDSec = !isLast
+                    ? (stop.departureDelaySec ?? (aDepD && pDepD ? Math.round((aDepD - pDepD) / 1000) : delaySec))
+                    : null;
+                const depEff  = aDepD || (pDepD && depDSec !== null ? new Date(pDepD.getTime() + depDSec * 1000) : null);
+                const { badge: depBadge, timeCls: depCls } = makeDelayBadge(depDSec);
 
-                // Ist-Zeit Farbe: rot bei Verspätung, blau bei Verfrühung, grün bei pünktlich
-                const actualCls = delaySec === null  ? ''
-                    : delaySec > 60  ? 'text-red-400'
-                    : delaySec > 0   ? 'text-red-400'
-                    : delaySec < 0   ? 'text-blue-400'
-                    :                  'text-green-400';
+                // Zeitzeile: Soll | Ist (dünn+kursiv wenn Zukunft) | Badge
+                const makeTimeRow = (label, schedD, effActD, badge, timeCls) => {
+                    if (!schedD) return '';
+                    const isFuture = effActD ? effActD > new Date() : true;
+                    const actStr   = effActD ? fmt3(effActD) : null;
+                    const actHtml  = actStr
+                        ? `<span class="itin-actual ${timeCls}${isFuture ? ' font-light italic opacity-80' : ''}">${actStr}</span>`
+                        : '';
+                    return `<div class="itin-time-row"><span class="itin-label">${label}</span><span class="itin-sched${passed ? ' opacity-40' : ''}">${fmt2(schedD)}</span>${actHtml}${badge}</div>`;
+                };
+
+                const arrRow = makeTimeRow('an', pArrD, arrEff, arrBadge, arrCls);
+                const depRow = makeTimeRow('ab', pDepD, depEff, depBadge, depCls);
+
+                const row = document.createElement('div');
+                row.className = [
+                    'itinerary-item',
+                    stop.cancelled  ? 'is-cancelled'  : '',
+                    stop.additional ? 'is-additional' : '',
+                ].join(' ').trim();
 
                 // Gleis
                 const platPlanned = stop.plannedPlatform || null;
@@ -1675,21 +1693,11 @@
                     ? `<span class="itin-remark"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(remarkText)}</span>`
                     : '';
 
-                const row = document.createElement('div');
-                row.className = [
-                    'itinerary-item',
-                    stop.cancelled  ? 'is-cancelled'  : '',
-                    stop.additional ? 'is-additional' : '',
-                ].join(' ').trim();
-
-                const arrRow = makeTimeRow('an', arrSched, arrActStr, arrBadge, arrCls, !isFirst && arrEffAct && arrEffAct > new Date());
-                const depRow = makeTimeRow('ab', depSched, depActStr, depBadge, depCls, !isLast  && depEffAct && depEffAct > new Date());
-
                 row.innerHTML = `
                     <div class="itin-times">
-                        ${arrRow || (isFirst ? makeTimeRow('ab', depSched, depActStr, depBadge, depCls, depEffAct && depEffAct > new Date()) : '')}
-                        ${!isFirst && !isLast && depRow ? depRow : ''}
-                        ${isLast  ? makeTimeRow('an', arrSched, arrActStr, arrBadge, arrCls, false) : ''}
+                        ${isFirst ? depRow : arrRow}
+                        ${!isFirst && !isLast ? depRow : ''}
+                        ${isLast  ? makeTimeRow('an', pArr, arrEff, arrBadge, arrCls) : ''}
                     </div>
                     <div class="itin-dot-col">
                         <div class="itin-seg${isFirst ? ' opacity-0' : ''}"></div>
