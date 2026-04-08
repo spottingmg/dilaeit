@@ -406,17 +406,28 @@ app.get('/api/trips/:tripId', async (req, res) => {
     });
 
     const seq       = data.transportation?.locationSequence || [];
-    const stopovers = (Array.isArray(seq) ? seq : []).map(s => ({
-      stop:             { name: s.name || s.parent?.name || '' },
-      plannedArrival:   toIsoStringOrNull(s.arrivalTimePlanned),
-      arrival:          toIsoStringOrNull(s.arrivalTimeEstimated),
-      plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
-      departure:        toIsoStringOrNull(s.departureTimeEstimated),
-      plannedPlatform:  s.properties?.plannedPlatformName || s.properties?.platformName || null,
-      platform:         s.properties?.platformName || s.properties?.platform || null,
-      cancelled:        false,
-      additional:       false,
-    }));
+    const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
+      const plannedArrival   = toIsoStringOrNull(s.arrivalTimePlanned);
+      const arrival          = toIsoStringOrNull(s.arrivalTimeEstimated);
+      const plannedDeparture = toIsoStringOrNull(s.departureTimePlanned);
+      const departure        = toIsoStringOrNull(s.departureTimeEstimated);
+
+      // Delay in Sekunden (kann negativ sein = Verfrühung)
+      const arrivalDelaySec   = arrival   && plannedArrival
+        ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000) : null;
+      const departureDelaySec = departure && plannedDeparture
+        ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000) : null;
+
+      return {
+        stop:             { name: s.name || s.parent?.name || '' },
+        plannedArrival, arrival, plannedDeparture, departure,
+        arrivalDelaySec, departureDelaySec,
+        plannedPlatform:  s.properties?.plannedPlatformName || s.properties?.platformName || null,
+        platform:         s.properties?.platformName || s.properties?.platform || null,
+        cancelled:        false,
+        additional:       false,
+      };
+    });
 
     res.json({ stopovers, remarks: [], source: 'VRR OpenService' });
   } catch (e) { res.status(502).json({ error: e.message }); }
