@@ -178,6 +178,9 @@
         .itin-sched  { color: #9ca3af; min-width: 38px; text-align: right; }
         .itin-actual { font-weight: 700; }
         .itin-delay  { font-size: 9px; font-weight: 700; padding: 0 2px; border-radius: 2px; }
+        .delay-pos  { color: #f87171; }   /* rot – Verspätung  */
+        .delay-neg  { color: #60a5fa; }   /* blau – Verfrühung */
+        .delay-zero { color: #4ade80; }   /* grün – pünktlich  */
 
         /* Stationsname */
         .itin-name {
@@ -945,38 +948,28 @@
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
                 const actualTime  = dep.when ? new Date(dep.when) : null;
 
-                // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
-                let roundedDelay = null;
-                let showSeconds = false;
-                if (dep.delay !== null && dep.delay !== undefined) {
-                    const secs = dep.delay;
-                    // Wenn die Quelle Deutsche Bahn ist, zeigen wir immer Sekunden an, falls vorhanden
-                    if (dep._source === 'Deutsche Bahn') {
-                        showSeconds = true;
-                        roundedDelay = secs;
-                    } else if (Math.abs(secs) >= 60) {
-                        roundedDelay = secs >= 0 ? Math.floor(secs / 60) : Math.ceil(secs / 60);
-                    } else if (secs !== 0) {
-                        // Für präzise Anzeige unter 1 Min zeigen wir Sekunden
-                        roundedDelay = secs;
-                        showSeconds = true;
-                    } else {
-                        roundedDelay = 0;
-                    }
-                }
+                // delay in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
+                // Sekunden werden IMMER angezeigt wenn vorhanden (unabhängig von Quelle)
+                const delaySec = (dep.delay !== null && dep.delay !== undefined) ? dep.delay : null;
 
-                // Verfrühung: grün + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
-                const delayColor = roundedDelay === null ? ''
-                    : roundedDelay > 0  ? 'text-red-500'
-                    : 'text-green-500';
-                const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
-                const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
+                // Verfrühung: blau + Minus; Verspätung: rot + Plus; pünktlich: grün +0
+                const delayColor = delaySec === null     ? ''
+                    : delaySec > 0   ? 'text-red-500'
+                    : delaySec < 0   ? 'text-blue-400'
+                    :                  'text-green-500';
+                const abs        = delaySec !== null ? Math.abs(delaySec) : 0;
+                const delaySign  = delaySec !== null ? (delaySec > 0 ? '+' : delaySec < 0 ? '-' : '') : '';
+                const delayLabel = delaySec === null  ? ''
+                    : delaySec === 0   ? '+0'
+                    : abs >= 60        ? `${delaySign}${Math.round(abs / 60)}'`
+                    :                    `${delaySign}${abs}s`;
+                const showDelay  = !isCancelled && delaySec !== null;
 
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
                             <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${Math.abs(roundedDelay)}${showSeconds ? 's' : "'"}</span>` : ''}
+                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delayLabel}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -1617,18 +1610,41 @@
                 const fmt2 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : null;
                 const fmt3 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
 
-                const schedStr  = fmt2(schedTime) || '';
-                const actualStr = actualTime ? fmt3(actualTime) : null;
+                const schedStr = fmt2(schedTime) || '';
 
+                // Echtzeit-String: mit Sekunden wenn vorhanden, sonst leer
+                // Falls kein actualTime aber delaySec bekannt → Ist-Zeit aus Soll+Delay berechnen
+                let effectiveActual = actualTime;
+                if (!effectiveActual && delaySec !== null && schedTime) {
+                    effectiveActual = new Date(schedTime.getTime() + delaySec * 1000);
+                }
+                const actualStr = effectiveActual ? fmt3(effectiveActual) : null;
+
+                // Delay-Badge: zeige immer wenn Signal vorhanden (auch bei 0s = pünktlich)
+                // Verfrühung (negativ) = blau/grün, Verspätung (positiv) = rot, pünktlich = grün
                 let delayHtml = '';
-                if (delaySec !== null && delaySec !== 0) {
+                if (delaySec !== null) {
                     const abs  = Math.abs(delaySec);
-                    const sign = delaySec > 0 ? '+' : '-';
-                    const cls  = delaySec > 60 ? 'delay-pos' : delaySec < -60 ? 'delay-neg' : delaySec > 0 ? 'delay-pos' : 'delay-zero';
-                    const label = abs >= 60 ? `${sign}${Math.round(delaySec / 60)}'` : `${sign}${delaySec}s`;
+                    const sign = delaySec > 0 ? '+' : delaySec < 0 ? '-' : '';
+                    // Farbe: rot ab +60s, grün/blau für pünktlich oder Verfrühung
+                    const cls = delaySec >= 60  ? 'delay-pos'
+                              : delaySec > 0    ? 'delay-pos'   // 1–59s Verspätung: auch rot
+                              : delaySec < 0    ? 'delay-neg'   // Verfrühung: blau
+                              :                   'delay-zero';  // exakt 0 = grün
+                    const label = delaySec === 0
+                        ? '+0'
+                        : abs >= 60
+                            ? `${sign}${Math.round(abs / 60)}'`
+                            : `${sign}${abs}s`;
                     delayHtml = `<span class="itin-delay ${cls}">${label}</span>`;
                 }
-                const actualCls = delaySec === null ? '' : delaySec > 60 ? 'text-red-400' : delaySec < 0 ? 'text-blue-400' : 'text-green-400';
+
+                // Ist-Zeit Farbe: rot bei Verspätung, blau bei Verfrühung, grün bei pünktlich
+                const actualCls = delaySec === null  ? ''
+                    : delaySec > 60  ? 'text-red-400'
+                    : delaySec > 0   ? 'text-red-400'
+                    : delaySec < 0   ? 'text-blue-400'
+                    :                  'text-green-400';
 
                 // Gleis
                 const platPlanned = stop.plannedPlatform || null;
@@ -1982,6 +1998,7 @@
         let trainMap = null;
         let trainMarker = null;
         let trainPolyline = null;
+        let trainStopMarkers = [];
         let mapRefreshTimer = null;
 
         function switchDetailTab(tab) {
@@ -2013,34 +2030,43 @@
 
             statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Kartendaten...';
 
-            // Karte initialisieren (nur einmal)
-            if (!trainMap) {
-                trainMap = L.map('train-map', { zoomControl: true, attributionControl: false });
-                // Dark-Mode Kacheln (CartoDB Dark Matter)
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19, subdomains: 'abcd'
-                }).addTo(trainMap);
-                // OpenRailwayMap Overlay
-                L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
-                    maxZoom: 19, opacity: 0.75,
-                    attribution: '© OpenRailwayMap'
-                }).addTo(trainMap);
-                L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
+            // Karte immer neu aufbauen (DOM-Element kann nach Reopen neu sein)
+            if (trainMap) {
+                try { trainMap.remove(); } catch(e) {}
+                trainMap = null;
+                trainMarker = null;
+                trainPolyline = null;
             }
+            // Sicherstellen dass das Element leer ist
+            mapEl.innerHTML = '';
 
-            // Alte Layer entfernen
-            if (trainMarker)   { trainMap.removeLayer(trainMarker);   trainMarker   = null; }
-            if (trainPolyline) { trainMap.removeLayer(trainPolyline); trainPolyline = null; }
+            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false });
 
-            await updateTrainMapPosition(dep);
+            // Dark-Mode Basiskarte (CartoDB Dark Matter)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19, subdomains: 'abcd'
+            }).addTo(trainMap);
 
-            // Alle 20s aktualisieren solange Karte sichtbar
-            if (mapRefreshTimer) clearInterval(mapRefreshTimer);
-            mapRefreshTimer = setInterval(() => {
-                if (!$('panel-map').classList.contains('hidden')) {
-                    updateTrainMapPosition(dep);
-                }
-            }, 20000);
+            // OpenRailwayMap Overlay
+            L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+                maxZoom: 19, opacity: 0.75
+            }).addTo(trainMap);
+
+            L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
+
+            // Kurz warten bis das Element gerendert ist, dann Daten laden
+            setTimeout(async () => {
+                trainMap.invalidateSize();
+                await updateTrainMapPosition(dep);
+
+                // Alle 20s aktualisieren solange Karte sichtbar
+                if (mapRefreshTimer) clearInterval(mapRefreshTimer);
+                mapRefreshTimer = setInterval(() => {
+                    if (!$('panel-map').classList.contains('hidden')) {
+                        updateTrainMapPosition(dep);
+                    }
+                }, 20000);
+            }, 150);
         }
 
         async function updateTrainMapPosition(dep) {
@@ -2088,8 +2114,12 @@
             const now  = Date.now();
             const pos  = interpolateTrainPosition(points, now);
 
+            // Alte Stop-Marker entfernen
+            trainStopMarkers.forEach(m => { try { trainMap.removeLayer(m); } catch(e){} });
+            trainStopMarkers = [];
+
             // Strecke zeichnen
-            if (trainPolyline) trainMap.removeLayer(trainPolyline);
+            if (trainPolyline) { try { trainMap.removeLayer(trainPolyline); } catch(e){} }
             const latLngs = points.map(p => [p.lat, p.lng]);
             trainPolyline = L.polyline(latLngs, {
                 color: '#ef4444', weight: 3, opacity: 0.7, dashArray: '6,4'
@@ -2101,10 +2131,11 @@
                 const isNext    = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
                 const color     = isPast ? '#374151' : isNext ? '#f97316' : '#6b7280';
                 const radius    = isNext ? 7 : 5;
-                L.circleMarker([p.lat, p.lng], {
+                const sm = L.circleMarker([p.lat, p.lng], {
                     radius, color, fillColor: color, fillOpacity: 1, weight: isNext ? 2 : 1,
                     bubblingMouseEvents: false
                 }).bindTooltip(p.name, { direction: 'top', offset: [0, -8] }).addTo(trainMap);
+                trainStopMarkers.push(sm);
             });
 
             // Zugmarker setzen / updaten
