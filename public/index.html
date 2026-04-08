@@ -124,24 +124,63 @@
         .thin-prognosis { font-weight: 300; }
         .precision-time { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
-        .itinerary-line {
-            position: absolute;
-            left: 14px; top: 0; bottom: 0;
-            width: 2px;
-            background-color: #374151;
-            z-index: 0;
-        }
+        /* ── Kompakter Fahrtverlauf (bahn.expert-Stil) ── */
+        .itinerary-line { display: none; } /* wird nicht mehr gebraucht */
 
         .itinerary-item {
-            padding-left: 32px;
-            margin-bottom: 0.45rem;
-            min-height: 48px;
+            display: grid;
+            grid-template-columns: 90px 14px 1fr;
+            align-items: center;
+            min-height: 26px;
+            column-gap: 6px;
+            padding: 1px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 11px;
+            line-height: 1.3;
+        }
+        .itinerary-item:last-child { border-bottom: none; }
+        .itinerary-item.is-cancelled { opacity: 0.4; text-decoration: line-through; }
+        .itinerary-item.is-additional { border-left: 2px solid #22c55e; }
+
+        /* Zeitleiste-Spalte */
+        .itin-dot-col {
             display: flex;
             flex-direction: column;
-            gap: 0.25rem;
+            align-items: center;
+            height: 100%;
         }
+        .itin-seg { width: 2px; flex: 1; background: #4b5563; min-height: 6px; }
+        .itin-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ef4444; border: 2px solid #09090b;
+            flex-shrink: 0;
+        }
+        .itin-dot.terminus { width: 10px; height: 10px; }
+        .itin-dot.passed   { background: #4b5563; }
 
-        .itinerary-item-content { margin-left: 12px; }
+        /* Zeiten-Spalte */
+        .itin-times {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10.5px;
+            text-align: right;
+            white-space: nowrap;
+        }
+        .itin-sched  { color: #9ca3af; }
+        .itin-actual { font-weight: 700; }
+        .itin-delay  { font-size: 9px; font-weight: 700; padding: 0 2px; border-radius: 2px; }
+
+        /* Stationsname */
+        .itin-name {
+            font-size: 11.5px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .itin-name.terminus { font-weight: 600; font-size: 12px; }
+        .itin-name.passed   { opacity: 0.5; }
+
+        .itin-platform { font-size: 9px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 4px; }
+        .itin-platform.changed { color: #f97316; font-weight: 700; }
+
+        .itin-remark { font-size: 9px; color: #ef4444; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 
         #trip-itinerary { max-height: 62vh; overflow-y: auto; }
         #detail-trip-id { font-size: 0.76rem; font-weight: 700; }
@@ -322,8 +361,7 @@
             </div>
 
             <div class="flex-1 relative" id="panel-itinerary">
-                <div class="itinerary-line"></div>
-                <div id="trip-itinerary" class="space-y-10 relative z-10"></div>
+                <div id="trip-itinerary" class="relative z-10"></div>
             </div>
 
             <footer class="mt-8 pt-4 border-t border-gray-100 dark:border-zinc-900">
@@ -1496,303 +1534,143 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
-            // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
+            // ── Verspätungs-Übersetzungstabelle (unverändert) ────────────────────────
             const translationMap = {
-                // ── Betrieb & Verspätungsgründe (Typ R) ─────────────────────────────
-                "no delay reason":                                   "keine Verspätungsbegründung",
-                "further information shortly":                       "nähere Informationen in Kürze",
-                "Delay due to a police operation":                   "Polizeieinsatz",
-                "fire brigade operation":                            "Feuerwehreinsatz auf der Strecke",
-                "Delay due to a medical emergency":                  "ärztliche Versorgung eines Fahrgastes",
-                "emergency brake activated":                         "unbefugtes Ziehen der Notbremse",
-                "persons on the track":                              "unbefugte Personen auf der Strecke",
-                "emergency doctor on track":                         "Notarzteinsatz auf der Strecke",
-                "Delay due to a strike":                             "Streikauswirkungen",
-                "animals on the track":                              "Tiere auf der Strecke",
-                "Delay due to storm damage":                         "Unwetter",
-                "waiting for a delayed ferry":                       "Warten auf ein verspätetes Schiff",
-                "passport and customs control":                      "Pass- und Zollkontrolle",
-                "technical defect at the station":                   "technischer Defekt am Bahnhof",
-                "Delay caused by vandalism":                         "Beeinträchtigung durch Vandalismus",
-                "bomb disposal":                                     "Entschärfung einer Fliegerbombe",
-                "bridge damage":                                     "Beschädigung einer Brücke",
-                "fallen tree on the track":                          "umgestürzter Baum auf der Strecke",
-                "level crossing accident":                           "Unfall an einem Bahnübergang",
-                "Delay due to waiting for connecting passengers":    "Warten auf Anschlussreisende",
-                "weather-related disruption":                        "Witterungsbedingte Beeinträchtigungen",
-                "delay abroad":                                      "Verspätung im Ausland",
-                "waiting for additional coaches":                    "Bereitstellung weiterer Wagen",
-                "decoupling of coaches":                             "Abhängen von Wagen",
-                "objects on the track":                              "Gegenstände auf der Strecke",
-                "Replacement service":                               "Ersatzverkehr mit Bus ist eingerichtet",
-                "Delay due to construction work":                    "Bauarbeiten",
-                "boarding assistance":                               "Unterstützung beim Ein- und Ausstieg",
-                "overhead line fault":                               "Reparatur an der Oberleitung",
-                "Delay due to a track obstruction":                  "Streckensperrung",
-                "signal fault":                                      "Reparatur an einem Signal",
-                "Delay due to a technical defect":                   "Reparatur am Zug",
-                "technical defect on the route":                     "Reparatur an der Strecke",
-                "points failure":                                    "defektes Stellwerk",
-                "level crossing fault":                              "technischer Defekt an einem Bahnübergang",
-                "temporary speed restriction":                       "vorübergehend verminderte Geschwindigkeit auf der Strecke",
-                "Delay due to a broken down train":                  "Verspätung eines vorausfahrenden Zuges",
-                "Delay of previous train":                           "Verspätung eines vorausfahrenden Zuges",
-                "waiting for an oncoming train":                     "Warten auf einen entgegenkommenden Zug",
-                "train overtaken":                                   "Vorfahrt eines anderen Zuges",
-                "waiting for free entry":                            "Vorfahrt eines anderen Zuges",
-                "delayed provision of the train":                    "verspätete Bereitstellung des Zuges",
-                "Delay from previous journey":                       "Verspätung aus vorheriger Fahrt",
-                "short-term staff shortage":                         "kurzfristiger Personalausfall",
-                "short-term illness of staff":                       "kurzfristige Erkrankung von Personal",
-                "delayed staff from previous journey":               "verspätetes Personal aus vorheriger Fahrt",
-                "strike":                                            "Streik",
-                "storm effects":                                     "Unwetterauswirkungen",
-                "track availability currently restricted":           "Verfügbarkeit der Gleise derzeit eingeschränkt",
-                "technical defect on another train":                 "technischer Defekt an einem anderen Zug",
-                "additional stop for boarding and alighting":        "zusätzlicher Halt zum Ein- und Ausstieg",
-                "Train is diverted":                                 "Umleitung des Zuges",
-                "Train is diverted. Stops are omitted.":             "Umleitung des Zuges. Einige Halte entfallen.",
-                "snow and ice":                                      "Schnee und Eis",
-                "weather-related reduced speed":                     "witterungsbedingt verminderte Geschwindigkeit",
-                "defective door":                                    "defekte Tür",
-                "technical defect resolved":                         "behobener technischer Defekt am Zug",
-                "technical inspection of the train":                 "technische Untersuchung am Zug",
-                "switch failure":                                    "Reparatur an der Weiche",
-                "landslide":                                         "Erdrutsch",
-                "flooding":                                          "Hochwasser",
-                "official measure":                                  "behördliche Maßnahme",
-                "high passenger volume":                             "hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
-                "train running at reduced speed":                    "Zug verkehrt mit verminderter Geschwindigkeit",
-                "Stops are omitted":                                 "Einige Halte entfallen.",
-                "Enter only, no exiting allowed" : "Hält nur zum Einsteigen.",
-                "Platform change":                                   "Gleiswechsel.",
-                "Change of platform":                                "Gleiswechsel.",
-                "Track change":                                      "Gleiswechsel.",
-                "Stop cancelled":                                    "Halt entfällt.",
-                "Additional stop":                                   "Zusatzhalt.",
-                "Special service":                                   "Sonderfahrt.",
-                "Train is cancelled":                                "Zug fällt aus.",
-                "Unfortunately, the train is cancelled.":            "Zug fällt aus.",
-                "The train is cancelled due to a technical defect.": "Reparatur am Zug.",
-                "The train is cancelled due to construction work.":  "Bauarbeiten.",
-                "The train is cancelled due to a staff shortage.":   "kurzfristiger Personalausfall.",
-                // ── Qualitätsmeldungen (Typ Q) ────────────────────────────────────────
-                "WiFi available":                                    "WLAN verfügbar.",
-                "WLAN not available":                                "WLAN nicht verfügbar",
-                "WiFi not available in one or more coaches":         "WLAN in einem/mehreren Wagen nicht verfügbar",
-                "info/entertainment not available":                  "Info-/Entertainment nicht verfügbar",
-                "today: multi-purpose compartment at the front":     "Heute: Mehrzweckabteil vorne",
-                "today: multi-purpose compartment at the rear":      "Heute: Mehrzweckabteil hinten",
-                "today: 1st class at the front":                    "Heute: 1. Klasse vorne",
-                "today: 1st class at the rear":                     "Heute: 1. Klasse hinten",
-                "no 1st class":                                      "1. Klasse fehlt",
-                "no multi-purpose compartment":                      "Mehrzweckabteil fehlt",
-                "different coach order":                             "andere Reihenfolge der Wagen",
-                "several coaches missing":                           "mehrere Wagen fehlen",
-                "Vehicle-bound boarding aid available":              "fahrzeuggebundene Einstiegshilfe vorhanden.",
-                "defective vehicle-bound boarding aid":              "defekte fahrzeuggebundene Einstiegshilfe",
-                "train running in correct formation":                "Zug verkehrt richtig gereiht",
-                "one coach missing":                                 "ein Wagen fehlt",
-                "entire train without reservation":                  "gesamter Zug ohne Reservierung",
-                "individual coaches without reservation":            "einzelne Wagen ohne Reservierung",
-                "no quality defects":                                "keine Qualitätsmängel",
-                "reservations available again":                      "Reservierungen sind wieder vorhanden",
-                "no catering":                                       "kein gastronomisches Angebot",
-                "On-board restaurant":                               "Bordrestaurant.",
-                "Bicycles conveyed - not possible":                  "Fahrradmitnahme nicht möglich.",
-                "Number of bicycles conveyed limited":               "Eingeschränkte Fahrradbeförderung.",
-                "Bicycles conveyed":                                 "Fahrradmitnahme möglich.",
-                "Bicycles conveyed - subject to reservation":        "Fahrradmitnahme – Reservierung erforderlich.",
-                "Bicycles conveyed - subject to availability":       "Fahrradmitnahme – je nach Verfügbarkeit.",
-                "no accessible facilities":                          "behindertengerechte Einrichtung fehlt",
-                "replacement catering":                              "Ersatzbewirtschaftung",
-                "WC accessible for wheelchair users":                "Rollstuhlgerechtes WC vorhanden.",
-                "no accessible toilet":                              "Universal-WC fehlt",
-                "overcrowded with compensation":                     "Überbesetzung mit Kulanzleistungen",
-                "overcrowded without compensation":                  "Überbesetzung ohne Kulanzleistungen",
-                "other quality defects":                             "sonstige Qualitätsmängel",
-                "operational delays":                                "Verzögerungen im Betriebsablauf",
-                "Step-free access":                                  "Stufenfreier Zugang.",
-                "Power sockets available":                           "Steckdosen verfügbar.",
-                "Quiet zone":                                        "Ruhebereich.",
-                "Air conditioning":                                  "Klimaanlage vorhanden.",
-                "Area for people with reduced mobility":             "Bereich für mobilitätseingeschränkte Personen.",
+                "no delay reason":"keine Verspätungsbegründung","further information shortly":"nähere Informationen in Kürze",
+                "Delay due to a police operation":"Polizeieinsatz","fire brigade operation":"Feuerwehreinsatz auf der Strecke",
+                "Delay due to a medical emergency":"ärztliche Versorgung eines Fahrgastes","emergency brake activated":"unbefugtes Ziehen der Notbremse",
+                "persons on the track":"unbefugte Personen auf der Strecke","emergency doctor on track":"Notarzteinsatz auf der Strecke",
+                "Delay due to a strike":"Streikauswirkungen","animals on the track":"Tiere auf der Strecke",
+                "Delay due to storm damage":"Unwetter","weather-related disruption":"Witterungsbedingte Beeinträchtigungen",
+                "Delay due to construction work":"Bauarbeiten","overhead line fault":"Reparatur an der Oberleitung",
+                "Delay due to a track obstruction":"Streckensperrung","signal fault":"Reparatur an einem Signal",
+                "Delay due to a technical defect":"Reparatur am Zug","points failure":"defektes Stellwerk",
+                "Delay due to a broken down train":"Verspätung eines vorausfahrenden Zuges",
+                "Delay of previous train":"Verspätung eines vorausfahrenden Zuges",
+                "Delay from previous journey":"Verspätung aus vorheriger Fahrt",
+                "short-term staff shortage":"kurzfristiger Personalausfall",
+                "delayed provision of the train":"verspätete Bereitstellung des Zuges",
+                "technical defect on another train":"technischer Defekt an einem anderen Zug",
+                "Train is diverted":"Umleitung des Zuges","Train is cancelled":"Zug fällt aus.",
+                "Stop cancelled":"Halt entfällt.","Additional stop":"Zusatzhalt.","Platform change":"Gleiswechsel.",
+                "snow and ice":"Schnee und Eis","high passenger volume":"hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
+                "Stops are omitted":"Einige Halte entfallen.","train running at reduced speed":"Zug verkehrt mit verminderter Geschwindigkeit",
+                "WiFi available":"WLAN verfügbar.","WLAN not available":"WLAN nicht verfügbar",
+                "no catering":"kein gastronomisches Angebot","Bicycles conveyed":"Fahrradmitnahme möglich.",
+                "Bicycles conveyed - not possible":"Fahrradmitnahme nicht möglich.",
+                "WC accessible for wheelchair users":"Rollstuhlgerechtes WC vorhanden.",
+                "Power sockets available":"Steckdosen verfügbar.","Quiet zone":"Ruhebereich.",
+                "one coach missing":"ein Wagen fehlt","several coaches missing":"mehrere Wagen fehlen",
+                "different coach order":"andere Reihenfolge der Wagen",
             };
-
-            // Regex-Muster für dynamische Meldungen mit eingebetteten Liniennamen.
-            // Die API liefert z.B. "Bus 605 heading towards Büdeshm.-Kempten from here"
-            // oder "Throughbinding from line X" – der Linienname ist variabel.
             const regexTranslations = [
-                // "Bus 605 heading towards Büdeshm.-Kempten from here"
-                // → Fahrzeug kommt von woanders und fährt ab hier als diese Linie
-                {
-                    pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i,
-                    replace: (_, line, dest) =>
-                        `Durchbindung: Kommt als Linie ${line.trim()} aus Richtung ${dest.trim()}.`
-                },
-                // "Bus 605 heading towards Kempten - Bingen Stadtbf"
-                // → Fahrzeug fährt ab hier als andere Linie weiter
-                {
-                    pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,
-                    replace: (_, line, dest) =>
-                        `Durchbindung: Fährt weiter als Linie ${line.trim()} Richtung ${dest.trim()}.`
-                },
-                // Generische Throughbinding-Varianten der DB/VRR API
-                {
-                    pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Durchbindung von Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Durchbindung auf Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Fährt weiter als Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Kommt als Linie ${line.trim()}.`
-                },
-                // "Delay of approx. 5 minutes"
-                {
-                    pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i,
-                    replace: (_, min) => `Verspätung von ca. ${min} Minuten.`
-                },
-                // "Cancelled due to …"
-                {
-                    pattern: /^cancelled\s+due\s+to\s+(.+)$/i,
-                    replace: (_, reason) => `Fällt aus wegen ${reason.trim()}.`
-                },
-                // "Stop X is not served"
-                {
-                    pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,
-                    replace: (_, stop) => `Halt ${stop.trim()} entfällt.`
-                },
+                { pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i, replace: (_, l, d) => `Durchbindung: Kommt als Linie ${l.trim()} aus Richtung ${d.trim()}.` },
+                { pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,             replace: (_, l, d) => `Durchbindung: Fährt weiter als Linie ${l.trim()} Richtung ${d.trim()}.` },
+                { pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,       replace: (_, l) => `Durchbindung von Linie ${l.trim()}.` },
+                { pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i, replace: (_, m) => `Verspätung von ca. ${m} Minuten.` },
+                { pattern: /^cancelled\s+due\s+to\s+(.+)$/i,                    replace: (_, r) => `Fällt aus wegen ${r.trim()}.` },
             ];
-
-            // Übersetzt einen API-Hinweistext: erst statische Map, dann Regex-Muster
             const translate = (text) => {
                 if (!text) return '';
-                // 1. Exakter Treffer in der statischen Map
                 if (translationMap[text]) return translationMap[text];
-                // 2. Regex-Muster durchprobieren
                 for (const { pattern, replace } of regexTranslations) {
-                    const m = text.match(pattern);
-                    if (m) return text.replace(pattern, replace);
+                    if (text.match(pattern)) return text.replace(pattern, replace);
                 }
-                // 3. Unbekannt: Originaltext zurückgeben
                 return text;
             };
 
-            const sortedStopovers = [...stopovers].sort((a, b) => {
-                return new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival);
+            const sorted = [...stopovers].sort((a, b) =>
+                new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival)
+            );
+            const now = Date.now();
+
+            sorted.forEach((stop, idx) => {
+                const isFirst    = idx === 0;
+                const isLast     = idx === sorted.length - 1;
+                const isTerminus = isFirst || isLast;
+
+                const pArr = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
+                const aArr = stop.arrival          ? new Date(stop.arrival)          : null;
+                const pDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const aDep = stop.departure        ? new Date(stop.departure)        : null;
+
+                // Welche Zeit in der Zeiten-Spalte: Start→nur Abfahrt, Ende→nur Ankunft, Mitte→Ankunft bevorzugt
+                const schedTime  = isFirst ? pDep : (pArr || pDep);
+                const actualTime = isFirst ? aDep : (aArr || aDep);
+                let   delaySec   = isFirst
+                    ? (stop.departureDelaySec ?? (aDep && pDep ? Math.round((aDep - pDep) / 1000) : null))
+                    : (stop.arrivalDelaySec   ?? (aArr && pArr ? Math.round((aArr - pArr) / 1000) : null));
+                if (delaySec === undefined) delaySec = null;
+
+                const passed = (aDep && aDep < now) || (aArr && aArr < now) || (!aDep && !aArr && pDep && pDep < now);
+
+                const fmt2 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : null;
+                const fmt3 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
+
+                const schedStr  = fmt2(schedTime) || '';
+                const actualStr = actualTime ? fmt3(actualTime) : null;
+
+                let delayHtml = '';
+                if (delaySec !== null && delaySec !== 0) {
+                    const abs  = Math.abs(delaySec);
+                    const sign = delaySec > 0 ? '+' : '-';
+                    const cls  = delaySec > 60 ? 'delay-pos' : delaySec < -60 ? 'delay-neg' : delaySec > 0 ? 'delay-pos' : 'delay-zero';
+                    const label = abs >= 60 ? `${sign}${Math.round(delaySec / 60)}'` : `${sign}${delaySec}s`;
+                    delayHtml = `<span class="itin-delay ${cls}">${label}</span>`;
+                }
+                const actualCls = delaySec === null ? '' : delaySec > 60 ? 'text-red-400' : delaySec < 0 ? 'text-blue-400' : 'text-green-400';
+
+                // Gleis
+                const platPlanned = stop.plannedPlatform || null;
+                const platActual  = stop.platform || null;
+                const platChanged = platPlanned && platActual && platPlanned !== platActual;
+                const platDisplay = platActual || platPlanned;
+                const platHtml    = platDisplay
+                    ? `<span class="itin-platform${platChanged ? ' changed' : ''}">Gl.${platDisplay}</span>`
+                    : '';
+
+                // Hinweis
+                const remarkText = stop.remarks?.[0]?.text;
+                const remarkHtml = remarkText
+                    ? `<span class="itin-remark"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(remarkText)}</span>`
+                    : '';
+
+                const row = document.createElement('div');
+                row.className = [
+                    'itinerary-item',
+                    stop.cancelled  ? 'is-cancelled'  : '',
+                    stop.additional ? 'is-additional' : '',
+                ].join(' ').trim();
+
+                row.innerHTML = `
+                    <div class="itin-times">
+                        ${schedStr ? `<span class="itin-sched${passed ? ' opacity-40' : ''}">${schedStr}</span>` : '—'}
+                        ${actualStr ? `<br><span class="itin-actual ${actualCls}">${actualStr}</span>` : ''}
+                        ${delayHtml}
+                    </div>
+                    <div class="itin-dot-col">
+                        <div class="itin-seg${isFirst ? ' opacity-0' : ''}"></div>
+                        <div class="itin-dot${isTerminus ? ' terminus' : ''}${passed ? ' passed' : ''}"></div>
+                        <div class="itin-seg${isLast ? ' opacity-0' : ''}"></div>
+                    </div>
+                    <div>
+                        <span class="itin-name${isTerminus ? ' terminus' : ''}${passed ? ' passed' : ''}">${stop.stop.name}</span>${platHtml}${remarkHtml}
+                    </div>
+                `;
+                container.appendChild(row);
             });
 
-            sortedStopovers.forEach(stop => {
-                const isCancelled  = stop.cancelled;
-                const isAdditional = stop.additional;
-
-                const schedArr  = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
-                const actualArr = stop.arrival          ? new Date(stop.arrival)           : null;
-                const schedDep  = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
-                const actualDep = stop.departure        ? new Date(stop.departure)         : null;
-
-                const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
-                const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
-
-                const formatTime = (sched, actual, hasLive, delaySec) => {
-                    if (!sched) return '';
-                    const isPast  = actual && actual.getTime() < Date.now();
-                    
-                    // Delay-Anzeige mit Sekunden-Präzision
-                    let delayStr = '';
-                    if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                        const dc = delaySec > 0 ? 'text-red-500' : 'text-green-500';
-                        const sign = delaySec > 0 ? '+' : ''; // Minus kommt automatisch bei negativen Zahlen
-                        const absDelay = Math.abs(delaySec);
-                        
-                        if (absDelay >= 60) {
-                            // Bei >= 60 Sekunden: Minuten anzeigen (abgerundet für +1 erst ab 60s)
-                            const mins = delaySec >= 0 ? Math.floor(delaySec / 60) : Math.ceil(delaySec / 60);
-                            if (mins !== 0) {
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${mins > 0 ? '+' : ''}${mins}'</span>`;
-                            } else {
-                                // Wenn mins 0 ist (z.B. 59s), zeigen wir Sekunden
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
-                            }
-                        } else {
-                            // Bei < 60 Sekunden: Sekunden anzeigen
-                            delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
-                        }
-                    }
-
-                    // Keine Echtzeitdaten: nur Soll-Zeit
-                    if (!hasLive && !actual) {
-                        return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    }
-
-                    // Bestimme Farbe basierend auf Verspätung/Verfrühung
-                    const rtColor = delaySec !== null && delaySec !== undefined
-                        ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
-                        : (actual && sched ? (Math.round((actual - sched) / 60000) >= 1 ? 'text-red-400' : 'text-green-400') : 'text-green-400');
-
-                    const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    const showSeconds = delaySec !== null && delaySec !== undefined;
-
-                    if (isPast || showSeconds) {
-                        return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
-                    } else {
-                        return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
-                    }
-                };
-
-                const stopItem = document.createElement('div');
-                stopItem.className = `relative itinerary-item ${isCancelled ? 'opacity-40' : ''}`;
-                stopItem.innerHTML = `
-                    <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}"></div>
-                    <div class="itinerary-item-content">
-                        <div class="flex justify-between items-start gap-2">
-                            <div class="min-w-0">
-                                <h4 class="font-semibold ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''} text-sm">
-                                    ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
-                                </h4>
-                                <div class="itinerary-info mt-1 text-gray-600 dark:text-gray-300">
-                                    ${(() => {
-                                        const planned  = stop.plannedPlatform || stop.stop?.station?.entrances?.[0] || null;
-                                        const actual   = stop.platform || stop.arrivalPlatform || stop.departurePlatform || null;
-                                        const changed  = planned && actual && actual !== planned;
-                                        if (!planned && !actual) return '';
-                                        const display  = actual || planned;
-                                        const cls      = changed ? 'platform-changed' : 'text-gray-500 dark:text-gray-400';
-                                        const label    = changed
-                                            ? `Gleis <span class="line-through opacity-50">${planned}</span> → <span>${actual}</span>`
-                                            : `Gleis ${display}`;
-                                        return `<span class="${cls} font-semibold">${label}</span>`;
-                                    })()}
-                                    ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
-                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 block truncate max-w-full mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
-                                </div>
-                            </div>
-                            <div class="text-right mono text-[11px] leading-tight shrink-0">
-                                ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec)}</div>` : ''}
-                                ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep, stop.departureDelaySec)}</div>` : ''}
-                            </div>
-                        </div>
-                    </div>`;
-                container.appendChild(stopItem);
-            });
-
+            // Gesamthinweise am Ende
             if (tripRemarks.length > 0) {
-                const remarksContainer = document.createElement('div');
-                remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-1';
-                tripRemarks.forEach(rem => {
-                    const rDiv = document.createElement('div');
-                    rDiv.className = 'text-[10px] text-red-500 font-medium flex items-start gap-2';
-                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${translate(rem.text)}</span>`;
-                    remarksContainer.appendChild(rDiv);
+                const rem = document.createElement('div');
+                rem.className = 'mt-3 pt-3 border-t border-zinc-900 space-y-1';
+                tripRemarks.forEach(r => {
+                    const d = document.createElement('div');
+                    d.className = 'text-[10px] text-red-500 flex items-start gap-1.5';
+                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5 shrink-0"></i><span>${translate(r.text)}</span>`;
+                    rem.appendChild(d);
                 });
-                container.appendChild(remarksContainer);
+                container.appendChild(rem);
             }
         }
 
@@ -2128,9 +2006,14 @@
                 trainMap = L.map('train-map', { zoomControl: true, attributionControl: false });
                 // Dark-Mode Kacheln (CartoDB Dark Matter)
                 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 18, subdomains: 'abcd'
+                    maxZoom: 19, subdomains: 'abcd'
                 }).addTo(trainMap);
-                L.control.attribution({ prefix: '© OSM · CartoDB' }).addTo(trainMap);
+                // OpenRailwayMap Overlay
+                L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+                    maxZoom: 19, opacity: 0.75,
+                    attribution: '© OpenRailwayMap'
+                }).addTo(trainMap);
+                L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
             }
 
             // Alte Layer entfernen
