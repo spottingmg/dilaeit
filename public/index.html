@@ -129,9 +129,9 @@
 
         .itinerary-item {
             display: grid;
-            grid-template-columns: 120px 14px 1fr;
+            grid-template-columns: 130px 14px 1fr;
             align-items: center;
-            min-height: 26px;
+            min-height: 32px;
             column-gap: 6px;
             padding: 1px 0;
             border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -175,6 +175,7 @@
             justify-content: flex-end;
             width: 100%;
         }
+        .itin-label  { font-size: 8px; color: #4b5563; text-transform: uppercase; min-width: 12px; }
         .itin-sched  { color: #9ca3af; min-width: 38px; text-align: right; }
         .itin-actual { font-weight: 700; }
         .itin-delay  { font-size: 9px; font-weight: 700; padding: 0 2px; border-radius: 2px; }
@@ -617,8 +618,21 @@
                 switchDetailTab('itinerary');
             });
             $('push-subscribe-btn').addEventListener('click', async () => {
-                await requestNotificationPermission();
-                if (currentTripDetail) toggleWatch(currentTripDetail);
+                const granted = await requestNotificationPermission();
+                if (!granted) {
+                    showLocalNotification('Benachrichtigungen blockiert', 'Bitte erlaube Benachrichtigungen in den Browser-Einstellungen.');
+                    return;
+                }
+                if (currentTripDetail) {
+                    toggleWatch(currentTripDetail);
+                    // Sofort prüfen damit Nutzer Feedback bekommt
+                    if (isWatched(makeTripKey(currentTripDetail))) {
+                        showLocalNotification(
+                            `${currentTripDetail.line?.name} wird beobachtet`,
+                            'Du erhältst eine Benachrichtigung bei ≥3 Min Verspätung.'
+                        );
+                    }
+                }
             });
             document.addEventListener('click', e => {
                 if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
@@ -1668,13 +1682,14 @@
                     stop.additional ? 'is-additional' : '',
                 ].join(' ').trim();
 
+                const arrRow = makeTimeRow('an', arrSched, arrActStr, arrBadge, arrCls, !isFirst && arrEffAct && arrEffAct > new Date());
+                const depRow = makeTimeRow('ab', depSched, depActStr, depBadge, depCls, !isLast  && depEffAct && depEffAct > new Date());
+
                 row.innerHTML = `
                     <div class="itin-times">
-                        <div class="itin-time-row">
-                            <span class="itin-sched${passed ? ' opacity-40' : ''}">${schedStr || '—'}</span>
-                            ${actualStr ? `<span class="itin-actual ${actualCls}">${actualStr}</span>` : ''}
-                            ${delayHtml}
-                        </div>
+                        ${arrRow || (isFirst ? makeTimeRow('ab', depSched, depActStr, depBadge, depCls, depEffAct && depEffAct > new Date()) : '')}
+                        ${!isFirst && !isLast && depRow ? depRow : ''}
+                        ${isLast  ? makeTimeRow('an', arrSched, arrActStr, arrBadge, arrCls, false) : ''}
                     </div>
                     <div class="itin-dot-col">
                         <div class="itin-seg${isFirst ? ' opacity-0' : ''}"></div>
@@ -1958,14 +1973,25 @@
             for (const trip of trips) {
                 if (!trip.tripId) continue;
                 try {
-                    const res  = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(trip.tripId)}`);
+                    // Versuche DB-Endpoint, dann VRR-Fallback
+                    let res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(trip.tripId)}`);
+                    if (!res.ok) res = await fetch(`${API_BASE}/api/trips/${encodeURIComponent(trip.tripId)}`);
                     if (!res.ok) continue;
                     const data = await res.json();
                     const dep  = data.stopovers?.find(s => s.departureDelaySec !== null);
-                    if (dep && dep.departureDelaySec >= 300) {
+                    // Benachrichtigung ab +3 Minuten (180s) Verspätung
+                    const notifKey = `notif_${trip.key}_${Math.floor(Date.now()/300000)}`; // max 1x alle 5min
+                    const worstStop = data.stopovers?.reduce((best, s) => {
+                        const d = s.departureDelaySec ?? s.arrivalDelaySec;
+                        return (d !== null && (best === null || d > (best.departureDelaySec ?? best.arrivalDelaySec ?? 0))) ? s : best;
+                    }, null);
+                    const worstDelay = worstStop ? (worstStop.departureDelaySec ?? worstStop.arrivalDelaySec ?? 0) : 0;
+                    if (worstDelay >= 180 && !sessionStorage.getItem(notifKey)) {
+                        sessionStorage.setItem(notifKey, '1');
+                        const mins = Math.round(worstDelay / 60);
                         showLocalNotification(
                             `${trip.line} → ${trip.direction}`,
-                            `Verspätung: +${Math.round(dep.departureDelaySec/60)} Min bei ${dep.stop?.name}`
+                            `+${mins} Min Verspätung bei ${worstStop?.stop?.name || 'einem Halt'}`
                         );
                     }
                 } catch {}
@@ -2434,9 +2460,17 @@
                                     const act  = s.departure || s.arrival;
                                     const plan = s.plannedDeparture || s.plannedArrival;
                                     if (!act || !plan) return '';
-                                    const d = Math.round((new Date(act) - new Date(plan)) / 60000);
-                                    if (d <= 0) return '';
-                                    return `<span class="text-red-400 text-[9px] ml-1">+${d}'</span>`;
+                                    const d = Math.round((new Date(act) - new Date(plan)) / 1000);
+                                    if (Math.abs(d) < 60) return '';
+                                    const mins = Math.round(d / 60);
+                                    const sign = mins > 0 ? '+' : '';
+                                    const cls  = mins >= 1 ? 'text-red-400' : 'text-blue-400';
+                                    return `<span class="${cls} text-[9px] ml-1">${sign}${mins}'</span>`;
+                                })();
+                                const actTime = (() => {
+                                    const act  = s.departure || s.arrival;
+                                    if (!act) return '';
+                                    return `<span class="text-gray-300 text-[9px] ml-1">${new Date(act).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>`;
                                 })();
                                 const cancelled = s.cancelled
                                     ? '<span class="text-red-500 text-[9px] ml-1">[entfällt]</span>' : '';
@@ -2447,7 +2481,7 @@
                                 return `<div class="flex items-center gap-2 px-3 py-1.5 text-xs ${bg} ${isFirst||isLast?'font-bold':''}">
                                     <span class="text-[10px] w-3 text-center">${dot}</span>
                                     <span class="flex-1 truncate ${s.cancelled?'line-through text-gray-500':''}">${s.stop?.name||''}</span>
-                                    <span class="font-mono text-gray-400 shrink-0">${timeStr}${delay}${cancelled}</span>
+                                    <span class="font-mono text-gray-400 shrink-0">${timeStr}${actTime}${delay}${cancelled}</span>
                                 </div>`;
                             }).join('')}
                         </div>
