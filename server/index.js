@@ -519,7 +519,7 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
     // GTFS-RT Anreicherung: Verfrühung und präzise Delays aus gtfs.de Feed
     // Die VRR EFA API liefert keine Verfrühungen – GTFS-RT schon
-    const { line, tripCode } = payload;
+    // line, tripCode, date bereits oben aus payload destrukturiert
     const gtfsSearchIds = [
       `${line}_${tripCode}`, String(tripCode), line,
       // GTFS trip_ids haben oft Format wie "vrr:trip_id" oder enthalten Datum
