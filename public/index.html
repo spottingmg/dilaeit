@@ -129,7 +129,7 @@
 
         .itinerary-item {
             display: grid;
-            grid-template-columns: 90px 14px 1fr;
+            grid-template-columns: 120px 14px 1fr;
             align-items: center;
             min-height: 26px;
             column-gap: 6px;
@@ -162,10 +162,20 @@
         .itin-times {
             font-family: 'JetBrains Mono', monospace;
             font-size: 10.5px;
-            text-align: right;
             white-space: nowrap;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0;
         }
-        .itin-sched  { color: #9ca3af; }
+        .itin-time-row {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            justify-content: flex-end;
+            width: 100%;
+        }
+        .itin-sched  { color: #9ca3af; min-width: 38px; text-align: right; }
         .itin-actual { font-weight: 700; }
         .itin-delay  { font-size: 9px; font-weight: 700; padding: 0 2px; border-radius: 2px; }
 
@@ -1644,9 +1654,11 @@
 
                 row.innerHTML = `
                     <div class="itin-times">
-                        ${schedStr ? `<span class="itin-sched${passed ? ' opacity-40' : ''}">${schedStr}</span>` : '—'}
-                        ${actualStr ? `<br><span class="itin-actual ${actualCls}">${actualStr}</span>` : ''}
-                        ${delayHtml}
+                        <div class="itin-time-row">
+                            <span class="itin-sched${passed ? ' opacity-40' : ''}">${schedStr || '—'}</span>
+                            ${actualStr ? `<span class="itin-actual ${actualCls}">${actualStr}</span>` : ''}
+                            ${delayHtml}
+                        </div>
                     </div>
                     <div class="itin-dot-col">
                         <div class="itin-seg${isFirst ? ' opacity-0' : ''}"></div>
