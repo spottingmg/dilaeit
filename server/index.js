@@ -38,6 +38,94 @@ try {
   console.warn('⚠️  db-hafas nicht verfügbar:', e.message, '→ nur VRR/REST');
 }
 
+
+// ─── GTFS-RT (gtfs.de Realtime Feed) ─────────────────────────────────────────
+// Liefert TripUpdates inkl. Verfrühung (negativer delay) für VRR Busse/Trams
+// Paket: gtfs-realtime-bindings (npm install gtfs-realtime-bindings)
+// Feed-URL: https://realtime.gtfs.de/realtime-free.pb (CC BY-SA 4.0, VRR enthalten)
+
+const GTFS_RT_URL = process.env.GTFS_RT_URL || 'https://realtime.gtfs.de/realtime-free.pb';
+const GTFS_RT_REFRESH_MS = 30_000; // alle 30s aktualisieren
+
+// tripId  →  { arrivalDelays: Map<stopId, secs>, departureDelays: Map<stopId, secs>,
+//              stopTimeUpdates: [{stopId, arrivalDelay, departureDelay, arrivalTime, departureTime}] }
+let gtfsRtMap = new Map();
+let gtfsRtLastFetch = 0;
+let gtfsRtEnabled = false;
+let GtfsRealtimeBindings = null;
+
+async function loadGtfsRtBindings() {
+  try {
+    const mod = await import('gtfs-realtime-bindings');
+    GtfsRealtimeBindings = mod.default ?? mod;
+    gtfsRtEnabled = true;
+    console.log('✅ gtfs-realtime-bindings geladen');
+  } catch (e) {
+    console.warn('⚠️  gtfs-realtime-bindings nicht verfügbar:', e.message);
+    console.warn('   → npm install gtfs-realtime-bindings  um GTFS-RT-Verfrühung zu aktivieren');
+  }
+}
+
+async function refreshGtfsRt() {
+  if (!gtfsRtEnabled || !GtfsRealtimeBindings) return;
+  try {
+    const res = await fetch(GTFS_RT_URL, {
+      signal: AbortSignal.timeout(15_000),
+      headers: { 'User-Agent': 'dilaeit-vrr-proxy/0.1' }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf  = await res.arrayBuffer();
+    const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buf));
+
+    const newMap = new Map();
+    for (const entity of (feed.entity || [])) {
+      const tu = entity.tripUpdate;
+      if (!tu) continue;
+      const tripId = tu.trip?.tripId;
+      if (!tripId) continue;
+
+      const updates = [];
+      for (const stu of (tu.stopTimeUpdate || [])) {
+        const stopId = stu.stopId || String(stu.stopSequence ?? '');
+        // delay in Sekunden – kann negativ sein (Verfrühung)!
+        const arrDelay  = stu.arrival?.delay   ?? null;
+        const depDelay  = stu.departure?.delay  ?? null;
+        const arrTime   = stu.arrival?.time     ? Number(stu.arrival.time)   * 1000 : null;
+        const depTime   = stu.departure?.time   ? Number(stu.departure.time) * 1000 : null;
+        updates.push({ stopId, arrDelay, depDelay, arrTime, depTime, stopSeq: stu.stopSequence });
+      }
+      newMap.set(tripId, updates);
+    }
+
+    gtfsRtMap = newMap;
+    gtfsRtLastFetch = Date.now();
+    console.log(`🔄 GTFS-RT: ${newMap.size} trips geladen`);
+  } catch (e) {
+    console.warn('⚠️  GTFS-RT refresh fehlgeschlagen:', e.message);
+  }
+}
+
+// Initialisieren und periodisch aktualisieren
+await loadGtfsRtBindings();
+if (gtfsRtEnabled) {
+  await refreshGtfsRt();
+  setInterval(refreshGtfsRt, GTFS_RT_REFRESH_MS);
+}
+
+// Hilfsfunktion: Suche GTFS-RT Updates für eine gegebene Trip-ID
+// VRR EFA tripId-Format weicht vom GTFS trip_id Format ab → flexibles Matching
+function findGtfsRtUpdates(vrrTripId) {
+  if (!vrrTripId || !gtfsRtEnabled) return null;
+  // Direkter Treffer
+  if (gtfsRtMap.has(vrrTripId)) return gtfsRtMap.get(vrrTripId);
+  // Partieller Treffer: GTFS trip_id enthält oft die VRR-Fahrtnummer als Suffix
+  const key = String(vrrTripId);
+  for (const [gtfsTripId, updates] of gtfsRtMap) {
+    if (gtfsTripId.includes(key) || key.includes(gtfsTripId)) return updates;
+  }
+  return null;
+}
+
 // ─── EFA-Konfiguration ───────────────────────────────────────────────────────
 const app               = express();
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
@@ -429,7 +517,52 @@ app.get('/api/trips/:tripId', async (req, res) => {
       };
     });
 
-    res.json({ stopovers, remarks: [], source: 'VRR OpenService' });
+    // GTFS-RT Anreicherung: Verfrühung und präzise Delays aus gtfs.de Feed
+    // Die VRR EFA API liefert keine Verfrühungen – GTFS-RT schon
+    const { line, tripCode } = payload;
+    const gtfsSearchIds = [
+      `${line}_${tripCode}`, String(tripCode), line,
+      // GTFS trip_ids haben oft Format wie "vrr:trip_id" oder enthalten Datum
+      `${date}_${tripCode}`
+    ].filter(Boolean);
+
+    let rtUpdates = null;
+    for (const searchId of gtfsSearchIds) {
+      rtUpdates = findGtfsRtUpdates(searchId);
+      if (rtUpdates) break;
+    }
+
+    if (rtUpdates?.length) {
+      // Matche GTFS-RT StopTimeUpdates auf die VRR-Stopovers per Reihenfolge oder stopId
+      stopovers.forEach((s, i) => {
+        // Versuche Zuordnung per Stop-Sequenz (Index)
+        const stu = rtUpdates[i] || rtUpdates.find(u => u.stopSeq === i + 1);
+        if (!stu) return;
+        if (stu.depDelay !== null && s.plannedDeparture) {
+          s.departure        = new Date(new Date(s.plannedDeparture).getTime() + stu.depDelay * 1000).toISOString();
+          s.departureDelaySec = stu.depDelay;
+        }
+        if (stu.arrDelay !== null && s.plannedArrival) {
+          s.arrival        = new Date(new Date(s.plannedArrival).getTime() + stu.arrDelay * 1000).toISOString();
+          s.arrivalDelaySec = stu.arrDelay;
+        }
+        // Absolute Zeiten überschreiben (präziser als Soll+Delay)
+        if (stu.depTime && s.plannedDeparture) {
+          s.departure = new Date(stu.depTime).toISOString();
+          s.departureDelaySec = Math.round((stu.depTime - new Date(s.plannedDeparture).getTime()) / 1000);
+        }
+        if (stu.arrTime && s.plannedArrival) {
+          s.arrival = new Date(stu.arrTime).toISOString();
+          s.arrivalDelaySec = Math.round((stu.arrTime - new Date(s.plannedArrival).getTime()) / 1000);
+        }
+      });
+    }
+
+    res.json({
+      stopovers, remarks: [],
+      source: rtUpdates?.length ? 'VRR + GTFS-RT (gtfs.de)' : 'VRR OpenService',
+      gtfsRtActive: !!rtUpdates?.length
+    });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
@@ -522,6 +655,24 @@ app.get('/api/db/trip-details', async (req, res) => {
         console.error('DB trip-details error:', e.message);
         res.status(500).json({ error: e.message });
     }
+});
+
+// ─── GTFS-RT Status & Delay-Lookup ───────────────────────────────────────────
+app.get('/api/gtfs-rt/status', (_req, res) => {
+  res.json({
+    enabled: gtfsRtEnabled,
+    lastFetch: gtfsRtLastFetch ? new Date(gtfsRtLastFetch).toISOString() : null,
+    tripCount: gtfsRtMap.size,
+    ageSeconds: gtfsRtLastFetch ? Math.round((Date.now() - gtfsRtLastFetch) / 1000) : null
+  });
+});
+
+// Suche GTFS-RT Delays für eine bestimmte Trip-ID direkt
+app.get('/api/gtfs-rt/trip/:tripId', (req, res) => {
+  const tripId = decodeURIComponent(req.params.tripId);
+  const updates = findGtfsRtUpdates(tripId);
+  if (!updates) return res.status(404).json({ found: false, tripId });
+  res.json({ found: true, tripId, updates });
 });
 
 // ─── Server starten ───────────────────────────────────────────────────────────
