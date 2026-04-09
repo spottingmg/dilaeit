@@ -43,15 +43,16 @@ try {
 // Liefert TripUpdates inkl. Verfrühung (negativer delay) für VRR Busse/Trams
 // Paket: gtfs-realtime-bindings (npm install gtfs-realtime-bindings)
 // Feed-URL: https://realtime.gtfs.de/realtime-free.pb (CC BY-SA 4.0, VRR enthalten)
+//
+// OOM-Schutz: Wir cachen den RAW Protobuf-Buffer (typ. 2–5 MB) für 30s
+// und parsen on-demand nur den gesuchten Trip. Kein kompletter Map-Aufbau im RAM.
 
-const GTFS_RT_URL = process.env.GTFS_RT_URL || 'https://realtime.gtfs.de/realtime-free.pb';
-const GTFS_RT_REFRESH_MS = 30_000; // alle 30s aktualisieren
+const GTFS_RT_URL        = process.env.GTFS_RT_URL || 'https://realtime.gtfs.de/realtime-free.pb';
+const GTFS_RT_CACHE_MS   = 30_000; // Buffer 30s wiederverwenden
 
-// tripId  →  { arrivalDelays: Map<stopId, secs>, departureDelays: Map<stopId, secs>,
-//              stopTimeUpdates: [{stopId, arrivalDelay, departureDelay, arrivalTime, departureTime}] }
-let gtfsRtMap = new Map();
-let gtfsRtLastFetch = 0;
-let gtfsRtEnabled = false;
+let gtfsRtRawBuffer  = null;   // Uint8Array des letzten Fetches
+let gtfsRtLastFetch  = 0;
+let gtfsRtEnabled    = false;
 let GtfsRealtimeBindings = null;
 
 async function loadGtfsRtBindings() {
@@ -66,69 +67,66 @@ async function loadGtfsRtBindings() {
   }
 }
 
-async function refreshGtfsRt() {
-  if (!gtfsRtEnabled || !GtfsRealtimeBindings) return;
+// Holt den Buffer neu wenn er abgelaufen ist (kein Parse, kein Map-Aufbau)
+async function ensureGtfsRtBuffer() {
+  if (!gtfsRtEnabled) return false;
+  if (gtfsRtRawBuffer && Date.now() - gtfsRtLastFetch < GTFS_RT_CACHE_MS) return true;
   try {
     const res = await fetch(GTFS_RT_URL, {
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(12_000),
       headers: { 'User-Agent': 'dilaeit-vrr-proxy/0.1' }
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf  = await res.arrayBuffer();
-    const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buf));
+    const ab = await res.arrayBuffer();
+    gtfsRtRawBuffer = new Uint8Array(ab);
+    gtfsRtLastFetch = Date.now();
+    console.log(`🔄 GTFS-RT buffer: ${(gtfsRtRawBuffer.length / 1024).toFixed(0)} KB`);
+    return true;
+  } catch (e) {
+    console.warn('⚠️  GTFS-RT fetch fehlgeschlagen:', e.message);
+    return false;
+  }
+}
 
-    const newMap = new Map();
+// Sucht eine Trip-ID im gecachten Buffer — parst nur den benötigten Trip
+// Gibt StopTimeUpdates-Array zurück oder null
+async function findGtfsRtUpdates(vrrTripId) {
+  if (!vrrTripId || !gtfsRtEnabled) return null;
+  if (!(await ensureGtfsRtBuffer())) return null;
+
+  const key = String(vrrTripId).trim();
+  try {
+    const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(gtfsRtRawBuffer);
     for (const entity of (feed.entity || [])) {
       const tu = entity.tripUpdate;
       if (!tu) continue;
-      const tripId = tu.trip?.tripId;
-      if (!tripId) continue;
+      const tripId = tu.trip?.tripId || '';
 
-      const updates = [];
-      for (const stu of (tu.stopTimeUpdate || [])) {
-        const stopId = stu.stopId || String(stu.stopSequence ?? '');
-        // delay in Sekunden – kann negativ sein (Verfrühung)!
-        const arrDelay  = stu.arrival?.delay   ?? null;
-        const depDelay  = stu.departure?.delay  ?? null;
-        const arrTime   = stu.arrival?.time     ? Number(stu.arrival.time)   * 1000 : null;
-        const depTime   = stu.departure?.time   ? Number(stu.departure.time) * 1000 : null;
-        updates.push({ stopId, arrDelay, depDelay, arrTime, depTime, stopSeq: stu.stopSequence });
-      }
-      newMap.set(tripId, updates);
+      // Exakter Match oder Trennzeichen-Suffix (:key, _key, /key)
+      const isMatch = tripId === key ||
+        tripId.endsWith(':' + key) ||
+        tripId.endsWith('_' + key) ||
+        tripId.endsWith('/' + key);
+      if (!isMatch) continue;
+
+      const updates = (tu.stopTimeUpdate || []).map(stu => ({
+        stopId:   stu.stopId || String(stu.stopSequence ?? ''),
+        stopSeq:  stu.stopSequence ?? null,
+        arrDelay: stu.arrival?.delay   ?? null,
+        depDelay: stu.departure?.delay ?? null,
+        arrTime:  stu.arrival?.time    ? Number(stu.arrival.time)   * 1000 : null,
+        depTime:  stu.departure?.time  ? Number(stu.departure.time) * 1000 : null,
+      }));
+      return updates;
     }
-
-    gtfsRtMap = newMap;
-    gtfsRtLastFetch = Date.now();
-    console.log(`🔄 GTFS-RT: ${newMap.size} trips geladen`);
   } catch (e) {
-    console.warn('⚠️  GTFS-RT refresh fehlgeschlagen:', e.message);
-  }
-}
-
-// Initialisieren und periodisch aktualisieren
-await loadGtfsRtBindings();
-if (gtfsRtEnabled) {
-  await refreshGtfsRt();
-  setInterval(refreshGtfsRt, GTFS_RT_REFRESH_MS);
-}
-
-// Hilfsfunktion: Suche GTFS-RT Updates für eine gegebene Trip-ID
-// Nur exakte Matches oder Suffix-Matches mit Trennzeichen – kein unsicheres substring-Match
-function findGtfsRtUpdates(vrrTripId) {
-  if (!vrrTripId || !gtfsRtEnabled) return null;
-  const key = String(vrrTripId).trim();
-  // 1. Direkter Treffer
-  if (gtfsRtMap.has(key)) return gtfsRtMap.get(key);
-  // 2. GTFS trip_id endet auf :key oder _key oder /key (Trennzeichen-Suffix)
-  //    Verhindert Falsch-Matches wie "12" matching "12345"
-  for (const [gtfsTripId, updates] of gtfsRtMap) {
-    const sep = gtfsTripId.slice(-(key.length + 1));
-    if (sep === ':' + key || sep === '_' + key || sep === '/' + key) return updates;
-    // Exakt gleich nach Normalisierung
-    if (gtfsTripId === key) return updates;
+    console.warn('⚠️  GTFS-RT parse error:', e.message);
   }
   return null;
 }
+
+// Bindings beim Start laden (kein Feed-Fetch beim Start – erst bei Bedarf)
+await loadGtfsRtBindings();
 
 // ─── EFA-Konfiguration ───────────────────────────────────────────────────────
 const app               = express();
@@ -532,7 +530,7 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
     let rtUpdates = null;
     for (const searchId of gtfsSearchIds) {
-      rtUpdates = findGtfsRtUpdates(searchId);
+      rtUpdates = await findGtfsRtUpdates(searchId);
       if (rtUpdates) break;
     }
 
@@ -713,15 +711,15 @@ app.get('/api/gtfs-rt/status', (_req, res) => {
   res.json({
     enabled: gtfsRtEnabled,
     lastFetch: gtfsRtLastFetch ? new Date(gtfsRtLastFetch).toISOString() : null,
-    tripCount: gtfsRtMap.size,
+    bufferKB: gtfsRtRawBuffer ? Math.round(gtfsRtRawBuffer.length / 1024) : 0,
     ageSeconds: gtfsRtLastFetch ? Math.round((Date.now() - gtfsRtLastFetch) / 1000) : null
   });
 });
 
 // Suche GTFS-RT Delays für eine bestimmte Trip-ID direkt
-app.get('/api/gtfs-rt/trip/:tripId', (req, res) => {
+app.get('/api/gtfs-rt/trip/:tripId', async (req, res) => {
   const tripId = decodeURIComponent(req.params.tripId);
-  const updates = findGtfsRtUpdates(tripId);
+  const updates = await findGtfsRtUpdates(tripId);
   if (!updates) return res.status(404).json({ found: false, tripId });
   res.json({ found: true, tripId, updates });
 });
