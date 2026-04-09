@@ -362,6 +362,20 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         const trip = data.trip ?? data;
         if (!trip?.stopovers) throw new Error('Keine Stopovers');
 
+        // Debug: log first stopover to see available delay fields
+        if (trip.stopovers?.[0]) {
+            const s0 = trip.stopovers[0];
+            console.log('[train-details] stopover fields sample:', JSON.stringify({
+                name: s0.stop?.name,
+                delay: s0.delay,
+                arrivalDelay: s0.arrivalDelay,
+                departureDelay: s0.departureDelay,
+                arrival: s0.arrival,
+                plannedArrival: s0.plannedArrival,
+                departure: s0.departure,
+                plannedDeparture: s0.plannedDeparture,
+            }));
+        }
         const stopovers = trip.stopovers.map(s => {
             const plannedArrival   = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
             const arrival          = s.arrival          ? new Date(s.arrival).toISOString()          : null;
@@ -377,16 +391,23 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                         : null
                 },
                 plannedArrival, arrival, plannedDeparture, departure,
-                // Priorität: explizites delay-Feld → Zeitdiff → trip-level delay
-                // s.arrivalDelay / s.departureDelay sind Sekunden-Felder der DB REST API
-                arrivalDelaySec:
-                    s.arrivalDelay   !== undefined && s.arrivalDelay   !== null ? s.arrivalDelay
-                  : arrival   && plannedArrival   ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000)
-                  : null,
-                departureDelaySec:
-                    s.departureDelay !== undefined && s.departureDelay !== null ? s.departureDelay
-                  : departure && plannedDeparture ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000)
-                  : null,
+                // Delay-Berechnung: mehrere Quellen, erste nicht-null gewinnt
+                // 1. Explizite Felder (arrivalDelay/departureDelay) vom API
+                // 2. Zeitdifferenz Ist-Soll (wenn beide vorhanden)
+                // 3. Trip-level delay (s.delay) - gilt für alle Halte gleichmäßig
+                // 4. Aus departure-plannedDeparture wenn departure gesetzt (db-vendo-client)
+                arrivalDelaySec: (() => {
+                    if (s.arrivalDelay   !== undefined && s.arrivalDelay   !== null) return s.arrivalDelay;
+                    if (arrival   && plannedArrival)   return Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000);
+                    if (s.delay !== undefined && s.delay !== null)                   return s.delay;
+                    return null;
+                })(),
+                departureDelaySec: (() => {
+                    if (s.departureDelay !== undefined && s.departureDelay !== null) return s.departureDelay;
+                    if (departure && plannedDeparture) return Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000);
+                    if (s.delay !== undefined && s.delay !== null)                   return s.delay;
+                    return null;
+                })(),
                 platform: s.platform || null,
                 plannedPlatform: s.plannedPlatform || s.platform || null,
                 cancelled: s.cancelled || false,
@@ -548,12 +569,18 @@ app.get('/api/db/trip-details', async (req, res) => {
             return {
                 stop: { name: s.stop?.name || '', id: s.stop?.id },
                 plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
-                arrivalDelaySec:
-                    s.arrivalDelay   !== undefined && s.arrivalDelay   !== null ? s.arrivalDelay
-                  : a && pA ? Math.round((new Date(a) - new Date(pA)) / 1000) : null,
-                departureDelaySec:
-                    s.departureDelay !== undefined && s.departureDelay !== null ? s.departureDelay
-                  : d && pD ? Math.round((new Date(d) - new Date(pD)) / 1000) : null,
+                arrivalDelaySec: (() => {
+                    if (s.arrivalDelay   !== undefined && s.arrivalDelay   !== null) return s.arrivalDelay;
+                    if (a && pA) return Math.round((new Date(a) - new Date(pA)) / 1000);
+                    if (s.delay !== undefined && s.delay !== null) return s.delay;
+                    return null;
+                })(),
+                departureDelaySec: (() => {
+                    if (s.departureDelay !== undefined && s.departureDelay !== null) return s.departureDelay;
+                    if (d && pD) return Math.round((new Date(d) - new Date(pD)) / 1000);
+                    if (s.delay !== undefined && s.delay !== null) return s.delay;
+                    return null;
+                })(),
                 platform: s.platform || null, plannedPlatform: s.plannedPlatform || null,
                 cancelled: s.cancelled || false, additional: s.additional || false,
                 remarks: s.remarks || []
