@@ -424,7 +424,6 @@
                     <span class="flex items-center gap-2">
                         <span class="w-2 h-2 rounded-full bg-green-500"></span>
                         ECHTZEIT AKTIV
-                        <span id="gtfsrt-badge" class="hidden px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-600/30 text-blue-400 border border-blue-500/30">GTFS-RT</span>
                     </span>
                 </div>
             </footer>
@@ -1551,8 +1550,6 @@
             const container = $('trip-itinerary');
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
-            const gtfsBadge = $('gtfsrt-badge');
-            if (gtfsBadge) gtfsBadge.classList.toggle('hidden', !sourceName.includes('GTFS-RT'));
 
             // ── Verspätungs-Übersetzungstabelle (unverändert) ────────────────────────
             const translationMap = {
