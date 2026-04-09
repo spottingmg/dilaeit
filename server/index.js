@@ -113,15 +113,19 @@ if (gtfsRtEnabled) {
 }
 
 // Hilfsfunktion: Suche GTFS-RT Updates für eine gegebene Trip-ID
-// VRR EFA tripId-Format weicht vom GTFS trip_id Format ab → flexibles Matching
+// Nur exakte Matches oder Suffix-Matches mit Trennzeichen – kein unsicheres substring-Match
 function findGtfsRtUpdates(vrrTripId) {
   if (!vrrTripId || !gtfsRtEnabled) return null;
-  // Direkter Treffer
-  if (gtfsRtMap.has(vrrTripId)) return gtfsRtMap.get(vrrTripId);
-  // Partieller Treffer: GTFS trip_id enthält oft die VRR-Fahrtnummer als Suffix
-  const key = String(vrrTripId);
+  const key = String(vrrTripId).trim();
+  // 1. Direkter Treffer
+  if (gtfsRtMap.has(key)) return gtfsRtMap.get(key);
+  // 2. GTFS trip_id endet auf :key oder _key oder /key (Trennzeichen-Suffix)
+  //    Verhindert Falsch-Matches wie "12" matching "12345"
   for (const [gtfsTripId, updates] of gtfsRtMap) {
-    if (gtfsTripId.includes(key) || key.includes(gtfsTripId)) return updates;
+    const sep = gtfsTripId.slice(-(key.length + 1));
+    if (sep === ':' + key || sep === '_' + key || sep === '/' + key) return updates;
+    // Exakt gleich nach Normalisierung
+    if (gtfsTripId === key) return updates;
   }
   return null;
 }
@@ -533,26 +537,47 @@ app.get('/api/trips/:tripId', async (req, res) => {
     }
 
     if (rtUpdates?.length) {
-      // Matche GTFS-RT StopTimeUpdates auf die VRR-Stopovers per Reihenfolge oder stopId
-      stopovers.forEach((s, i) => {
-        // Versuche Zuordnung per Stop-Sequenz (Index)
-        const stu = rtUpdates[i] || rtUpdates.find(u => u.stopSeq === i + 1);
-        if (!stu) return;
+      // GTFS-RT liefert nur Stops MIT Echtzeitdaten, nicht alle Stops.
+      // Matching per Abfahrtszeit: finde den GTFS-RT-Stop dessen Sollzeit am nächsten
+      // an der VRR-Sollzeit liegt (±90s Toleranz). Kein blindes Index-Mapping.
+      stopovers.forEach((s) => {
+        const planMs = s.plannedDeparture
+          ? new Date(s.plannedDeparture).getTime()
+          : s.plannedArrival ? new Date(s.plannedArrival).getTime() : null;
+        if (!planMs) return;
+
+        // Suche besten Match per absolutem Zeitstempel
+        let bestStu = null;
+        let bestDiff = Infinity;
+        for (const stu of rtUpdates) {
+          const stuTime = stu.depTime || stu.arrTime;
+          if (!stuTime) continue;
+          // Schätze Soll-Zeit aus absoluter Zeit - Delay
+          const stuDelay  = stu.depDelay ?? stu.arrDelay ?? 0;
+          const stuPlanMs = stuTime - stuDelay * 1000;
+          const diff = Math.abs(stuPlanMs - planMs);
+          if (diff < bestDiff) { bestDiff = diff; bestStu = stu; }
+        }
+
+        // Nur anwenden wenn Zeitdifferenz < 90s (sonst falscher Stop)
+        if (!bestStu || bestDiff > 90_000) return;
+
+        const stu = bestStu;
         if (stu.depDelay !== null && s.plannedDeparture) {
-          s.departure        = new Date(new Date(s.plannedDeparture).getTime() + stu.depDelay * 1000).toISOString();
+          s.departure         = new Date(new Date(s.plannedDeparture).getTime() + stu.depDelay * 1000).toISOString();
           s.departureDelaySec = stu.depDelay;
         }
         if (stu.arrDelay !== null && s.plannedArrival) {
-          s.arrival        = new Date(new Date(s.plannedArrival).getTime() + stu.arrDelay * 1000).toISOString();
+          s.arrival         = new Date(new Date(s.plannedArrival).getTime() + stu.arrDelay * 1000).toISOString();
           s.arrivalDelaySec = stu.arrDelay;
         }
-        // Absolute Zeiten überschreiben (präziser als Soll+Delay)
+        // Absolute Zeit überschreibt (präziser)
         if (stu.depTime && s.plannedDeparture) {
-          s.departure = new Date(stu.depTime).toISOString();
+          s.departure         = new Date(stu.depTime).toISOString();
           s.departureDelaySec = Math.round((stu.depTime - new Date(s.plannedDeparture).getTime()) / 1000);
         }
         if (stu.arrTime && s.plannedArrival) {
-          s.arrival = new Date(stu.arrTime).toISOString();
+          s.arrival         = new Date(stu.arrTime).toISOString();
           s.arrivalDelaySec = Math.round((stu.arrTime - new Date(s.plannedArrival).getTime()) / 1000);
         }
       });
@@ -572,27 +597,53 @@ app.get('/api/db/trips-by-name', async (req, res) => {
     if (!query) return res.status(400).json({ error: 'Missing query' });
     try {
         const when = date ? `${date}T08:00:00` : new Date().toISOString();
-        const url  = `https://v6.db.transport.rest/stops/8000085/departures` +
-                     `?when=${encodeURIComponent(when)}&duration=720&results=200&remarks=false`;
-        const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        if (!r.ok) throw new Error(`DB API ${r.status}`);
-        const data = await r.json();
-
-        const q = query.trim().toUpperCase().replace(/\s+/g, '');
+        const q    = query.trim().toUpperCase().replace(/\s+/g, '');
         const seen = new Set();
-        const trips = (data.departures || [])
-            .filter(d => {
-                const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
-                return (name === q || name.includes(q)) && d.tripId && !seen.has(d.tripId) && seen.add(d.tripId);
-            })
-            .slice(0, 15)
-            .map(d => ({
-                id: d.tripId,
-                name: d.line?.name || query,
-                direction: d.direction || 'Unbekannt',
-                line: d.line,
-                plannedDeparture: d.plannedWhen || null
-            }));
+        let trips  = [];
+
+        // Schnell: DB /trips?query Endpoint (kein Hbf-Umweg)
+        try {
+            const searchUrl = `https://v6.db.transport.rest/trips?query=${encodeURIComponent(query)}&onlyCurrentlyRunning=false&when=${encodeURIComponent(when)}`;
+            const sr = await fetch(searchUrl, { signal: AbortSignal.timeout(5000) });
+            if (sr.ok) {
+                const sd = await sr.json();
+                trips = (sd.trips || [])
+                    .filter(t => {
+                        const name = (t.line?.name || '').toUpperCase().replace(/\s+/g, '');
+                        return (name === q || name.includes(q)) && t.id && !seen.has(t.id) && seen.add(t.id);
+                    })
+                    .slice(0, 15)
+                    .map(t => ({
+                        id: t.id,
+                        name: t.line?.name || query,
+                        direction: t.destination?.name || t.direction || 'Unbekannt',
+                        line: t.line,
+                        plannedDeparture: t.plannedWhen || t.departure || null
+                    }));
+            }
+        } catch {}
+
+        // Fallback: Köln Hbf (nur 2h, 80 Ergebnisse – viel schneller als Frankfurt/720min)
+        if (!trips.length) {
+            const url = `https://v6.db.transport.rest/stops/8000207/departures` +
+                        `?when=${encodeURIComponent(when)}&duration=120&results=80&remarks=false`;
+            const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            if (!r.ok) throw new Error(`DB API ${r.status}`);
+            const data = await r.json();
+            trips = (data.departures || [])
+                .filter(d => {
+                    const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
+                    return (name === q || name.includes(q)) && d.tripId && !seen.has(d.tripId) && seen.add(d.tripId);
+                })
+                .slice(0, 15)
+                .map(d => ({
+                    id: d.tripId,
+                    name: d.line?.name || query,
+                    direction: d.direction || 'Unbekannt',
+                    line: d.line,
+                    plannedDeparture: d.plannedWhen || null
+                }));
+        }
 
         res.json({ trips });
     } catch (e) {
