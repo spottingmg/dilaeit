@@ -1490,48 +1490,48 @@
                 let sourceName = 'VRR OpenService';
                 
                 // PRIORITÄT: Wenn wir eine DB-TripId haben, nutzen wir diese IMMER für Züge
+                // Strategie:
+                // 1. Direkte DB-TripId → /api/train-details/:id  (schnellster Weg, 1 Call)
+                // 2. Zug ohne DB-TripId → /api/db/trip-details?number= liefert stopovers direkt (1 Call)
+                // 3. Kein Zug / Fallback → /api/trips/:vrrId (VRR OpenService)
+                let data;
                 if (dbTripId) {
                     url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`;
                     sourceName = 'Deutsche Bahn';
+                    const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    data = await res.json();
                 } else if (isTrainLine) {
-                    // Falls wir noch keine DB-ID haben, versuchen wir sie über die Zugnummer zu finden
+                    // /api/db/trip-details liefert stopovers direkt — kein zweiter Call nötig
                     const number = dep.line?.name || dep.line?.id || '';
-                    const date = $('query-date').value || new Date().toISOString().slice(0, 10);
-                    const searchUrl = `${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`;
-                    
+                    const date   = $('query-date').value || new Date().toISOString().slice(0, 10);
+                    sourceName   = 'Deutsche Bahn';
                     try {
-                        const searchRes = await fetch(searchUrl, {
-                            signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
-                        });
-                        if (searchRes.ok) {
-                            const searchData = await searchRes.json();
-                            if (searchData?.tripId) {
-                                url = `${API_BASE}/api/train-details/${encodeURIComponent(searchData.tripId)}`;
-                                sourceName = 'Deutsche Bahn';
-                            }
-                        }
+                        const res = await fetch(
+                            `${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`,
+                            { signal: AbortSignal.timeout(8000) }
+                        );
+                        if (res.ok) data = await res.json();
                     } catch (e) { console.warn('DB-Suche fehlgeschlagen, Fallback zu VRR'); }
-                }
-
-                // Falls wir IMMER NOCH keine URL haben, aber es ein Zug ist, erzwingen wir eine Suche über die Nummer
-                if (!url && isTrainLine) {
-                    sourceName = 'Deutsche Bahn';
-                    // ... (hier wurde bereits oben gesucht, falls fehlgeschlagen bleibt url null)
-                }
-
-                // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
-                if (!url && vrrTripId) {
+                    // Fallback zu VRR wenn DB nicht antwortet
+                    if (!data?.stopovers?.length && vrrTripId) {
+                        url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
+                        sourceName = 'VRR OpenService';
+                        const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        data = await res.json();
+                    }
+                } else {
+                    // Bus / Tram / lokaler ÖPNV → VRR
+                    if (!vrrTripId) throw new Error('Keine Trip-ID verfügbar');
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                    sourceName = isTrainLine ? 'Deutsche Bahn (Fallback)' : 'VRR OpenService';
+                    sourceName = 'VRR OpenService';
+                    const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    data = await res.json();
                 }
-                
-                if (!url) throw new Error('Keine gültige Trip-ID gefunden');
 
-                const res = await fetch(url, {
-                    signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
+                if (!data) throw new Error('Keine Daten empfangen');
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
                 currentDetailStopovers = stops; // Für Karte cachen
