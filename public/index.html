@@ -152,7 +152,7 @@
         .itin-seg { width: 2px; flex: 1; background: #4b5563; min-height: 6px; }
         .itin-dot {
             width: 8px; height: 8px; border-radius: 50%;
-            background: #ef4444; border: 2px solid #09090b;
+            border: 2px solid #09090b;
             flex-shrink: 0;
         }
         .itin-dot.terminus { width: 10px; height: 10px; }
@@ -1553,39 +1553,137 @@
 
             // ── Verspätungs-Übersetzungstabelle (unverändert) ────────────────────────
             const translationMap = {
-                "no delay reason":"keine Verspätungsbegründung","further information shortly":"nähere Informationen in Kürze",
-                "Delay due to a police operation":"Polizeieinsatz","fire brigade operation":"Feuerwehreinsatz auf der Strecke",
-                "Delay due to a medical emergency":"ärztliche Versorgung eines Fahrgastes","emergency brake activated":"unbefugtes Ziehen der Notbremse",
-                "persons on the track":"unbefugte Personen auf der Strecke","emergency doctor on track":"Notarzteinsatz auf der Strecke",
-                "Delay due to a strike":"Streikauswirkungen","animals on the track":"Tiere auf der Strecke",
-                "Delay due to storm damage":"Unwetter","weather-related disruption":"Witterungsbedingte Beeinträchtigungen",
-                "Delay due to construction work":"Bauarbeiten","overhead line fault":"Reparatur an der Oberleitung",
-                "Delay due to a track obstruction":"Streckensperrung","signal fault":"Reparatur an einem Signal",
-                "Delay due to a technical defect":"Reparatur am Zug","points failure":"defektes Stellwerk",
+                // Betrieb & Verspätungsgründe
+                "no delay reason":"keine Verspätungsbegründung",
+                "further information shortly":"nähere Informationen folgen",
+                "Delay due to a police operation":"Polizeieinsatz",
+                "police operation":"Polizeieinsatz",
+                "fire brigade operation":"Feuerwehreinsatz auf der Strecke",
+                "Delay due to a medical emergency":"ärztliche Versorgung eines Fahrgastes",
+                "emergency brake activated":"Notbremse wurde betätigt",
+                "persons on the track":"unbefugte Personen auf der Strecke",
+                "emergency doctor on track":"Notarzteinsatz auf der Strecke",
+                "Delay due to a strike":"Streikauswirkungen",
+                "strike":"Streik",
+                "animals on the track":"Tiere auf der Strecke",
+                "Delay due to storm damage":"Unwetterschäden",
+                "storm effects":"Unwetterauswirkungen",
+                "weather-related disruption":"Witterungsbedingte Beeinträchtigungen",
+                "weather-related reduced speed":"witterungsbedingt langsamere Fahrt",
+                "snow and ice":"Schnee und Eis",
+                "flooding":"Hochwasser",
+                "landslide":"Erdrutsch",
+                "Delay due to construction work":"Bauarbeiten",
+                "overhead line fault":"Störung an der Oberleitung",
+                "Delay due to a track obstruction":"Streckensperrung",
+                "signal fault":"Störung an einem Signal",
+                "Delay due to a technical defect":"technischer Defekt am Fahrzeug",
+                "technical defect on the route":"technischer Defekt auf der Strecke",
+                "technical defect at the station":"technischer Defekt im Bahnhof",
+                "technical defect resolved":"technischer Defekt behoben",
+                "technical inspection of the train":"technische Prüfung am Zug",
+                "technical defect on another train":"technischer Defekt an einem anderen Zug",
+                "points failure":"Weichenstörung",
+                "switch failure":"Weichenstörung",
+                "level crossing fault":"Störung an einem Bahnübergang",
+                "level crossing accident":"Unfall an einem Bahnübergang",
+                "temporary speed restriction":"vorübergehende Langsamfahrstelle",
                 "Delay due to a broken down train":"Verspätung eines vorausfahrenden Zuges",
                 "Delay of previous train":"Verspätung eines vorausfahrenden Zuges",
+                "waiting for an oncoming train":"Warten auf einen entgegenkommenden Zug",
+                "train overtaken":"Vorfahrt eines anderen Zuges",
+                "waiting for free entry":"Warten auf freie Einfahrt",
                 "Delay from previous journey":"Verspätung aus vorheriger Fahrt",
-                "short-term staff shortage":"kurzfristiger Personalausfall",
                 "delayed provision of the train":"verspätete Bereitstellung des Zuges",
-                "technical defect on another train":"technischer Defekt an einem anderen Zug",
-                "Train is diverted":"Umleitung des Zuges","Train is cancelled":"Zug fällt aus.",
-                "Stop cancelled":"Halt entfällt.","Additional stop":"Zusatzhalt.","Platform change":"Gleiswechsel.",
-                "snow and ice":"Schnee und Eis","high passenger volume":"hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
-                "Stops are omitted":"Einige Halte entfallen.","train running at reduced speed":"Zug verkehrt mit verminderter Geschwindigkeit",
-                "WiFi available":"WLAN verfügbar.","WLAN not available":"WLAN nicht verfügbar",
-                "no catering":"kein gastronomisches Angebot","Bicycles conveyed":"Fahrradmitnahme möglich.",
-                "Bicycles conveyed - not possible":"Fahrradmitnahme nicht möglich.",
-                "WC accessible for wheelchair users":"Rollstuhlgerechtes WC vorhanden.",
-                "Power sockets available":"Steckdosen verfügbar.","Quiet zone":"Ruhebereich.",
-                "one coach missing":"ein Wagen fehlt","several coaches missing":"mehrere Wagen fehlen",
-                "different coach order":"andere Reihenfolge der Wagen",
+                "short-term staff shortage":"kurzfristiger Personalausfall",
+                "short-term illness of staff":"kurzfristige Erkrankung eines Mitarbeiters",
+                "delayed staff from previous journey":"verspätetes Personal aus vorheriger Fahrt",
+                "waiting for a delayed ferry":"Warten auf eine verspätete Fähre",
+                "passport and customs control":"Pass- und Zollkontrolle",
+                "delay abroad":"Verspätung im Ausland",
+                "Delay due to vandalism":"Vandalismus",
+                "bomb disposal":"Bombenentschärfung",
+                "bridge damage":"Beschädigung einer Brücke",
+                "fallen tree on the track":"Baum auf der Strecke",
+                "objects on the track":"Gegenstände auf der Strecke",
+                "Replacement service":"Schienenersatzverkehr (Bus) eingerichtet",
+                "boarding assistance":"Einstiegshilfe in Anspruch genommen",
+                "waiting for additional coaches":"Bereitstellung zusätzlicher Wagen",
+                "decoupling of coaches":"Trennen von Zugteilen",
+                "additional stop for boarding and alighting":"Zusatzhalt für Ein-/Ausstieg",
+                "high passenger volume":"hohes Fahrgastaufkommen",
+                "Train is diverted":"Zug wird umgeleitet",
+                "Train is diverted. Stops are omitted.":"Zug wird umgeleitet. Einige Halte entfallen.",
+                "train running at reduced speed":"Zug fährt langsamer",
+                "track availability currently restricted":"Streckenkapazität derzeit eingeschränkt",
+                "official measure":"behördliche Maßnahme",
+                "operational delays":"Betriebliche Verzögerungen",
+                // Ausfall / Zusatz / Sonder
+                "Train is cancelled":"Zug fällt aus",
+                "Unfortunately, the train is cancelled.":"Zug fällt aus",
+                "The train is cancelled due to a technical defect.":"Zug fällt aus (technischer Defekt)",
+                "The train is cancelled due to construction work.":"Zug fällt aus (Bauarbeiten)",
+                "The train is cancelled due to a staff shortage.":"Zug fällt aus (Personalausfall)",
+                "Stop cancelled":"Halt entfällt",
+                "Stops are omitted":"Einige Halte entfallen",
+                "Additional stop":"Zusatzhalt",
+                "Special service":"Sonderfahrt",
+                "Platform change":"Gleiswechsel",
+                "Change of platform":"Gleiswechsel",
+                "Track change":"Gleiswechsel",
+                "Enter only, no exiting allowed":"Nur Einstieg, kein Ausstieg",
+                // Qualität / Ausstattung
+                "defective door":"defekte Tür",
+                "WiFi available":"WLAN verfügbar",
+                "WLAN not available":"WLAN nicht verfügbar",
+                "WiFi not available in one or more coaches":"WLAN in einzelnen Wagen gestört",
+                "info/entertainment not available":"Info-/Unterhaltungssystem nicht verfügbar",
+                "no catering":"kein Bordrestaurant",
+                "On-board restaurant":"Bordrestaurant vorhanden",
+                "replacement catering":"Ersatzbewirtschaftung",
+                "no accessible facilities":"behindertengerechte Ausstattung fehlt",
+                "no accessible toilet":"rollstuhlgerechtes WC nicht vorhanden",
+                "WC accessible for wheelchair users":"rollstuhlgerechtes WC vorhanden",
+                "defective vehicle-bound boarding aid":"Einstiegshilfe defekt",
+                "Vehicle-bound boarding aid available":"Einstiegshilfe vorhanden",
+                "Power sockets available":"Steckdosen vorhanden",
+                "Quiet zone":"Ruhebereich",
+                "Air conditioning":"Klimaanlage vorhanden",
+                "Step-free access":"Stufenfreier Einstieg",
+                "Area for people with reduced mobility":"Bereich für mobilitätseingeschränkte Personen",
+                "Bicycles conveyed":"Fahrradmitnahme möglich",
+                "Bicycles conveyed - not possible":"Fahrradmitnahme nicht möglich",
+                "Bicycles conveyed - subject to reservation":"Fahrradmitnahme nur mit Reservierung",
+                "Bicycles conveyed - subject to availability":"Fahrradmitnahme nach Verfügbarkeit",
+                "Number of bicycles conveyed limited":"Fahrradmitnahme eingeschränkt",
+                "one coach missing":"ein Wagen fehlt",
+                "several coaches missing":"mehrere Wagen fehlen",
+                "different coach order":"geänderte Wagenreihung",
+                "no 1st class":"1. Klasse fehlt",
+                "no multi-purpose compartment":"Mehrzweckabteil fehlt",
+                "today: multi-purpose compartment at the front":"heute: Mehrzweckabteil vorne",
+                "today: multi-purpose compartment at the rear":"heute: Mehrzweckabteil hinten",
+                "today: 1st class at the front":"heute: 1. Klasse vorne",
+                "today: 1st class at the rear":"heute: 1. Klasse hinten",
+                "entire train without reservation":"kein Zug ohne Reservierung",
+                "individual coaches without reservation":"einzelne Wagen ohne Reservierung",
+                "overcrowded with compensation":"Überfüllung mit Kulanz",
+                "overcrowded without compensation":"Überfüllung ohne Kulanz",
+                "other quality defects":"sonstige Qualitätsmängel",
+                "no quality defects":"keine Qualitätsmängel",
+                "reservations available again":"Reservierungen wieder möglich",
+                "train running in correct formation":"Zug wieder korrekt gereiht",
             };
             const regexTranslations = [
                 { pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i, replace: (_, l, d) => `Durchbindung: Kommt als Linie ${l.trim()} aus Richtung ${d.trim()}.` },
                 { pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,             replace: (_, l, d) => `Durchbindung: Fährt weiter als Linie ${l.trim()} Richtung ${d.trim()}.` },
                 { pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,       replace: (_, l) => `Durchbindung von Linie ${l.trim()}.` },
+                { pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i, replace: (_, l) => `Durchbindung auf Linie ${l.trim()}.` },
+                { pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,             replace: (_, l) => `Fährt weiter als Linie ${l.trim()}.` },
+                { pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,               replace: (_, l) => `Kommt als Linie ${l.trim()}.` },
                 { pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i, replace: (_, m) => `Verspätung von ca. ${m} Minuten.` },
-                { pattern: /^cancelled\s+due\s+to\s+(.+)$/i,                    replace: (_, r) => `Fällt aus wegen ${r.trim()}.` },
+                { pattern: /^cancelled\s+due\s+to\s+(.+)$/i,                    replace: (_, r) => `Fällt aus wegen: ${r.trim()}.` },
+                { pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,          replace: (_, s) => `Halt ${s.trim()} entfällt.` },
             ];
             const translate = (text) => {
                 if (!text) return '';
@@ -1678,19 +1776,53 @@
                     stop.additional ? 'is-additional' : '',
                 ].join(' ').trim();
 
-                // Gleis
+                // Gleis-Daten (finale HTML-Ausgabe passiert weiter unten nach Produkt-Erkennung)
                 const platPlanned = stop.plannedPlatform || null;
                 const platActual  = stop.platform || null;
                 const platChanged = platPlanned && platActual && platPlanned !== platActual;
                 const platDisplay = platActual || platPlanned;
-                const platHtml    = platDisplay
-                    ? `<span class="itin-platform${platChanged ? ' changed' : ''}">Gl.${platDisplay}</span>`
-                    : '';
 
                 // Hinweis
                 const remarkText = stop.remarks?.[0]?.text;
                 const remarkHtml = remarkText
                     ? `<span class="itin-remark"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(remarkText)}</span>`
+                    : '';
+
+                // Besondere Halt-Zustände bestimmen
+                const isCancelledStop  = stop.cancelled;
+                const isAdditionalStop = stop.additional;
+                // Produkt aus Liniendaten (wird im Fahrtverlauf nicht immer geliefert)
+                // Wir nutzen den übergeordneten currentTripDetail
+                const isBusTrip = currentTripDetail?.line?.product === 'bus' ||
+                                  currentTripDetail?.line?.product === 'tram' ||
+                                  currentTripDetail?.line?.product === 'subway';
+                const platLabel = isBusTrip ? 'Bussteig' : 'Gleis';
+
+                // Dot-Farbe nach Status
+                const dotColor = isCancelledStop  ? 'bg-gray-600'
+                               : isAdditionalStop ? 'bg-blue-500'
+                               : passed           ? 'bg-gray-600'
+                               :                    'bg-red-600';
+
+                // Namens-Style
+                const nameStyle = isCancelledStop
+                    ? 'line-through text-gray-500'
+                    : isAdditionalStop
+                        ? 'text-blue-400'
+                        : '';
+
+                // Statusbadge
+                const statusBadge = isCancelledStop
+                    ? '<span class="ml-1.5 text-[9px] font-bold text-red-500 uppercase bg-red-500/10 px-1 rounded">entfällt</span>'
+                    : isAdditionalStop
+                        ? '<span class="ml-1.5 text-[9px] font-bold text-blue-400 uppercase bg-blue-500/10 px-1 rounded">Zusatz</span>'
+                        : '';
+
+                // Gleis/Bussteig mit Änderungsmarkierung
+                const platHtmlFinal = platDisplay
+                    ? platChanged
+                        ? `<span class="itin-platform changed" title="Gleis geändert">⚠ ${platLabel} ${platActual} <span class="line-through opacity-50">${platPlanned}</span></span>`
+                        : `<span class="itin-platform">${platLabel} ${platDisplay}</span>`
                     : '';
 
                 row.innerHTML = `
@@ -1701,11 +1833,11 @@
                     </div>
                     <div class="itin-dot-col">
                         <div class="itin-seg${isFirst ? ' opacity-0' : ''}"></div>
-                        <div class="itin-dot${isTerminus ? ' terminus' : ''}${passed ? ' passed' : ''}"></div>
+                        <div class="itin-dot ${dotColor}${isTerminus ? ' terminus' : ''}"></div>
                         <div class="itin-seg${isLast ? ' opacity-0' : ''}"></div>
                     </div>
                     <div>
-                        <span class="itin-name${isTerminus ? ' terminus' : ''}${passed ? ' passed' : ''}">${stop.stop.name}</span>${platHtml}${remarkHtml}
+                        <span class="itin-name${isTerminus ? ' terminus' : ''}${passed && !isCancelledStop ? ' passed' : ''} ${nameStyle}">${stop.stop.name}</span>${statusBadge}${platHtmlFinal}${remarkHtml}
                     </div>
                 `;
                 container.appendChild(row);
@@ -2327,8 +2459,10 @@
                 const total     = records.length;
                 const cancelled = records.filter(r => r.cancelled).length;
                 const withDelay = records.filter(r => !r.cancelled && r.delaySec !== null);
-                const onTime    = withDelay.filter(r => r.delaySec < 60).length;
-                const delayed   = withDelay.filter(r => r.delaySec >= 60).length;
+                // DB offiziell ab +6min, ÖPNV ab +3min
+                const punctThreshSec = isTrain({ name: lineName }) ? 360 : 180;
+                const onTime    = withDelay.filter(r => r.delaySec < punctThreshSec).length;
+                const delayed   = withDelay.filter(r => r.delaySec >= punctThreshSec).length;
                 const avgDelay  = withDelay.length
                     ? Math.round(withDelay.reduce((s, r) => s + Math.max(0, r.delaySec), 0) / withDelay.length)
                     : 0;
@@ -2360,7 +2494,7 @@
                         <div class="flex items-center justify-between">
                             <div>
                                 <div class="text-3xl font-black ${pctColor}">${pctOnTime}%</div>
-                                <div class="text-[10px] text-gray-500">pünktlich (< 1 Min)</div>
+                                <div class="text-[10px] text-gray-500">pünktlich (< ${isTrain({name:lineName})?'6':'3'} Min)</div>
                             </div>
                             <div class="text-right text-[10px] text-gray-400 space-y-0.5">
                                 <div><span class="text-white font-bold">${total}</span> Fahrten gespeichert</div>
