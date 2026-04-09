@@ -2110,17 +2110,26 @@
             const statusEl = $('map-status');
             const dbTripId = dep.dbTripId || dep.tripId;
 
-            // Stopovers holen (nutze gecachte wenn vorhanden)
+            // Stopovers mit Koordinaten beschaffen
+            // Priorität: gecachte Stopovers → falls keine Koordinaten → direkt DB-REST
             let stopovers = currentDetailStopovers;
-            if (!stopovers?.length && dbTripId) {
+
+            // Prüfe ob Koordinaten vorhanden sind
+            const hasCoords = stopovers?.some(s => s.stop?.location?.latitude);
+
+            if (!hasCoords && dbTripId) {
                 try {
+                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Streckendaten...';
                     const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false`;
-                    const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                    const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
                     if (r.ok) {
                         const d = await r.json();
                         stopovers = (d.trip ?? d).stopovers || [];
                     }
-                } catch {}
+                } catch (e) {
+                    statusEl.textContent = 'Fehler beim Laden der Streckendaten.';
+                    return;
+                }
             }
 
             if (!stopovers?.length) {
@@ -2128,22 +2137,21 @@
                 return;
             }
 
-            // Koordinaten der Halte aus den Stopovers extrahieren
-            // v6.db.transport.rest liefert stop.location.latitude/longitude
+            // Koordinaten extrahieren
             const points = stopovers
                 .filter(s => s.stop?.location?.latitude)
                 .map(s => ({
-                    lat:    s.stop.location.latitude,
-                    lng:    s.stop.location.longitude,
-                    name:   s.stop.name,
+                    lat:     s.stop.location.latitude,
+                    lng:     s.stop.location.longitude,
+                    name:    s.stop.name,
                     planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
-                    actual:  s.departure || s.arrival
+                    actual:  (s.departure || s.arrival)
                         ? new Date(s.departure || s.arrival).getTime()
                         : null
                 }));
 
             if (!points.length) {
-                statusEl.textContent = 'Keine Koordinaten in den Streckendaten.';
+                statusEl.innerHTML = '<span class="text-yellow-400">Keine Koordinaten – nur für DB-Züge verfügbar.</span>';
                 return;
             }
 
