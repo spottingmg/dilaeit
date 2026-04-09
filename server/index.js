@@ -377,8 +377,16 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                         : null
                 },
                 plannedArrival, arrival, plannedDeparture, departure,
-                arrivalDelaySec:   arrival   && plannedArrival   ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000) : null,
-                departureDelaySec: departure && plannedDeparture ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000) : null,
+                // Priorität: explizites delay-Feld → Zeitdiff → trip-level delay
+                // s.arrivalDelay / s.departureDelay sind Sekunden-Felder der DB REST API
+                arrivalDelaySec:
+                    s.arrivalDelay   !== undefined && s.arrivalDelay   !== null ? s.arrivalDelay
+                  : arrival   && plannedArrival   ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000)
+                  : null,
+                departureDelaySec:
+                    s.departureDelay !== undefined && s.departureDelay !== null ? s.departureDelay
+                  : departure && plannedDeparture ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000)
+                  : null,
                 platform: s.platform || null,
                 plannedPlatform: s.plannedPlatform || s.platform || null,
                 cancelled: s.cancelled || false,
@@ -540,8 +548,12 @@ app.get('/api/db/trip-details', async (req, res) => {
             return {
                 stop: { name: s.stop?.name || '', id: s.stop?.id },
                 plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
-                arrivalDelaySec:   a && pA ? Math.round((new Date(a) - new Date(pA)) / 1000) : null,
-                departureDelaySec: d && pD ? Math.round((new Date(d) - new Date(pD)) / 1000) : null,
+                arrivalDelaySec:
+                    s.arrivalDelay   !== undefined && s.arrivalDelay   !== null ? s.arrivalDelay
+                  : a && pA ? Math.round((new Date(a) - new Date(pA)) / 1000) : null,
+                departureDelaySec:
+                    s.departureDelay !== undefined && s.departureDelay !== null ? s.departureDelay
+                  : d && pD ? Math.round((new Date(d) - new Date(pD)) / 1000) : null,
                 platform: s.platform || null, plannedPlatform: s.plannedPlatform || null,
                 cancelled: s.cancelled || false, additional: s.additional || false,
                 remarks: s.remarks || []
