@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "db-hafas": "^6.0.0",
-    "express": "^4.19.2",
-    "gtfs-realtime-bindings": "^1.1.1"
+    "express": "^4.19.2"
   }
 }
