@@ -967,19 +967,20 @@
                 const delaySec = (dep.delay !== null && dep.delay !== undefined) ? dep.delay : null;
 
                 // Verfrühung: blau + Minus; Verspätung: rot + Plus; pünktlich: grün +0
-                const delayColor = delaySec === null     ? ''
-                    : delaySec > 0   ? 'text-red-500'
+                const delayColor = delaySec === null  ? ''
+                    : delaySec > 60  ? 'text-red-500'
+                    : delaySec > 0   ? 'text-orange-400'
                     : delaySec < 0   ? 'text-blue-400'
                     :                  'text-green-500';
                 const abs        = delaySec !== null ? Math.abs(delaySec) : 0;
                 const delaySign  = delaySec !== null ? (delaySec > 0 ? '+' : delaySec < 0 ? '-' : '') : '';
-                // Verfrühung immer anzeigen (auch unter 60s), Verspätung erst ab 60s
-                const delayLabel = delaySec === null  ? ''
-                    : delaySec === 0   ? '+0'
-                    : delaySec < 0 && abs < 60  ? `${delaySign}${abs}s`   // Verfrühung < 1 Min
-                    : abs >= 60        ? `${delaySign}${Math.round(abs / 60)}'`
-                    :                    `${delaySign}${abs}s`;
-                const showDelay  = !isCancelled && delaySec !== null && (delaySec < 0 || abs >= 60 || delaySec === 0);
+                // Verfrühung immer anzeigen (auch <60s), Verspätung erst ab 60s
+                const delayLabel = delaySec === null ? ''
+                    : delaySec === 0    ? '+0'
+                    : delaySec < 0      ? (abs >= 60 ? `-${Math.round(abs/60)}'` : `-${abs}s`)
+                    : abs >= 60         ? `+${Math.round(abs/60)}'`
+                    :                    '';   // Verspätung <60s: kein Label
+                const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || abs >= 60);
 
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
@@ -1724,18 +1725,34 @@
                 const fmt2 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : null;
                 const fmt3 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
 
-                // Badge nur ab ±60s, darunter kein Label (aber trotzdem Ist-Farbe)
+                // Delay-Badge:
+                // - Verfrühung (negativ): immer anzeigen, auch <60s (in Sekunden)
+                // - Verspätung (positiv): erst ab 60s (in Minuten)
+                // - Pünktlich (0): grünes +0
                 const makeDelayBadge = (sec) => {
                     if (sec === null || sec === undefined) return { badge: '', timeCls: '' };
                     const abs = Math.abs(sec);
-                    const timeCls = sec >= 60  ? 'text-red-400'
-                                  : sec <= -60 ? 'text-blue-400'
-                                  : sec !== 0  ? 'text-green-400'  // 1-59s: grün aber kein badge
-                                  :              'text-green-400';
-                    if (abs < 60) return { badge: '', timeCls };
-                    const sign  = sec > 0 ? '+' : '-';
-                    const label = `${sign}${Math.round(abs / 60)}'`;
-                    const cls   = sec > 0 ? 'delay-pos' : 'delay-neg';
+                    // Farbklasse
+                    const timeCls = sec > 60   ? 'text-red-400'
+                                  : sec > 0    ? 'text-orange-400'   // 1-59s Verspätung: orange
+                                  : sec < 0    ? 'text-blue-400'     // Verfrühung: blau
+                                  :              'text-green-400';   // pünktlich: grün
+                    // Badge-Label
+                    let label, cls;
+                    if (sec === 0) {
+                        label = '+0'; cls = 'delay-zero';
+                    } else if (sec < 0) {
+                        // Verfrühung immer anzeigen
+                        label = abs >= 60 ? `-${Math.round(abs/60)}'` : `-${abs}s`;
+                        cls   = 'delay-neg';
+                    } else if (abs >= 60) {
+                        // Verspätung ab 60s
+                        label = `+${Math.round(abs/60)}'`;
+                        cls   = 'delay-pos';
+                    } else {
+                        // Verspätung <60s: kein Badge, nur Farbe
+                        return { badge: '', timeCls };
+                    }
                     return { badge: `<span class="itin-delay ${cls}">${label}</span>`, timeCls };
                 };
 
