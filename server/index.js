@@ -16,7 +16,7 @@ let publicPath = potentialPaths[0];
 for (const p of potentialPaths) {
   if (fs.existsSync(path.join(p, 'index.html'))) { publicPath = p; break; }
 }
-console.log(' Frontend:', publicPath);
+console.log('📂 Frontend:', publicPath);
 
 // ─── db-hafas (optional, dynamischer Import) ─────────────────────────────────
 // `import { createDbHafas } from 'db-hafas'` FUNKTIONIERT NICHT –
