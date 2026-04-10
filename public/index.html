@@ -980,17 +980,12 @@
                     : delaySec >= 60    ? `+${Math.floor(delaySec/60)}'`
                     :                    '';   // Verspätung <60s: kein Label
 
-                // Ist-Zeit mit Sekunden (immer anzeigen, wenn Echtzeitdaten vorliegen)
-                const actualStr = actualTime ? actualTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-                const actualHtml = actualStr ? `<span class="text-[9px] font-bold leading-none ${delayColor} mt-0.5">${actualStr}</span>` : '';
-
                 const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || abs >= 60);
 
                 item.innerHTML = `
                     <div class="flex items-center gap-4 group">
                         <div class="w-16 flex flex-col items-center">
                             <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${actualHtml}
                             ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delayLabel}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
@@ -2289,8 +2284,8 @@
             L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 opacity: 0.75,
-                tileSize: 512,
-                zoomOffset: -1,
+                tileSize: 256,
+                zoomOffset: 0,
                 attribution: '© OpenRailwayMap'
             }).addTo(trainMap);
 
