@@ -90,7 +90,7 @@
         .trip-progress-fill { height: 100%; background: linear-gradient(90deg, #ef4444, #f97316); border-radius: 2px; transition: width 1s ease; }
 
         /* Zugverfolgung Karte */
-        #train-map { height: 280px; border-radius: 12px; overflow: hidden; z-index: 1; }
+        #train-map { height: 320px; border-radius: 12px; overflow: hidden; z-index: 1; background: #f8fafc; border: 1px solid rgba(255,255,255,0.05); }
         .train-marker-icon {
             background: #ef4444; color: white; border-radius: 50%;
             width: 28px; height: 28px; display: flex; align-items: center;
@@ -2251,7 +2251,10 @@
                     active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'
                 }`;
             });
-            if (tab === 'map'         && currentTripDetail) initTrainMap(currentTripDetail);
+            if (tab === 'map'         && currentTripDetail) {
+                initTrainMap(currentTripDetail);
+                if (trainMap) setTimeout(() => trainMap.invalidateSize(), 400);
+            }
             if (tab === 'punctuality' && currentTripDetail) renderPunctualityHistory(currentTripDetail);
             if (tab === 'zuglauf'     && currentTripDetail) renderZuglauf(currentTripDetail);
             // Karten-Refresh stoppen wenn nicht auf Karte
@@ -2279,10 +2282,10 @@
             // Sicherstellen dass das Element leer ist
             mapEl.innerHTML = '';
 
-            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false }).setView([51.1657, 10.4515], 6); // Deutschland-Zentrum
+            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false }).setView([51.1657, 10.4515], 6);
 
-            // Helle Basiskarte (CartoDB Voyager - ähnlich wie bahn.expert)
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            // Helle Basiskarte (CartoDB Voyager) - URL fix: {r} entfernt
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
                 maxZoom: 19, subdomains: 'abcd',
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
             }).addTo(trainMap);
@@ -2290,7 +2293,7 @@
             // OpenRailwayMap Overlay
             L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
                 maxZoom: 19,
-                opacity: 0.7,
+                opacity: 0.6,
                 tileSize: 256,
                 zoomOffset: 0
             }).addTo(trainMap);
@@ -2309,7 +2312,7 @@
                         updateTrainMapPosition(dep);
                     }
                 }, 20000);
-            }, 150);
+            }, 300); // Erhöhtes Timeout für Layout-Settling
         }
 
         async function updateTrainMapPosition(dep) {
@@ -2317,7 +2320,8 @@
             if (!trainMap) return;
 
             const dbTripId = dep?.dbTripId || dep?.tripId;
-            let stopovers = currentDetailStopovers;
+            const source   = dep?._source || (dep?.sourceApi === 'Deutsche Bahn' ? 'DB' : 'VRR');
+            let stopovers  = currentDetailStopovers;
 
             // 1. Falls keine Koordinaten da sind, versuchen nachzuladen
             const hasCoords = stopovers?.some(s => s.stop?.location?.latitude || s.stop?.location?.lat);
@@ -2325,14 +2329,19 @@
             if (!hasCoords && dbTripId) {
                 try {
                     statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Streckendaten...';
-                    const url = `${API_BASE}/api/db/trip-details?tripId=${encodeURIComponent(dbTripId)}`;
-                    const r   = await fetch(url);
+                    // Richtigen Endpoint basierend auf der Quelle wählen
+                    const apiPath = source.includes('DB') || source.includes('Bahn') 
+                        ? `/api/db/trip-details?tripId=${encodeURIComponent(dbTripId)}`
+                        : `/api/trips/${encodeURIComponent(dbTripId)}`;
+                    
+                    const r = await fetch(`${API_BASE}${apiPath}`);
                     if (r.ok) {
                         const d = await r.json();
                         stopovers = d.stopovers || [];
+                        currentDetailStopovers = stopovers; // Cache aktualisieren
                     }
                 } catch (e) {
-                    console.warn('Map fetch error:', e);
+                    console.warn('Map data fetch error:', e);
                 }
             }
 
