@@ -1154,12 +1154,12 @@
             let payload = null;
             try { payload = JSON.parse(decodeURIComponent(encodedPayload)); } catch { payload = null; }
             if (!payload?.tripId) return;
-
             const dep = {
-                tripId: payload.tripId,
-                dbTripId: payload.tripId, // Da aus Verbindungssuche (DB), setzen wir es als dbTripId
+                tripId:    payload.tripId,
+                dbTripId:  payload.dbTripId || payload.tripId,
                 prognosis: { tripId: payload.tripId },
-                line: payload.line || null,
+                line:      payload.line || null,
+                // direction = Endziel der Linie (nicht des Users)
                 direction: payload.direction || ''
             };
             return showTripDetails(dep);
@@ -1224,8 +1224,24 @@
                     operator: firstLine.line?.operator?.name ? { name: firstLine.line.operator.name } : undefined
                 }
                 : null;
-            const journeyDetailsPayload = tripId
-                ? encodeURIComponent(JSON.stringify({ tripId, line: minimalLine, direction: directionGuess }))
+            // Per-Leg payloads — jede Fahrt bekommt ihren eigenen Details-Button
+            // direction = Endziel der Linie (leg.direction), nicht Ziel des Users
+            const legPayloads = legs
+                .filter(l => l.tripId && l.line)
+                .map(l => ({
+                    tripId:    l.tripId,
+                    dbTripId:  l.tripId,
+                    line: {
+                        name:    l.line?.name || l.line?.id || '?',
+                        id:      l.line?.id,
+                        product: (l.line?.product || l.mode || '').toString(),
+                        operator: l.line?.operator?.name ? { name: l.line.operator.name } : undefined
+                    },
+                    direction: l.direction || ''  // Endziel der Linie, nicht Reiseziel
+                }));
+            // Für Rückwärtskompatibilität: journeyDetailsPayload = erster Leg
+            const journeyDetailsPayload = legPayloads[0]
+                ? encodeURIComponent(JSON.stringify(legPayloads[0]))
                 : '';
 
             const depTime  = new Date(firstLeg?.plannedDeparture || firstLeg?.departure || journey.departure);
@@ -1318,11 +1334,22 @@
                 }).join('');
 
                 const cancelled = leg.cancelled ? 'opacity-40' : '';
+                const legPayload = leg.tripId ? encodeURIComponent(JSON.stringify({
+                    tripId:   leg.tripId,
+                    dbTripId: leg.tripId,
+                    line: {
+                        name:    leg.line?.name || '?',
+                        id:      leg.line?.id,
+                        product: (leg.line?.product || leg.mode || '').toString(),
+                    },
+                    direction: leg.direction || ''  // echtes Linien-Endziel
+                })) : '';
                 return `<div class="rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden mb-2 ${cancelled}">
                     <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-zinc-800">
                         <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic shrink-0">${leg.line?.name || '?'}</span>
                         <span class="text-xs font-semibold truncate flex-1">${leg.direction || ''}</span>
                         ${leg.cancelled ? '<span class="text-red-500 text-[10px] font-bold shrink-0">[Fällt aus]</span>' : ''}
+                        ${legPayload ? `<button class="px-2 py-1 rounded-lg text-[10px] font-semibold bg-blue-600 text-white hover:bg-blue-500 shrink-0" onclick="event.stopPropagation(); showJourneyTripDetailsFromEncodedPayload('${legPayload}')" type="button">Verlauf</button>` : ''}
                     </div>
                     <div class="px-3 py-2 text-[11px] space-y-1">
                         <div class="flex justify-between">
