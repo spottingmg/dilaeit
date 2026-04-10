@@ -250,13 +250,7 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
     const stopId = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
-    // 0. EVA ID für Marudor ermitteln (falls stopId eine VRR-EFA-ID ist)
-    const evaId = await getEvaForStop(stopId);
-
-    // 1. Marudor & EFA parallel abfragen für maximalen Datenreichtum
-    const mUrl = `https://marudor.de/api/hafas/v2/departures?evaNumber=${encodeURIComponent(evaId)}&profile=vrr`;
-    
-    // Zeit-Parameter für EFA vorbereiten
+    // VRR-Suche soll NUR EFA-Daten nutzen
     let itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute;
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
     if (whenRaw) {
@@ -271,98 +265,57 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
       itdTimeHour = now.getHours();    itdTimeMinute = now.getMinutes();
     }
 
-    const [marudorRes, efaRes] = await Promise.allSettled([
-        fetch(mUrl, { headers: { 'User-Agent': 'dilaeit-proxy/1.0' }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null),
-        efaGet('XML_DM_REQUEST', {
-            outputFormat: 'rapidJSON', version: EFA_VERSION,
-            mode: 'direct', type_dm: 'stopID', name_dm: stopId,
-            useRealtime: 1, itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute,
-            itdTripDateTimeDepArr: 'dep',
-        })
-    ]);
+    const data = await efaGet('XML_DM_REQUEST', {
+        outputFormat: 'rapidJSON', version: EFA_VERSION,
+        mode: 'direct', type_dm: 'stopID', name_dm: stopId,
+        useRealtime: 1, itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute,
+        itdTripDateTimeDepArr: 'dep',
+    });
 
-    let finalDepartures = [];
-    const seenTrips = new Set(); // Um Duplikate beim Mergen zu vermeiden
+    const finalDepartures = (data.stopEvents || []).map(ev => {
+        const planned = toIsoStringOrNull(ev.departureTimePlanned);
+        if (!planned) return null;
 
-    // A. Zuerst Marudor-Daten (Präzise Sekunden & Verfrühung)
-    if (marudorRes.status === 'fulfilled' && Array.isArray(marudorRes.value)) {
-        marudorRes.value.forEach(d => {
-            const planned = d.plannedDepartureTime ? new Date(d.plannedDepartureTime).toISOString() : null;
-            const actual  = d.departureTime ? new Date(d.departureTime).toISOString() : planned;
-            const delaySec = (d.departureTime && d.plannedDepartureTime)
-                ? Math.round((new Date(d.departureTime) - new Date(d.plannedDepartureTime)) / 1000)
-                : (d.delay !== undefined ? d.delay * 60 : null);
+        const lineName = ev.transportation?.number || ev.transportation?.disassembledName || ev.transportation?.name || '???';
+        const direction = ev.transportation?.destination?.name || '';
+        const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
+        
+        const hasRealtime = Array.isArray(ev.realtimeStatus)
+            ? ev.realtimeStatus.length > 0 && !ev.realtimeStatus.some(s => /NO_?RT|UNAVAIL/i.test(String(s)))
+            : estimated !== null;
             
-            const lineName = d.train?.name || '???';
-            const direction = d.direction || 'Unbekannt';
-            const key = `${lineName}|${direction}|${planned}`;
-            seenTrips.add(key);
+        // EFA liefert oft 0 für Verfrühung, wir berechnen es manuell aus der Differenz
+        const delaySec = estimated !== null
+            ? Math.round((Date.parse(estimated) - Date.parse(planned)) / 1000)
+            : (hasRealtime ? 0 : null);
 
-            finalDepartures.push({
-                plannedWhen: planned, when: actual, delay: delaySec,
-                platform: d.realtimePlatform || d.platform || null,
-                plannedPlatform: d.platform || null,
-                cancelled: d.cancelled || false,
-                direction,
-                tripId: d.journeyId, dbTripId: d.journeyId,
-                line: { name: lineName, product: d.train?.type || 'bus' },
-                _source: 'Bahn.expert (Marudor)'
-            });
-        });
-    }
+        const platform = ev.location?.properties?.platform || ev.location?.properties?.platformName || null;
+        const tripPayload = {
+            line: ev.transportation?.id || null,
+            stopID: stopId,
+            tripCode: ev.transportation?.properties?.tripCode ?? null,
+            date: toYyyymmddUtc(planned),
+            time: toHmmUtc(planned)
+        };
+        const tripId = tripPayload.line && tripPayload.tripCode != null ? encodeTripId(tripPayload) : null;
+        const cancelled = Array.isArray(ev.realtimeStatus) && ev.realtimeStatus.some(s => String(s).toUpperCase().includes('CANCEL'));
 
-    // B. Dann EFA-Daten ergänzen (für Busse, die Marudor nicht kennt)
-    if (efaRes.status === 'fulfilled' && efaRes.value?.stopEvents) {
-        efaRes.value.stopEvents.forEach(ev => {
-            const planned = toIsoStringOrNull(ev.departureTimePlanned);
-            if (!planned) return;
+        return {
+            plannedWhen: planned, when: estimated ?? planned, delay: delaySec,
+            plannedPlatform: platform, platform, cancelled, direction,
+            tripId, dbTripId: null, prognosis: { tripId, platform },
+            line: {
+                name: String(lineName).replace(/^.*?\s+/, '').trim() || String(lineName),
+                product: (ev.transportation?.product?.name || 'bus').toLowerCase(),
+                operator: ev.transportation?.operator?.name ? { name: ev.transportation?.operator?.name } : undefined
+            },
+            _source: 'VRR OpenService'
+        };
+    }).filter(Boolean);
 
-            const lineName = ev.transportation?.number || ev.transportation?.disassembledName || ev.transportation?.name || '???';
-            const direction = ev.transportation?.destination?.name || '';
-            const key = `${lineName}|${direction}|${planned}`;
-
-            // Nur hinzufügen, wenn Marudor diesen Trip noch nicht hat
-            if (!seenTrips.has(key)) {
-                const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
-                const hasRealtime = Array.isArray(ev.realtimeStatus)
-                    ? ev.realtimeStatus.length > 0 && !ev.realtimeStatus.some(s => /NO_?RT|UNAVAIL/i.test(String(s)))
-                    : estimated !== null;
-                const delaySec = estimated !== null
-                    ? Math.round((Date.parse(estimated) - Date.parse(planned)) / 1000)
-                    : (hasRealtime ? 0 : null);
-
-                const platform = ev.location?.properties?.platform || ev.location?.properties?.platformName || null;
-                const tripPayload = {
-                    line: ev.transportation?.id || null,
-                    stopID: stopId,
-                    tripCode: ev.transportation?.properties?.tripCode ?? null,
-                    date: toYyyymmddUtc(planned),
-                    time: toHmmUtc(planned)
-                };
-                const tripId = tripPayload.line && tripPayload.tripCode != null ? encodeTripId(tripPayload) : null;
-                const cancelled = Array.isArray(ev.realtimeStatus) && ev.realtimeStatus.some(s => String(s).toUpperCase().includes('CANCEL'));
-
-                finalDepartures.push({
-                    plannedWhen: planned, when: estimated ?? planned, delay: delaySec,
-                    plannedPlatform: platform, platform, cancelled, direction,
-                    tripId, dbTripId: null, prognosis: { tripId, platform },
-                    line: {
-                        name: String(lineName).replace(/^.*?\s+/, '').trim() || String(lineName),
-                        product: (ev.transportation?.product?.name || 'bus').toLowerCase(),
-                        operator: ev.transportation?.operator?.name ? { name: ev.transportation?.operator?.name } : undefined
-                    },
-                    _source: 'VRR OpenService'
-                });
-            }
-        });
-    }
-
-    // Sortieren nach geplanter Zeit
-    finalDepartures.sort((a, b) => new Date(a.plannedWhen) - new Date(b.plannedWhen));
-
-    res.json({ departures: finalDepartures.slice(0, 60) });
+    res.json({ departures: finalDepartures });
   } catch (e) {
-    console.error('Departures merge error:', e.message);
+    console.error('VRR Departures error:', e.message);
     res.status(502).json({ error: e.message });
   }
 });
