@@ -964,7 +964,13 @@
 
                 // delay in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
                 // Sekunden werden IMMER angezeigt wenn vorhanden (unabhängig von Quelle)
-                const delaySec = (dep.delay !== null && dep.delay !== undefined) ? dep.delay : null;
+                let delaySec = (dep.delay !== null && dep.delay !== undefined) ? dep.delay : null;
+                
+                // Fallback: Wenn delaySec 0 ist, aber Ist-Zeit vorhanden, manuell prüfen
+                if (delaySec === 0 && actualTime && schedTime) {
+                    const diff = Math.round((actualTime - schedTime) / 1000);
+                    if (diff !== 0) delaySec = diff;
+                }
 
                 // Verfrühung: blau + Minus; Verspätung: rot + Plus; pünktlich: grün +0
                 const delayColor = delaySec === null  ? ''
@@ -972,15 +978,15 @@
                     : delaySec > 0   ? 'text-orange-400'
                     : delaySec < 0   ? 'text-blue-400'
                     :                  'text-green-500';
-                const abs        = delaySec !== null ? Math.abs(delaySec) : 0;
+                
                 // Verfrühung immer anzeigen (auch <60s), Verspätung erst ab 60s
                 const delayLabel = delaySec === null ? ''
                     : delaySec === 0    ? '+0'
-                    : delaySec < 0      ? (abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`)
+                    : delaySec < 0      ? (Math.abs(delaySec) >= 60 ? `-${Math.floor(Math.abs(delaySec)/60)}'` : `-${Math.abs(delaySec)}s`)
                     : delaySec >= 60    ? `+${Math.floor(delaySec/60)}'`
                     :                    '';   // Verspätung <60s: kein Label
 
-                const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || abs >= 60);
+                const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || Math.abs(delaySec) >= 60);
 
                 item.innerHTML = `
                     <div class="flex items-center gap-4 group">
