@@ -1596,10 +1596,16 @@
                 currentDetailStopovers = stops; // Für Karte cachen
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
+                
                 // Neue Features
                 updateTripPosition(stops);
                 loadWagonFormation(dep);
                 updatePushButton(dep);
+
+                // Karte aktualisieren falls Tab offen
+                if (!$('panel-map').classList.contains('hidden')) {
+                    initTrainMap(dep);
+                }
             } catch (e) {
                 console.error('Trip details failed', e);
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
@@ -2355,12 +2361,14 @@
                 } catch (e) { console.warn('Map data fetch error:', e); }
             }
 
-            // 2. Koordinaten extrahieren & Validieren (gegen 0,0 / Weltkarten-Bug)
+            // Koordinaten extrahieren & Validieren (gegen 0,0 / Weltkarten-Bug)
             const points = (stopovers || [])
                 .filter(s => {
-                    const lat = s.stop?.location?.latitude || s.stop?.location?.lat;
-                    const lng = s.stop?.location?.longitude || s.stop?.location?.lng;
-                    return lat && lng && Math.abs(lat) > 1 && Math.abs(lng) > 1; // Filtert 0,0 und fehlerhafte NaNs
+                    const loc = s.stop?.location;
+                    const lat = loc?.latitude || loc?.lat;
+                    const lng = loc?.longitude || loc?.lng;
+                    // Strengere Validierung: Muss in Europa liegen (ca. 35-72 N, -25-45 E)
+                    return lat && lng && lat > 30 && lat < 75 && lng > -30 && lng < 50;
                 })
                 .map(s => ({
                     lat:     s.stop.location.latitude || s.stop.location.lat,
