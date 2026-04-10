@@ -176,7 +176,48 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
     const stopId = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
-    // 1. Versuch: Marudor HAFAS (für Sekunden und echte Verfrühung)
+    // 1. Versuch: Marudor IRIS (Bestes Format für DB-Bahnhöfe mit Sekunden)
+    try {
+        const url = `https://marudor.de/api/iris/v1/abfahrten/${encodeURIComponent(stopId)}?lookahead=120`;
+        const r = await fetch(url, {
+            headers: { 'User-Agent': 'dilaeit-proxy/1.0' },
+            signal: AbortSignal.timeout(8000)
+        });
+        if (r.ok) {
+            const data = await r.json();
+            // IRIS liefert departures direkt (oder in .departures)
+            const irisDeps = Array.isArray(data) ? data : (data.departures || []);
+            const departures = irisDeps.map(d => {
+                const pD = d.arrival?.scheduledTime || d.departure?.scheduledTime;
+                const D  = d.arrival?.time || d.departure?.time;
+                const planned  = pD ? new Date(pD).toISOString() : null;
+                const actual   = D ? new Date(D).toISOString() : planned;
+                
+                // Exakte Sekundenberechnung bevorzugen
+                const delaySec = (D && pD) 
+                    ? Math.round((new Date(D) - new Date(pD)) / 1000)
+                    : (d.delay !== undefined ? d.delay * 60 : null);
+                
+                return {
+                    plannedWhen: planned, when: actual, delay: delaySec,
+                    platform: d.arrival?.realtimePlatform || d.departure?.realtimePlatform || d.arrival?.platform || d.departure?.platform || null,
+                    plannedPlatform: d.arrival?.platform || d.departure?.platform || null,
+                    cancelled: d.arrival?.cancelled || d.departure?.cancelled || false,
+                    direction: d.direction || 'Unbekannt',
+                    tripId: d.journeyId || d.train?.number, dbTripId: d.journeyId || d.train?.number,
+                    line: { 
+                        name: d.train?.name || '???', 
+                        product: d.train?.type || 'train',
+                        number: d.train?.number
+                    },
+                    _source: 'Bahn.expert (IRIS)'
+                };
+            });
+            if (departures.length > 0) return res.json({ departures });
+        }
+    } catch (e) { console.warn('Marudor IRIS failed, trying Marudor HAFAS:', e.message); }
+
+    // 2. Versuch: Marudor HAFAS (Fallback für Nicht-IRIS-Stationen oder Ausfall)
     try {
         const url = `https://marudor.de/api/hafas/v2/departures?evaNumber=${encodeURIComponent(stopId)}`;
         const r = await fetch(url, {
@@ -204,12 +245,12 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
                     direction: d.direction || 'Unbekannt',
                     tripId: d.journeyId, dbTripId: d.journeyId,
                     line: { name: d.train?.name || '???', product: d.train?.type || 'train' },
-                    _source: 'Bahn.expert (Marudor)'
+                    _source: 'Bahn.expert (HAFAS)'
                 };
             });
-            return res.json({ departures });
+            if (departures.length > 0) return res.json({ departures });
         }
-    } catch (e) { console.warn('Marudor departures failed, fallback to DB REST:', e.message); }
+    } catch (e) { console.warn('Marudor HAFAS failed, fallback to DB REST:', e.message); }
 
     // 2. Fallback: DB REST API (v6.db.transport.rest)
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
