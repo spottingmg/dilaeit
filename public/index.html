@@ -968,17 +968,16 @@
 
                 // Verfrühung: blau + Minus; Verspätung: rot + Plus; pünktlich: grün +0
                 const delayColor = delaySec === null  ? ''
-                    : delaySec > 60  ? 'text-red-500'
+                    : delaySec >= 60 ? 'text-red-500'
                     : delaySec > 0   ? 'text-orange-400'
                     : delaySec < 0   ? 'text-blue-400'
                     :                  'text-green-500';
                 const abs        = delaySec !== null ? Math.abs(delaySec) : 0;
-                const delaySign  = delaySec !== null ? (delaySec > 0 ? '+' : delaySec < 0 ? '-' : '') : '';
                 // Verfrühung immer anzeigen (auch <60s), Verspätung erst ab 60s
                 const delayLabel = delaySec === null ? ''
                     : delaySec === 0    ? '+0'
-                    : delaySec < 0      ? (abs >= 60 ? `-${Math.round(abs/60)}'` : `-${abs}s`)
-                    : abs >= 60         ? `+${Math.round(abs/60)}'`
+                    : delaySec < 0      ? (abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`)
+                    : delaySec >= 60    ? `+${Math.floor(delaySec/60)}'`
                     :                    '';   // Verspätung <60s: kein Label
                 const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || abs >= 60);
 
@@ -1760,7 +1759,7 @@
                     if (sec === null || sec === undefined) return { badge: '', timeCls: '' };
                     const abs = Math.abs(sec);
                     // Farbklasse
-                    const timeCls = sec > 60   ? 'text-red-400'
+                    const timeCls = sec >= 60  ? 'text-red-400'
                                   : sec > 0    ? 'text-orange-400'   // 1-59s Verspätung: orange
                                   : sec < 0    ? 'text-blue-400'     // Verfrühung: blau
                                   :              'text-green-400';   // pünktlich: grün
@@ -1770,11 +1769,11 @@
                         label = '+0'; cls = 'delay-zero';
                     } else if (sec < 0) {
                         // Verfrühung immer anzeigen
-                        label = abs >= 60 ? `-${Math.round(abs/60)}'` : `-${abs}s`;
+                        label = abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`;
                         cls   = 'delay-neg';
-                    } else if (abs >= 60) {
+                    } else if (sec >= 60) {
                         // Verspätung ab 60s
-                        label = `+${Math.round(abs/60)}'`;
+                        label = `+${Math.floor(sec/60)}'`;
                         cls   = 'delay-pos';
                     } else {
                         // Verspätung <60s: kein Badge, nur Farbe
@@ -2259,9 +2258,13 @@
                 maxZoom: 19, subdomains: 'abcd'
             }).addTo(trainMap);
 
-            // OpenRailwayMap Overlay
-            L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
-                maxZoom: 19, opacity: 0.75
+            // OpenRailwayMap Overlay (Retina tiles 512px)
+            L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                opacity: 0.75,
+                tileSize: 512,
+                zoomOffset: -1,
+                attribution: '© OpenRailwayMap'
             }).addTo(trainMap);
 
             L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
