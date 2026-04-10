@@ -186,10 +186,14 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
         if (r.ok) {
             const data = await r.json();
             const departures = (Array.isArray(data) ? data : []).map(d => {
-                const planned  = d.plannedDepartureTime ? new Date(d.plannedDepartureTime).toISOString() : null;
-                const actual   = d.departureTime ? new Date(d.departureTime).toISOString() : planned;
-                const delaySec = (d.departureTime && d.plannedDepartureTime) 
-                    ? Math.round((new Date(d.departureTime) - new Date(d.plannedDepartureTime)) / 1000)
+                const pD = d.plannedDepartureTime;
+                const D  = d.departureTime;
+                const planned  = pD ? new Date(pD).toISOString() : null;
+                const actual   = D ? new Date(D).toISOString() : planned;
+                
+                // Exakte Sekundenberechnung bevorzugen
+                const delaySec = (D && pD) 
+                    ? Math.round((new Date(D) - new Date(pD)) / 1000)
                     : (d.delay !== undefined ? d.delay * 60 : null);
                 
                 return {
@@ -220,7 +224,7 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
     const departures = (data.departures || []).map(d => {
       const planned  = d.plannedWhen ? new Date(d.plannedWhen).toISOString() : null;
       const actual   = d.when        ? new Date(d.when).toISOString()        : planned;
-      // Delay-Berechnung: Differenz bevorzugen, da d.delay oft bei 0 gedeckelt ist
+      // Delay-Berechnung: Differenz bevorzugen
       const delaySec = (d.when && d.plannedWhen) 
         ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000)
         : (d.delay !== undefined ? d.delay : null);
