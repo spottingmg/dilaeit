@@ -1466,7 +1466,7 @@
                 // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
                 if (!url && vrrTripId) {
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                    sourceName = isTrainLine ? 'Deutsche Bahn (Fallback)' : 'VRR OpenService';
+                    sourceName = isTrainLine ? 'Deutsche Bahn' : 'VRR OpenData;
                 }
                 
                 if (!url) throw new Error('Keine gültige Trip-ID gefunden');
@@ -1479,14 +1479,6 @@
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
                 currentDetailStopovers = stops; // Für Karte cachen
-                // Task 1: Polyline aus Response cachen (genaue Strecke inkl. NBS)
-                if (data.polyline?.length) {
-                    currentDetailPolyline = data.polyline.map(p =>
-                        Array.isArray(p) ? p : [p.lat, p.lng]
-                    );
-                } else {
-                    currentDetailPolyline = null;
-                }
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
                 // Neue Features
@@ -1706,10 +1698,8 @@
                 const schedDep  = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
                 const actualDep = stop.departure        ? new Date(stop.departure)         : null;
 
-                // Task 2: Sekunden erzwingen — hasLive = true sobald Ist-Zeit vorhanden
-                // (auch bei pünktlichen Zügen, nicht nur bei Abweichung > 1s)
-                const hasLiveArr = !!(actualArr && schedArr);
-                const hasLiveDep = !!(actualDep && schedDep);
+                const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
+                const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
 
                 const formatTime = (sched, actual, hasLive, delaySec) => {
                     if (!sched) return '';
@@ -1718,7 +1708,7 @@
                     // Delay-Anzeige mit Sekunden-Präzision
                     let delayStr = '';
                     if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                        const dc = delaySec > 0 ? 'text-red-500' : delaySec < 0 ? 'text-blue-400' : 'text-green-500';
+                        const dc = delaySec > 0 ? 'text-red-500' : 'text-green-500';
                         const sign = delaySec > 0 ? '+' : ''; // Minus kommt automatisch bei negativen Zahlen
                         const absDelay = Math.abs(delaySec);
                         
@@ -1743,29 +1733,17 @@
                     }
 
                     // Bestimme Farbe basierend auf Verspätung/Verfrühung
-                    // Farben: rot=Verspätung, blau=Verfrühung, grün=pünktlich
                     const rtColor = delaySec !== null && delaySec !== undefined
-                        ? (delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-green-400')
-                        : (actual && sched
-                            ? (Math.round((actual - sched) / 1000) >= 60  ? 'text-red-400'
-                             : Math.round((actual - sched) / 1000) <= -60 ? 'text-blue-400'
-                             : 'text-green-400')
-                            : 'text-green-400');
+                        ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
+                        : (actual && sched ? (Math.round((actual - sched) / 60000) >= 1 ? 'text-red-400' : 'text-green-400') : 'text-green-400');
 
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    // Sekunden immer wenn Ist-Zeit vorhanden (Task 2: kein Runden auf :00)
-                    // Zukunft: dünn+kursiv ohne Sekunden (Prognose)
-                    // Vergangenheit: fett mit Sekunden (gemessen)
-                    if (isPast) {
+                    const showSeconds = delaySec !== null && delaySec !== undefined;
+
+                    if (isPast || showSeconds) {
                         return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
                     } else {
-                        // Zukunft (Prognose): Sekunden wenn Delay bekannt, sonst dünn
-                        const hasSec = delaySec !== null && delaySec !== undefined;
-                        const timeStr = hasSec
-                            ? actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                            : actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                        const cls = hasSec ? `precision-time ${rtColor}` : `thin-prognosis ${rtColor} italic text-[11px]`;
-                        return `${planStr}<span class="${cls}">${timeStr}</span>${delayStr}`;
+                        return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
                     }
                 };
 
@@ -2114,8 +2092,6 @@
         let trainMap = null;
         let trainMarker = null;
         let trainPolyline = null;
-        let trainStopMarkers = [];
-        let currentDetailPolyline = null;  // Polyline-Koordinaten für genaue Strecke
         let mapRefreshTimer = null;
 
         function switchDetailTab(tab) {
@@ -2150,16 +2126,11 @@
             // Karte initialisieren (nur einmal)
             if (!trainMap) {
                 trainMap = L.map('train-map', { zoomControl: true, attributionControl: false });
-                // Dark-Mode Basiskarte (CartoDB Dark Matter)
+                // Dark-Mode Kacheln (CartoDB Dark Matter)
                 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19, subdomains: 'abcd'
+                    maxZoom: 18, subdomains: 'abcd'
                 }).addTo(trainMap);
-                // Task 4: OpenRailwayMap Overlay (Gleise, Weichen, Signale)
-                L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
-                    maxZoom: 19, opacity: 0.7,
-                    attribution: '© OpenRailwayMap'
-                }).addTo(trainMap);
-                L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
+                L.control.attribution({ prefix: '© OSM · CartoDB' }).addTo(trainMap);
             }
 
             // Alte Layer entfernen
@@ -2181,32 +2152,17 @@
             const statusEl = $('map-status');
             const dbTripId = dep.dbTripId || dep.tripId;
 
-            // Stopovers + Polyline holen (gecacht oder direkt laden)
+            // Stopovers holen (nutze gecachte wenn vorhanden)
             let stopovers = currentDetailStopovers;
-            let polylineCoords = currentDetailPolyline; // aus train-details Response
-
             if (!stopovers?.length && dbTripId) {
                 try {
-                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Streckendaten...';
-                    const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false&polyline=true`;
-                    const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
+                    const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false`;
+                    const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
                     if (r.ok) {
-                        const d    = await r.json();
-                        const trip = d.trip ?? d;
-                        stopovers  = trip.stopovers || [];
-                        // Polyline aus GeoJSON extrahieren
-                        if (trip.polyline?.features) {
-                            polylineCoords = trip.polyline.features
-                                .filter(f => f.geometry?.type === 'LineString')
-                                .flatMap(f => f.geometry.coordinates.map(([lng, lat]) => [lat, lng]));
-                        } else if (trip.polyline?.coordinates) {
-                            polylineCoords = trip.polyline.coordinates.map(([lng, lat]) => [lat, lng]);
-                        }
+                        const d = await r.json();
+                        stopovers = (d.trip ?? d).stopovers || [];
                     }
-                } catch (e) {
-                    statusEl.textContent = 'Fehler beim Laden der Streckendaten.';
-                    return;
-                }
+                } catch {}
             }
 
             if (!stopovers?.length) {
@@ -2214,124 +2170,64 @@
                 return;
             }
 
-            // Stop-Punkte für Zeitinterpolation und Marker
-            const now = Date.now();
+            // Koordinaten der Halte aus den Stopovers extrahieren
+            // v6.db.transport.rest liefert stop.location.latitude/longitude
             const points = stopovers
                 .filter(s => s.stop?.location?.latitude)
                 .map(s => ({
-                    lat:     s.stop.location.latitude,
-                    lng:     s.stop.location.longitude,
-                    name:    s.stop.name,
+                    lat:    s.stop.location.latitude,
+                    lng:    s.stop.location.longitude,
+                    name:   s.stop.name,
                     planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
-                    actual:  (s.departure || s.arrival) ? new Date(s.departure || s.arrival).getTime() : null
+                    actual:  s.departure || s.arrival
+                        ? new Date(s.departure || s.arrival).getTime()
+                        : null
                 }));
 
             if (!points.length) {
-                statusEl.innerHTML = '<span class="text-yellow-400">Keine Koordinaten – nur für DB-Züge verfügbar.</span>';
+                statusEl.textContent = 'Keine Koordinaten in den Streckendaten.';
                 return;
             }
 
-            // Zugposition interpolieren (zwischen zwei Halten)
-            const pos = interpolateTrainPosition(points, now);
+            // Zugposition interpolieren
+            const now  = Date.now();
+            const pos  = interpolateTrainPosition(points, now);
 
-            // ── Strecke zeichnen ──────────────────────────────────────────────
+            // Strecke zeichnen
             if (trainPolyline) trainMap.removeLayer(trainPolyline);
+            const latLngs = points.map(p => [p.lat, p.lng]);
+            trainPolyline = L.polyline(latLngs, {
+                color: '#ef4444', weight: 3, opacity: 0.7, dashArray: '6,4'
+            }).addTo(trainMap);
 
-            // Polyline hat genaue Streckenführung (inkl. NBS/Kurven)
-            // Fallback: gerade Linie zwischen Halten
-            const routeLatLngs = (polylineCoords?.length > 0)
-                ? polylineCoords
-                : points.map(p => [p.lat, p.lng]);
-
-            // Vergangene vs. zukünftige Strecke farblich trennen (wie bahn.expert)
-            // Finde den Index in der Polyline der dem aktuellen Zugstandort am nächsten ist
-            const posLL = [pos.lat, pos.lng];
-            let splitIdx = 0;
-            let minDist = Infinity;
-            routeLatLngs.forEach(([lat, lng], i) => {
-                const d = Math.hypot(lat - pos.lat, lng - pos.lng);
-                if (d < minDist) { minDist = d; splitIdx = i; }
-            });
-
-            const past   = routeLatLngs.slice(0, splitIdx + 1);
-            const future = routeLatLngs.slice(splitIdx);
-
-            // Vergangen: dunkelgrau | Zukunft: rot (wie bahn.expert)
-            if (past.length > 1) {
-                L.polyline(past,   { color: '#6b7280', weight: 4, opacity: 0.6 }).addTo(trainMap);
-            }
-            trainPolyline = L.polyline(future, { color: '#ef4444', weight: 4, opacity: 0.9 }).addTo(trainMap);
-
-            // Halte-Marker
-            trainStopMarkers.forEach(m => { try { trainMap.removeLayer(m); } catch {} });
-            trainStopMarkers = [];
+            // Halte als kleine Kreise zeichnen
             points.forEach((p, i) => {
-                const isPast = (p.actual || p.planned) < now;
-                const isNext = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
-                const color  = isPast ? '#4b5563' : isNext ? '#f97316' : '#9ca3af';
-                const r      = isNext ? 8 : isPast ? 4 : 5;
-                const m = L.circleMarker([p.lat, p.lng], {
-                    radius: r, color: '#111', fillColor: color,
-                    fillOpacity: 1, weight: 1.5
-                }).bindTooltip(p.name, { direction: 'top', offset: [0, -6] }).addTo(trainMap);
-                trainStopMarkers.push(m);
+                const isPast    = (p.actual || p.planned) < now;
+                const isNext    = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
+                const color     = isPast ? '#374151' : isNext ? '#f97316' : '#6b7280';
+                const radius    = isNext ? 7 : 5;
+                L.circleMarker([p.lat, p.lng], {
+                    radius, color, fillColor: color, fillOpacity: 1, weight: isNext ? 2 : 1,
+                    bubblingMouseEvents: false
+                }).bindTooltip(p.name, { direction: 'top', offset: [0, -8] }).addTo(trainMap);
             });
 
-            // ── Zugmarker ──────────────────────────────────────────────────────
+            // Zugmarker setzen / updaten
             if (trainMarker) trainMap.removeLayer(trainMarker);
-
-            // Geschwindigkeit berechnen (Haversine zwischen Interpolationspunkten)
-            const speedKmh = calculateSpeedKmh(points, now);
-            const speedHtml = speedKmh !== null
-                ? `<span style="color:#f97316;font-weight:700">${speedKmh} km/h</span><br>`
-                : '';
-
             const trainIcon = L.divIcon({
-                html: `<div class="train-marker-icon"><i class="fas fa-train" style="font-size:12px"></i></div>`,
+                html: '<div class="train-marker-icon"><i class="fas fa-train" style="font-size:12px"></i></div>',
                 className: '', iconSize: [28, 28], iconAnchor: [14, 14]
             });
             trainMarker = L.marker([pos.lat, pos.lng], { icon: trainIcon, zIndexOffset: 1000 })
-                .bindPopup(`
-                    <b>${dep.line?.name || ''}</b><br>
-                    ${dep.direction || ''}<br>
-                    <span style="font-size:11px;color:#9ca3af">${pos.label}</span><br>
-                    ${speedHtml}
-                    <span style="font-size:10px;color:#6b7280">Aktualisiert: ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>
-                `, { maxWidth: 220 })
+                .bindPopup(`<b>${dep.line?.name || ''}</b><br>${dep.direction || ''}<br><span style="font-size:11px;color:#9ca3af">${pos.label}</span>`)
                 .addTo(trainMap);
-            trainMarker.openPopup(); // Popup direkt öffnen wie bahn.expert
 
+            // Karte auf Zug zentrieren
             trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 8 ? 11 : trainMap.getZoom());
+            // Invalidate size (wichtig wenn Tab vorher hidden war)
             setTimeout(() => trainMap.invalidateSize(), 100);
 
-            const speedStr = speedKmh !== null ? ` · <span style="color:#f97316">${speedKmh} km/h</span>` : '';
-            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label}${speedStr} · ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
-        }
-
-        // Task 3: Haversine-Distanz zwischen zwei GPS-Punkten (in km)
-        function haversineKm(lat1, lng1, lat2, lng2) {
-            const R = 6371;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLng = (lng2 - lng1) * Math.PI / 180;
-            const a = Math.sin(dLat/2)**2 +
-                      Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLng/2)**2;
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        }
-
-        // Task 3: Geschwindigkeit berechnen (km/h) zwischen letztem und nächstem Halt
-        // Nutzt Haversine-Distanz + Zeitdifferenz — plausibilitätsgeprüft
-        function calculateSpeedKmh(points, now) {
-            const pastIdx = points.reduce((b, p, i) =>
-                (p.actual || p.planned) <= now ? i : b, -1);
-            if (pastIdx < 0 || pastIdx >= points.length - 1) return null;
-            const from  = points[pastIdx];
-            const to    = points[pastIdx + 1];
-            const durH  = ((to.actual || to.planned) - (from.actual || from.planned)) / 3_600_000;
-            if (durH <= 0) return null;
-            const distKm = haversineKm(from.lat, from.lng, to.lat, to.lng);
-            if (distKm < 0.3) return null;  // zu nah = gleiche Station
-            const raw = Math.round(distKm / durH);
-            return (raw < 1 || raw > 420) ? null : raw;  // ICE max ~350, leichte Reserve
+            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label} · zuletzt aktualisiert ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
         }
 
         // Interpoliert die aktuelle Zugposition zwischen zwei bekannten Halten
