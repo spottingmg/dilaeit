@@ -557,15 +557,16 @@ app.get('/api/db/trips-by-name', async (req, res) => {
 // ─── Fahrtverlauf nach Nummer/TripId – via v6.db.transport.rest ──────────────
 
 app.get('/api/db/trip-details', async (req, res) => {
-    const { number, date, tripId } = req.query;
+    const { number, date, tripId, direction } = req.query;
     if (!number && !tripId) return res.status(400).json({ error: 'Missing number or tripId' });
     try {
         let finalTripId = tripId;
         if (!finalTripId) {
             const when    = date ? `${date}T08:00:00` : new Date().toISOString();
             const q       = number.trim().toUpperCase().replace(/\s+/g, '');
+            const dir     = direction ? direction.trim().toLowerCase() : null;
             const fahrtNr = q.replace(/^[A-Z]+\s*/, '');
-            // Parallel an 3 NRW-Knotenpunkten suchen (viel schneller als 720min Frankfurt)
+            // Parallel an 3 NRW-Knotenpunkten suchen
             const hubs  = [
                 'https://v6.db.transport.rest/stops/8000207/departures', // Köln Hbf
                 'https://v6.db.transport.rest/stops/8000244/departures', // Düsseldorf Hbf
@@ -575,17 +576,29 @@ app.get('/api/db/trip-details', async (req, res) => {
             const settled = await Promise.allSettled(
                 hubs.map(h => fetch(h + params, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null))
             );
+            
+            let candidates = [];
             for (const r of settled) {
-                if (finalTripId) break;
                 if (r.status !== 'fulfilled' || !r.value) continue;
                 for (const d of (r.value.departures || [])) {
                     const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
                     const fn   = (d.line?.fahrtNr || '').toString();
                     if ((name === q || fn === fahrtNr || fn === q) && d.tripId) {
-                        finalTripId = d.tripId; break;
+                        candidates.push(d);
                     }
                 }
             }
+            
+            // Besten Treffer auswählen (nach Richtung filtern falls vorhanden)
+            if (candidates.length > 0) {
+                if (dir) {
+                    const exactMatch = candidates.find(c => (c.direction || '').toLowerCase().includes(dir));
+                    finalTripId = exactMatch ? exactMatch.tripId : candidates[0].tripId;
+                } else {
+                    finalTripId = candidates[0].tripId;
+                }
+            }
+            
             if (!finalTripId) return res.status(404).json({ error: 'Fahrt nicht gefunden' });
         }
 
@@ -611,7 +624,7 @@ app.get('/api/db/trip-details', async (req, res) => {
                     name: s.stop?.name || '',
                     id:   s.stop?.id,
                     location: s.stop?.location
-                        ? { latitude: s.stop.location.latitude, longitude: s.stop.location.longitude }
+                        ? { latitude: s.stop.location.latitude || s.stop.location.lat, longitude: s.stop.location.longitude || s.stop.location.lng }
                         : null
                 },
                 plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
@@ -636,7 +649,8 @@ app.get('/api/db/trip-details', async (req, res) => {
         res.json({
             tripId: trip.id, line: trip.line, stopovers,
             remarks: (trip.remarks || []).map(r => ({ text: r.text || r.summary || '', type: r.category || 'info' })),
-            source: 'Deutsche Bahn', operator: trip.line?.operator, mode: trip.line?.product
+            source: 'Deutsche Bahn', operator: trip.line?.operator, mode: trip.line?.product,
+            polyline: trip.polyline || null
         });
     } catch (e) {
         console.error('DB trip-details error:', e.message);
