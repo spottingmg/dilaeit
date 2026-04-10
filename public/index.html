@@ -2451,10 +2451,19 @@
             setTimeout(() => trainMap.invalidateSize(), 200);
         }
 
-        // Interpoliert die aktuelle Zugposition & berechnet km/h
+        // Interpoliert die aktuelle Zugposition (bevorzugt auf der echten Polyline)
         function interpolateTrainPosition(points, now) {
             if (!points.length) return { lat: 0, lng: 0, label: '?', speed: 0 };
 
+            // 1. Polyline-Punkte nutzen falls vorhanden
+            let path = [];
+            if (currentTripDetail?.polyline?.features?.length) {
+                const feature = currentTripDetail.polyline.features.find(f => f.geometry.type === 'LineString');
+                if (feature) {
+                    path = feature.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+                }
+            }
+            
             const past   = points.filter(p => (p.actual || p.planned) <= now);
             const future = points.filter(p => (p.actual || p.planned) >  now);
 
@@ -2463,31 +2472,53 @@
 
             const from = past[past.length - 1];
             const to   = future[0];
-
             const segStart = from.actual || from.planned;
             const segEnd   = to.actual   || to.planned;
             const segLen   = segEnd - segStart;
             const t        = segLen > 0 ? Math.min(1, Math.max(0, (now - segStart) / segLen)) : 0;
 
-            const lat = from.lat + (to.lat - from.lat) * t;
-            const lng = from.lng + (to.lng - from.lng) * t;
+            let lat, lng;
+            if (path.length > 0) {
+                // Den Teil der Polyline finden, der zwischen 'from' und 'to' liegt
+                // Wir suchen die Indizes der Haltestellen in der Polyline (näherungsweise)
+                const findIdx = (p) => {
+                    let minD = Infinity, idx = 0;
+                    for (let i=0; i<path.length; i++) {
+                        const d = Math.pow(path[i].lat - p.lat, 2) + Math.pow(path[i].lng - p.lng, 2);
+                        if (d < minD) { minD = d; idx = i; }
+                    }
+                    return idx;
+                };
+                const startIdx = findIdx(from);
+                const endIdx   = findIdx(to);
+                
+                if (startIdx < endIdx) {
+                    const subPath = path.slice(startIdx, endIdx + 1);
+                    const subIdx = Math.floor(t * (subPath.length - 1));
+                    const subT   = (t * (subPath.length - 1)) - subIdx;
+                    const p1 = subPath[subIdx];
+                    const p2 = subPath[Math.min(subIdx + 1, subPath.length - 1)];
+                    lat = p1.lat + (p2.lat - p1.lat) * subT;
+                    lng = p1.lng + (p2.lng - p1.lng) * subT;
+                } else {
+                    lat = from.lat + (to.lat - from.lat) * t;
+                    lng = from.lng + (to.lng - from.lng) * t;
+                }
+            } else {
+                lat = from.lat + (to.lat - from.lat) * t;
+                lng = from.lng + (to.lng - from.lng) * t;
+            }
 
-            // km/h Berechnung (Haversine Distanz)
-            const R = 6371; // Erdradius
+            // km/h Berechnung
+            const R = 6371;
             const dLat = (to.lat - from.lat) * Math.PI / 180;
             const dLng = (to.lng - from.lng) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) *
-                      Math.sin(dLng/2) * Math.sin(dLng/2);
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLng/2) * Math.sin(dLng/2);
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            const distKm = R * c;
-            const timeH = segLen / 3600000;
-            const speed = timeH > 0 ? Math.round(distKm / timeH) : 0;
+            const speed = segLen > 0 ? Math.round((R * c) / (segLen / 3600000)) : 0;
 
             const minLeft = Math.round((segEnd - now) / 60000);
-            const label   = minLeft <= 0 ? `Ankunft in ${to.name}` : `→ ${to.name} in ~${minLeft} Min`;
-
-            return { lat, lng, label, speed };
+            return { lat, lng, label: minLeft <= 0 ? `Ankunft in ${to.name}` : `→ ${to.name} in ~${minLeft} Min`, speed };
         }
 
         // Stopovers der aktuellen Fahrt cachen für Karten-Wiederverwendung
