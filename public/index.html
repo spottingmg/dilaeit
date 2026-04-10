@@ -1466,7 +1466,7 @@
                 // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
                 if (!url && vrrTripId) {
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                    sourceName = isTrainLine ? 'Deutsche Bahn' : 'VRR OpenData;
+                    sourceName = isTrainLine ? 'Deutsche Bahn (Fallback)' : 'VRR OpenService';
                 }
                 
                 if (!url) throw new Error('Keine gültige Trip-ID gefunden');
