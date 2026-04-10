@@ -77,6 +77,33 @@ function decodeTripId(tripId) {
   return JSON.parse(Buffer.from(tripId, 'base64url').toString('utf8'));
 }
 
+// Hilfs-Cache für EVA-Mapping
+const evaMappingCache = new Map();
+
+async function getEvaForStop(stopId) {
+    if (evaMappingCache.has(stopId)) return evaMappingCache.get(stopId);
+    
+    // Wenn es schon nach EVA aussieht (80xxxxx oder 7xxxxx)
+    if (/^(80|7)\d{5}$/.test(stopId)) return stopId;
+
+    try {
+        // Über Marudor VRR-Profil nach der Station suchen
+        const url = `https://marudor.de/api/hafas/v2/location?searchTerm=${encodeURIComponent(stopId)}&profile=vrr`;
+        const r = await fetch(url, { headers: { 'User-Agent': 'dilaeit-proxy/1.0' }, signal: AbortSignal.timeout(4000) });
+        if (r.ok) {
+            const data = await r.json();
+            if (Array.isArray(data) && data.length > 0) {
+                const eva = data[0].evaNumber;
+                if (eva) {
+                    evaMappingCache.set(stopId, eva);
+                    return eva;
+                }
+            }
+        }
+    } catch (e) { console.warn(`EVA mapping failed for ${stopId}:`, e.message); }
+    return stopId; // Fallback auf Original
+}
+
 async function efaGet(endpoint, params) {
   const url = new URL(`${OPEN_SERVICE_BASE}/${endpoint}`);
   Object.entries(params).forEach(([k, v]) => {
@@ -223,8 +250,11 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
     const stopId = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
+    // 0. EVA ID für Marudor ermitteln (falls stopId eine VRR-EFA-ID ist)
+    const evaId = await getEvaForStop(stopId);
+
     // 1. Marudor & EFA parallel abfragen für maximalen Datenreichtum
-    const mUrl = `https://marudor.de/api/hafas/v2/departures?evaNumber=${encodeURIComponent(stopId)}&profile=vrr`;
+    const mUrl = `https://marudor.de/api/hafas/v2/departures?evaNumber=${encodeURIComponent(evaId)}&profile=vrr`;
     
     // Zeit-Parameter für EFA vorbereiten
     let itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute;
@@ -457,6 +487,26 @@ app.get('/api/trips/:tripId', async (req, res) => {
     if (!line || !stopID || tripCode == null || !date || !time)
       return res.status(400).json({ error: 'tripId missing fields' });
 
+    // 1. Versuch: In Marudor nach diesem Trip suchen (via Linienname & Datum)
+    // VRR Linien IDs sind oft komplex, wir extrahieren den Namen (z.B. "009" oder "RE1")
+    const cleanLine = line.split(':').pop().replace(/^0+/, ''); // "vrr:21009" -> "9"
+    const searchUrl = `https://marudor.de/api/hafas/v2/departures?evaNumber=${encodeURIComponent(stopID)}&profile=vrr`;
+    try {
+        const sr = await fetch(searchUrl, { headers: { 'User-Agent': 'dilaeit-proxy/1.0' }, signal: AbortSignal.timeout(5000) });
+        if (sr.ok) {
+            const sData = await sr.json();
+            const match = sData.find(d => {
+                const dLine = (d.train?.name || '').replace(/\s+/g, '');
+                return dLine.includes(cleanLine) && d.direction;
+            });
+            if (match?.journeyId) {
+                const marudorData = await fetchMarudorTrip(match.journeyId);
+                if (marudorData) return res.json(marudorData);
+            }
+        }
+    } catch (e) { console.warn('Marudor trip detail lookup failed, using EFA:', e.message); }
+
+    // 2. Fallback: VRR OpenService (Original-Logik)
     const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
       outputFormat: 'rapidJSON', version: EFA_VERSION,
       mode: 'direct', line, stopID, tripCode, date, time,
