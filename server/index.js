@@ -143,12 +143,44 @@ app.get('/api/db/locations', async (req, res) => {
   }
 });
 
-// ─── Abfahrten (DB) – via v6.db.transport.rest ───────────────────────────────
+// ─── Abfahrten (DB/Marudor) – via Marudor-API (für Sekunden & Verfrühung) ───
 app.get('/api/db/stops/:stopId/departures', async (req, res) => {
   try {
     const stopId = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
+    // 1. Versuch: Marudor HAFAS (für Sekunden und echte Verfrühung)
+    try {
+        const url = `https://marudor.de/api/hafas/v2/departures?evaNumber=${encodeURIComponent(stopId)}`;
+        const r = await fetch(url, {
+            headers: { 'User-Agent': 'dilaeit-proxy/1.0' },
+            signal: AbortSignal.timeout(8000)
+        });
+        if (r.ok) {
+            const data = await r.json();
+            const departures = (Array.isArray(data) ? data : []).map(d => {
+                const planned  = d.plannedDepartureTime ? new Date(d.plannedDepartureTime).toISOString() : null;
+                const actual   = d.departureTime ? new Date(d.departureTime).toISOString() : planned;
+                const delaySec = (d.departureTime && d.plannedDepartureTime) 
+                    ? Math.round((new Date(d.departureTime) - new Date(d.plannedDepartureTime)) / 1000)
+                    : (d.delay !== undefined ? d.delay * 60 : null);
+                
+                return {
+                    plannedWhen: planned, when: actual, delay: delaySec,
+                    platform: d.realtimePlatform || d.platform || null,
+                    plannedPlatform: d.platform || null,
+                    cancelled: d.cancelled || false,
+                    direction: d.direction || 'Unbekannt',
+                    tripId: d.journeyId, dbTripId: d.journeyId,
+                    line: { name: d.train?.name || '???', product: d.train?.type || 'train' },
+                    _source: 'Bahn.expert (Marudor)'
+                };
+            });
+            return res.json({ departures });
+        }
+    } catch (e) { console.warn('Marudor departures failed, fallback to DB REST:', e.message); }
+
+    // 2. Fallback: DB REST API (v6.db.transport.rest)
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
     const when    = whenRaw || new Date().toISOString();
 
@@ -161,8 +193,10 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
     const departures = (data.departures || []).map(d => {
       const planned  = d.plannedWhen ? new Date(d.plannedWhen).toISOString() : null;
       const actual   = d.when        ? new Date(d.when).toISOString()        : planned;
-      const delaySec = d.delay !== undefined ? d.delay
-                     : (d.when && d.plannedWhen ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000) : null);
+      // Delay-Berechnung: Differenz bevorzugen, da d.delay oft bei 0 gedeckelt ist
+      const delaySec = (d.when && d.plannedWhen) 
+        ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000)
+        : (d.delay !== undefined ? d.delay : null);
       return {
         plannedWhen: planned, when: actual, delay: delaySec,
         platform: d.platform || d.plannedPlatform || null,
@@ -177,7 +211,10 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
     });
 
     res.json({ departures });
-  } catch (e) { res.status(502).json({ error: e.message }); }
+  } catch (e) {
+    console.error('DB departures error:', e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // ─── Abfahrten ───────────────────────────────────────────────────────────────
@@ -186,9 +223,10 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
     const stopId = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
 
-    // ── ZEITFIX: ISO-String zeichenweise aufsplitten ──────────────────────────
-    // NICHT über new Date().getHours() – Render läuft in UTC, das ergäbe
-    // 2 Stunden Versatz zur deutschen Lokalzeit.
+    // 1. Marudor & EFA parallel abfragen für maximalen Datenreichtum
+    const mUrl = `https://marudor.de/api/hafas/v2/departures?evaNumber=${encodeURIComponent(stopId)}&profile=vrr`;
+    
+    // Zeit-Parameter für EFA vorbereiten
     let itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute;
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
     if (whenRaw) {
@@ -202,159 +240,101 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
       itdDateYear = now.getFullYear(); itdDateMonth = now.getMonth()+1; itdDateDay = now.getDate();
       itdTimeHour = now.getHours();    itdTimeMinute = now.getMinutes();
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
-    const data = await efaGet('XML_DM_REQUEST', {
-      outputFormat: 'rapidJSON', version: EFA_VERSION,
-      mode: 'direct', type_dm: 'stopID', name_dm: stopId,
-      useRealtime: 1,
-      itdDateDay, itdDateMonth, itdDateYear,
-      itdTimeHour, itdTimeMinute,
-      itdTripDateTimeDepArr: 'dep',
-    });
+    const [marudorRes, efaRes] = await Promise.allSettled([
+        fetch(mUrl, { headers: { 'User-Agent': 'dilaeit-proxy/1.0' }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null),
+        efaGet('XML_DM_REQUEST', {
+            outputFormat: 'rapidJSON', version: EFA_VERSION,
+            mode: 'direct', type_dm: 'stopID', name_dm: stopId,
+            useRealtime: 1, itdDateDay, itdDateMonth, itdDateYear, itdTimeHour, itdTimeMinute,
+            itdTripDateTimeDepArr: 'dep',
+        })
+    ]);
 
-    const stopEvents = Array.isArray(data.stopEvents) ? data.stopEvents : [];
+    let finalDepartures = [];
+    const seenTrips = new Set(); // Um Duplikate beim Mergen zu vermeiden
 
-    const departures = stopEvents.map(ev => {
-      const planned   = toIsoStringOrNull(ev.departureTimePlanned);
-      if (!planned) return null;
+    // A. Zuerst Marudor-Daten (Präzise Sekunden & Verfrühung)
+    if (marudorRes.status === 'fulfilled' && Array.isArray(marudorRes.value)) {
+        marudorRes.value.forEach(d => {
+            const planned = d.plannedDepartureTime ? new Date(d.plannedDepartureTime).toISOString() : null;
+            const actual  = d.departureTime ? new Date(d.departureTime).toISOString() : planned;
+            const delaySec = (d.departureTime && d.plannedDepartureTime)
+                ? Math.round((new Date(d.departureTime) - new Date(d.plannedDepartureTime)) / 1000)
+                : (d.delay !== undefined ? d.delay * 60 : null);
+            
+            const lineName = d.train?.name || '???';
+            const direction = d.direction || 'Unbekannt';
+            const key = `${lineName}|${direction}|${planned}`;
+            seenTrips.add(key);
 
-      // EFA liefert departureTimeEstimated nur wenn Echtzeitsignal vorhanden.
-      // Wenn estimated == planned → pünktlich (delay = 0, grün anzeigen)
-      // Wenn estimated < planned  → Verfrühung (negativ)
-      // Wenn estimated null       → kein Signal (null)
-      const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
-
-      // Prüfen ob Echtzeit aktiv: realtimeStatus enthält z.B. "MONITORED"
-      const hasRealtime = Array.isArray(ev.realtimeStatus)
-        ? ev.realtimeStatus.length > 0 && !ev.realtimeStatus.some(s => /NO_?RT|UNAVAIL/i.test(String(s)))
-        : estimated !== null;
-
-      // null = kein Signal | 0 = pünktlich | negativ = Verfrühung | positiv = Verspätung
-      const delaySec = estimated !== null
-        ? Math.round((Date.parse(estimated) - Date.parse(planned)) / 1000)
-        : (hasRealtime ? 0 : null);  // Live, aber pünktlich = 0
-
-      const platform =
-        ev.location?.properties?.platform ||
-        ev.location?.properties?.platformName ||
-        ev.location?.properties?.plannedPlatformName || null;
-
-      const lineName =
-        ev.transportation?.number ||
-        ev.transportation?.disassembledName ||
-        ev.transportation?.name || '???';
-
-      const productName  = (ev.transportation?.product?.name || '').toLowerCase();
-      const operatorName = ev.transportation?.operator?.name || null;
-
-      const tripPayload = {
-        line:     ev.transportation?.id || null,
-        stopID:   stopId,
-        tripCode: ev.transportation?.properties?.tripCode ?? null,
-        date:     toYyyymmddUtc(planned),
-        time:     toHmmUtc(planned)
-      };
-      const tripId = tripPayload.line && tripPayload.tripCode != null
-        ? encodeTripId(tripPayload) : null;
-
-      const cancelled = Array.isArray(ev.realtimeStatus) &&
-        ev.realtimeStatus.some(s => String(s).toUpperCase().includes('CANCEL'));
-
-      return {
-        plannedWhen:     planned,
-        when:            estimated ?? planned,
-        delay:           delaySec,
-        plannedPlatform: platform,
-        platform,
-        cancelled,
-        direction:       ev.transportation?.destination?.name || '',
-        tripId,
-        dbTripId:        null,  // ggf. unten per Hafas befüllt
-        prognosis:       { tripId, platform },
-        line: {
-          name:     String(lineName).replace(/^.*?\s+/, '').trim() || String(lineName),
-          product:  productName || 'bus',
-          operator: operatorName ? { name: operatorName } : undefined
-        },
-        _source: 'VRR OpenService'
-      };
-    }).filter(Boolean).slice(0, 60);
-
-    // ── Optionaler DB-Hafas-Abgleich (Züge) ──────────────────────────────────
-    if (hafas) {
-      const uicMatch = stopId.match(/^(80\d{5})$/);
-      if (uicMatch) {
-        // UIC-Haltestelle: direkte Abfrage
-        try {
-          const result = await hafas.departures(uicMatch[1], {
-            duration: 60,
-            products: { bus: false, tram: false, subway: false,
-                        nationalExpress: true, national: true, regional: true, suburban: true }
-          });
-          const dbRes = result.departures || [];
-          departures.forEach(dep => {
-            const name = (dep.line?.name || '').toUpperCase();
-            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
-            const isTrain = trainPrefixes.some(p => 
-              name === p || 
-              name.startsWith(p + ' ') || 
-              name.startsWith(p + '-') ||
-              (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1)))
-            ) || /^S\s*\d+/i.test(name);
-
-            if (isTrain) {
-              const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
-              if (dbMatch) {
-                // Bei Zügen überschreiben wir VRR-Daten komplett mit DB-Daten (mit Sekunden)
-                if (dbMatch.delay !== undefined) dep.delay = dbMatch.delay;
-                if (dbMatch.tripId)             dep.dbTripId = dbMatch.tripId;
-                if (dbMatch.when)               dep.when = dbMatch.when;
-                dep._source = 'Deutsche Bahn'; // Kennzeichnung für das Frontend
-              }
-            }
-          });
-        } catch (e) { console.warn('DB-Hafas Abgleich fehlgeschlagen:', e.message); }
-      } else {
-        // Nicht-UIC-Haltestelle: Suche nach der Station und Abgleich nur für Züge
-        try {
-          const stationSearch = await hafas.locations(stopId, { results: 1 });
-          if (Array.isArray(stationSearch) && stationSearch.length > 0) {
-            const station = stationSearch[0];
-            const result = await hafas.departures(station.id, {
-              duration: 60,
-              products: { bus: false, tram: false, subway: false,
-                          nationalExpress: true, national: true, regional: true, suburban: true }
+            finalDepartures.push({
+                plannedWhen: planned, when: actual, delay: delaySec,
+                platform: d.realtimePlatform || d.platform || null,
+                plannedPlatform: d.platform || null,
+                cancelled: d.cancelled || false,
+                direction,
+                tripId: d.journeyId, dbTripId: d.journeyId,
+                line: { name: lineName, product: d.train?.type || 'bus' },
+                _source: 'Bahn.expert (Marudor)'
             });
-            const dbRes = result.departures || [];
-            departures.forEach(dep => {
-              const name = (dep.line?.name || '').toUpperCase();
-              const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
-              const isTrain = trainPrefixes.some(p => 
-                name === p || 
-                name.startsWith(p + ' ') || 
-                name.startsWith(p + '-') ||
-                (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1)))
-              ) || /^S\s*\d+/i.test(name);
-
-              if (isTrain) {
-                const dbMatch = dbRes.find(d => d.line?.name === dep.line.name);
-                if (dbMatch) {
-                  if (dbMatch.delay !== undefined) dep.delay = dbMatch.delay;
-                  if (dbMatch.tripId)             dep.dbTripId = dbMatch.tripId;
-                  if (dbMatch.when)               dep.when = dbMatch.when;
-                  dep._source = 'Deutsche Bahn'; // Kennzeichnung für das Frontend
-                }
-              }
-            });
-          }
-        } catch (e) { console.warn('DB-Hafas Abgleich für Nicht-UIC fehlgeschlagen:', e.message); }
-      }
+        });
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
-    res.json({ departures });
-  } catch (e) { console.error('departures error', e); res.status(502).json({ error: e.message }); }
+    // B. Dann EFA-Daten ergänzen (für Busse, die Marudor nicht kennt)
+    if (efaRes.status === 'fulfilled' && efaRes.value?.stopEvents) {
+        efaRes.value.stopEvents.forEach(ev => {
+            const planned = toIsoStringOrNull(ev.departureTimePlanned);
+            if (!planned) return;
+
+            const lineName = ev.transportation?.number || ev.transportation?.disassembledName || ev.transportation?.name || '???';
+            const direction = ev.transportation?.destination?.name || '';
+            const key = `${lineName}|${direction}|${planned}`;
+
+            // Nur hinzufügen, wenn Marudor diesen Trip noch nicht hat
+            if (!seenTrips.has(key)) {
+                const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
+                const hasRealtime = Array.isArray(ev.realtimeStatus)
+                    ? ev.realtimeStatus.length > 0 && !ev.realtimeStatus.some(s => /NO_?RT|UNAVAIL/i.test(String(s)))
+                    : estimated !== null;
+                const delaySec = estimated !== null
+                    ? Math.round((Date.parse(estimated) - Date.parse(planned)) / 1000)
+                    : (hasRealtime ? 0 : null);
+
+                const platform = ev.location?.properties?.platform || ev.location?.properties?.platformName || null;
+                const tripPayload = {
+                    line: ev.transportation?.id || null,
+                    stopID: stopId,
+                    tripCode: ev.transportation?.properties?.tripCode ?? null,
+                    date: toYyyymmddUtc(planned),
+                    time: toHmmUtc(planned)
+                };
+                const tripId = tripPayload.line && tripPayload.tripCode != null ? encodeTripId(tripPayload) : null;
+                const cancelled = Array.isArray(ev.realtimeStatus) && ev.realtimeStatus.some(s => String(s).toUpperCase().includes('CANCEL'));
+
+                finalDepartures.push({
+                    plannedWhen: planned, when: estimated ?? planned, delay: delaySec,
+                    plannedPlatform: platform, platform, cancelled, direction,
+                    tripId, dbTripId: null, prognosis: { tripId, platform },
+                    line: {
+                        name: String(lineName).replace(/^.*?\s+/, '').trim() || String(lineName),
+                        product: (ev.transportation?.product?.name || 'bus').toLowerCase(),
+                        operator: ev.transportation?.operator?.name ? { name: ev.transportation?.operator?.name } : undefined
+                    },
+                    _source: 'VRR OpenService'
+                });
+            }
+        });
+    }
+
+    // Sortieren nach geplanter Zeit
+    finalDepartures.sort((a, b) => new Date(a.plannedWhen) - new Date(b.plannedWhen));
+
+    res.json({ departures: finalDepartures.slice(0, 60) });
+  } catch (e) {
+    console.error('Departures merge error:', e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // ─── Hilfsfunktion für Marudor-API (sekundengenau, echte Verfrühung) ──────────
@@ -382,8 +362,8 @@ async function fetchMarudorTrip(tripId) {
                 },
                 plannedArrival: pA, arrival: a,
                 plannedDeparture: pD, departure: d,
-                arrivalDelaySec: s.arrival?.delay !== undefined ? s.arrival.delay : (a && pA ? Math.round((new Date(a) - new Date(pA)) / 1000) : null),
-                departureDelaySec: s.departure?.delay !== undefined ? s.departure.delay : (d && pD ? Math.round((new Date(d) - new Date(pD)) / 1000) : null),
+                arrivalDelaySec: (a && pA) ? Math.round((new Date(a) - new Date(pA)) / 1000) : (s.arrival?.delay ?? null),
+                departureDelaySec: (d && pD) ? Math.round((new Date(d) - new Date(pD)) / 1000) : (s.departure?.delay ?? null),
                 platform: s.realtimePlatform || s.platform || null,
                 plannedPlatform: s.platform || null,
                 cancelled: s.arrival?.cancelled || s.departure?.cancelled || false,
