@@ -219,15 +219,21 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
       const planned   = toIsoStringOrNull(ev.departureTimePlanned);
       if (!planned) return null;
 
-      // estimated = null wenn kein Echtzeitsignal.
-      // NICHT auf planned defaulten: dann wäre delay=0 statt null und
-      // Verfrühungen würden als "pünktlich" angezeigt.
+      // EFA liefert departureTimeEstimated nur wenn Echtzeitsignal vorhanden.
+      // Wenn estimated == planned → pünktlich (delay = 0, grün anzeigen)
+      // Wenn estimated < planned  → Verfrühung (negativ)
+      // Wenn estimated null       → kein Signal (null)
       const estimated = toIsoStringOrNull(ev.departureTimeEstimated);
 
-      // null = kein Signal | negativ = Verfrühung | positiv = Verspätung
+      // Prüfen ob Echtzeit aktiv: realtimeStatus enthält z.B. "MONITORED"
+      const hasRealtime = Array.isArray(ev.realtimeStatus)
+        ? ev.realtimeStatus.length > 0 && !ev.realtimeStatus.some(s => /NO_?RT|UNAVAIL/i.test(String(s)))
+        : estimated !== null;
+
+      // null = kein Signal | 0 = pünktlich | negativ = Verfrühung | positiv = Verspätung
       const delaySec = estimated !== null
         ? Math.round((Date.parse(estimated) - Date.parse(planned)) / 1000)
-        : null;
+        : (hasRealtime ? 0 : null);  // Live, aber pünktlich = 0
 
       const platform =
         ev.location?.properties?.platform ||
@@ -362,6 +368,20 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         const trip = data.trip ?? data;
         if (!trip?.stopovers) throw new Error('Keine Stopovers');
 
+        // Debug: alle delay-relevanten Felder des ersten Stopovers loggen
+        const _s0 = trip.stopovers?.[0];
+        if (_s0) console.log('[delay-debug]', JSON.stringify({
+            stop:             _s0.stop?.name,
+            delay:            _s0.delay,
+            arrivalDelay:     _s0.arrivalDelay,
+            departureDelay:   _s0.departureDelay,
+            arrival:          _s0.arrival,
+            plannedArrival:   _s0.plannedArrival,
+            departure:        _s0.departure,
+            plannedDeparture: _s0.plannedDeparture,
+            allKeys:          Object.keys(_s0).join(','),
+        }));
+
         const stopovers = trip.stopovers.map(s => {
             const plannedArrival   = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
             const arrival          = s.arrival          ? new Date(s.arrival).toISOString()          : null;
@@ -437,10 +457,14 @@ app.get('/api/trips/:tripId', async (req, res) => {
       const departure        = toIsoStringOrNull(s.departureTimeEstimated);
 
       // Delay in Sekunden (kann negativ sein = Verfrühung)
+      // Wenn estimated == planned → 0 (pünktlich, grün). Wenn null → kein Signal.
       const arrivalDelaySec   = arrival   && plannedArrival
-        ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000) : null;
+        ? Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000)
+        : (s.arrivalTimePlanned && !s.arrivalTimeEstimated ? null : null);
       const departureDelaySec = departure && plannedDeparture
-        ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000) : null;
+        ? Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000)
+        : (s.departureTimePlanned && s.departureTimeEstimated && departure === null
+           ? 0 : null);  // estimated gesetzt aber gleich wie planned → 0
 
       return {
         stop:             { name: s.name || s.parent?.name || '' },
