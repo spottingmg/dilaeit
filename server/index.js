@@ -357,10 +357,64 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
   } catch (e) { console.error('departures error', e); res.status(502).json({ error: e.message }); }
 });
 
-// ─── DB-Zugdetails – via v6.db.transport.rest ────────────────────────────────
+// ─── Hilfsfunktion für Marudor-API (sekundengenau, echte Verfrühung) ──────────
+async function fetchMarudorTrip(tripId) {
+    try {
+        // marudor tripId ist meist identisch mit HAFAS tripId
+        const url = `https://marudor.de/api/journey/v1/trip/${encodeURIComponent(tripId)}`;
+        const r = await fetch(url, {
+            headers: { 'User-Agent': 'dilaeit-proxy/1.0' },
+            signal: AbortSignal.timeout(8000)
+        });
+        if (!r.ok) return null;
+        const data = await r.json();
+        if (!data || !data.stops) return null;
+
+        const stopovers = data.stops.map(s => {
+            const pA = s.arrival?.scheduledTime;
+            const a  = s.arrival?.time;
+            const pD = s.departure?.scheduledTime;
+            const d  = s.departure?.time;
+            return {
+                stop: {
+                    name: s.station.name,
+                    id:   s.station.id,
+                },
+                plannedArrival: pA, arrival: a,
+                plannedDeparture: pD, departure: d,
+                arrivalDelaySec: s.arrival?.delay !== undefined ? s.arrival.delay : (a && pA ? Math.round((new Date(a) - new Date(pA)) / 1000) : null),
+                departureDelaySec: s.departure?.delay !== undefined ? s.departure.delay : (d && pD ? Math.round((new Date(d) - new Date(pD)) / 1000) : null),
+                platform: s.realtimePlatform || s.platform || null,
+                plannedPlatform: s.platform || null,
+                cancelled: s.arrival?.cancelled || s.departure?.cancelled || false,
+                additional: s.additional || false,
+                remarks: [] // Marudor hat remarks woanders oder anders strukturiert
+            };
+        });
+
+        return {
+            tripId: data.tripId || tripId,
+            line: { name: data.train?.name || '', product: data.train?.type || 'train' },
+            stopovers,
+            remarks: [],
+            source: 'Bahn.expert (Marudor)'
+        };
+    } catch (e) {
+        console.warn('Marudor fetch failed:', e.message);
+        return null;
+    }
+}
+
+// ─── DB-Zugdetails – via Marudor (Primary) oder v6.db.transport.rest (Fallback) 
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
         const tripId = decodeURIComponent(req.params.tripId);
+
+        // 1. Versuch: Marudor (für Sekunden und echte Verfrühung)
+        const marudorData = await fetchMarudorTrip(tripId);
+        if (marudorData) return res.json(marudorData);
+
+        // 2. Fallback: DB REST API
         const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true&polyline=true`;
         const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!r.ok) throw new Error(`DB API ${r.status}`);
@@ -368,49 +422,29 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         const trip = data.trip ?? data;
         if (!trip?.stopovers) throw new Error('Keine Stopovers');
 
-        // Debug: alle delay-relevanten Felder des ersten Stopovers loggen
-        const _s0 = trip.stopovers?.[0];
-        if (_s0) console.log('[delay-debug]', JSON.stringify({
-            stop:             _s0.stop?.name,
-            delay:            _s0.delay,
-            arrivalDelay:     _s0.arrivalDelay,
-            departureDelay:   _s0.departureDelay,
-            arrival:          _s0.arrival,
-            plannedArrival:   _s0.plannedArrival,
-            departure:        _s0.departure,
-            plannedDeparture: _s0.plannedDeparture,
-            allKeys:          Object.keys(_s0).join(','),
-        }));
-
         const stopovers = trip.stopovers.map(s => {
-            const plannedArrival   = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
-            const arrival          = s.arrival          ? new Date(s.arrival).toISOString()          : null;
-            const plannedDeparture = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
-            const departure        = s.departure        ? new Date(s.departure).toISOString()        : null;
+            const pA = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
+            const a  = s.arrival          ? new Date(s.arrival).toISOString()          : null;
+            const pD = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
+            const d  = s.departure        ? new Date(s.departure).toISOString()        : null;
             return {
                 stop: {
                     name: s.stop?.name || '',
                     id:   s.stop?.id,
-                    // Koordinaten für Karte mitgeben
                     location: s.stop?.location
                         ? { latitude: s.stop.location.latitude, longitude: s.stop.location.longitude }
                         : null
                 },
-                plannedArrival, arrival, plannedDeparture, departure,
-                // Delay-Berechnung: mehrere Quellen, erste nicht-null gewinnt
-                // 1. Explizite Felder (arrivalDelay/departureDelay) vom API
-                // 2. Zeitdifferenz Ist-Soll (wenn beide vorhanden)
-                // 3. Trip-level delay (s.delay) - gilt für alle Halte gleichmäßig
-                // 4. Aus departure-plannedDeparture wenn departure gesetzt (db-vendo-client)
+                plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
                 arrivalDelaySec: (() => {
                     if (s.arrivalDelay   !== undefined && s.arrivalDelay   !== null) return s.arrivalDelay;
-                    if (arrival   && plannedArrival)   return Math.round((new Date(arrival)   - new Date(plannedArrival))   / 1000);
+                    if (a && pA) return Math.round((new Date(a) - new Date(pA)) / 1000);
                     if (s.delay !== undefined && s.delay !== null)                   return s.delay;
                     return null;
                 })(),
                 departureDelaySec: (() => {
                     if (s.departureDelay !== undefined && s.departureDelay !== null) return s.departureDelay;
-                    if (departure && plannedDeparture) return Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000);
+                    if (d && pD) return Math.round((new Date(d) - new Date(pD)) / 1000);
                     if (s.delay !== undefined && s.delay !== null)                   return s.delay;
                     return null;
                 })(),
@@ -425,7 +459,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         res.json({
             stopovers,
             remarks: (trip.remarks || []).map(r => ({ text: r.text || r.summary || '', type: r.category || 'info' })),
-            source: 'Deutsche Bahn',
+            source: 'Deutsche Bahn (HAFAS)',
             tripId: trip.id,
             line: trip.line ? { name: trip.line.name, product: trip.line.product, operator: trip.line.operator?.name } : null
         });
@@ -567,6 +601,11 @@ app.get('/api/db/trip-details', async (req, res) => {
             if (!finalTripId) return res.status(404).json({ error: 'Fahrt nicht gefunden' });
         }
 
+        // 1. Versuch: Marudor (für Sekunden und echte Verfrühung)
+        const marudorData = await fetchMarudorTrip(finalTripId);
+        if (marudorData) return res.json(marudorData);
+
+        // 2. Fallback: DB REST API
         const tripUrl = `https://v6.db.transport.rest/trips/${encodeURIComponent(finalTripId)}?stopovers=true&remarks=true&polyline=true`;
         const tr = await fetch(tripUrl, { signal: AbortSignal.timeout(10000) });
         if (!tr.ok) throw new Error(`DB trip API ${tr.status}`);
@@ -619,4 +658,21 @@ app.get('/api/db/trip-details', async (req, res) => {
 
 // ─── Server starten ───────────────────────────────────────────────────────────
 const port = Number(process.env.PORT || 8787);
-app.listen(port, '0.0.0.0', () => console.log(`🚀 dilaeit läuft auf Port ${port}`));
+app.listen(port, '0.0.0.0', async () => {
+    console.log(`🚀 dilaeit läuft auf Port ${port}`);
+    
+    // Startup-Test: Marudor-API Connectivity Check
+    try {
+        const testRes = await fetch('https://marudor.de/api/hafas/v1/irisCompatibleAbfahrten/8000105', { // Essen Hbf (NRW Hub)
+            headers: { 'User-Agent': 'dilaeit-startup-check/1.0' },
+            signal: AbortSignal.timeout(5000)
+        });
+        if (testRes.ok) {
+            console.log('✅ Marudor-API (Bahn.expert) ist erreichbar');
+        } else {
+            console.warn(`⚠️ Marudor-API Startup-Check: Status ${testRes.status}`);
+        }
+    } catch (e) {
+        console.warn('⚠️ Marudor-API Startup-Check fehlgeschlagen:', e.message);
+    }
+});
