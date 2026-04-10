@@ -342,6 +342,7 @@ async function fetchMarudorTrip(tripId) {
                 stop: {
                     name: s.station.name,
                     id:   s.station.id,
+                    location: s.station.location ? { latitude: s.station.location.latitude || s.station.location.lat, longitude: s.station.location.longitude || s.station.location.lng } : null
                 },
                 plannedArrival: pA, arrival: a,
                 plannedDeparture: pD, departure: d,
@@ -395,7 +396,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                     name: s.stop?.name || '',
                     id:   s.stop?.id,
                     location: s.stop?.location
-                        ? { latitude: s.stop.location.latitude, longitude: s.stop.location.longitude }
+                        ? { latitude: s.stop.location.latitude || s.stop.location.lat, longitude: s.stop.location.longitude || s.stop.location.lng }
                         : null
                 },
                 plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
@@ -484,7 +485,11 @@ app.get('/api/trips/:tripId', async (req, res) => {
            ? 0 : null);  // estimated gesetzt aber gleich wie planned → 0
 
       return {
-        stop:             { name: s.name || s.parent?.name || '' },
+        stop:             { 
+            name: s.name || s.parent?.name || '',
+            id: s.id || s.parent?.id || '',
+            location: s.coord ? { latitude: s.coord[0], longitude: s.coord[1] } : null
+        },
         plannedArrival, arrival, plannedDeparture, departure,
         arrivalDelaySec, departureDelaySec,
         plannedPlatform:  s.properties?.plannedPlatformName || s.properties?.platformName || null,
