@@ -979,12 +979,18 @@
                     : delaySec < 0      ? (abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`)
                     : delaySec >= 60    ? `+${Math.floor(delaySec/60)}'`
                     :                    '';   // Verspätung <60s: kein Label
+
+                // Ist-Zeit mit Sekunden (immer anzeigen, wenn Echtzeitdaten vorliegen)
+                const actualStr = actualTime ? actualTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                const actualHtml = actualStr ? `<span class="text-[9px] font-bold leading-none ${delayColor} mt-0.5">${actualStr}</span>` : '';
+
                 const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || abs >= 60);
 
                 item.innerHTML = `
-                    <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-4 group">
                         <div class="w-16 flex flex-col items-center">
                             <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
+                            ${actualHtml}
                             ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delayLabel}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
@@ -1248,18 +1254,35 @@
             const depActual = firstLeg?.departure ? new Date(firstLeg.departure) : null;
             const arrActual = lastLeg?.arrival    ? new Date(lastLeg.arrival)    : null;
 
-            const depDelay  = depActual ? Math.round((depActual - depTime) / 60000) : null;
-            const arrDelay  = arrActual ? Math.round((arrActual - arrTime) / 60000) : null;
+            const depDelaySec = depActual ? Math.round((depActual - depTime) / 1000) : null;
+            const arrDelaySec = arrActual ? Math.round((arrActual - arrTime) / 1000) : null;
 
             const durationMs = arrTime - depTime;
             const changes    = legs.filter(l => l.line).length - 1;
 
-            const timeStr = (t, delay) => {
+            const timeStr = (t, delaySec) => {
                 const base = t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                if (!delay || delay === 0) return `<span class="font-mono font-semibold">${base}</span>`;
-                const color = delay > 0 ? 'text-red-400' : 'text-blue-400';
-                const sign  = delay > 0 ? '+' : '';
-                return `<span class="font-mono font-semibold ${color}">${base} <span class="text-[10px]">${sign}${delay}'</span></span>`;
+                if (delaySec === null || delaySec === undefined) return `<span class="font-mono font-semibold">${base}</span>`;
+                
+                const abs = Math.abs(delaySec);
+                const color = delaySec >= 60  ? 'text-red-400'
+                            : delaySec > 0    ? 'text-orange-400'
+                            : delaySec < 0    ? 'text-blue-400'
+                            :                  'text-green-400';
+                
+                const actual = new Date(t.getTime() + delaySec * 1000);
+                const actStr = actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                
+                let label = '';
+                if (delaySec === 0) label = '+0';
+                else if (delaySec < 0) label = abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`;
+                else if (delaySec >= 60) label = `+${Math.floor(delaySec/60)}'`;
+
+                return `<div class="flex flex-col items-center leading-tight">
+                    <span class="font-mono font-semibold text-gray-400 text-[10px] line-through">${base}</span>
+                    <span class="font-mono font-bold ${color}">${actStr}</span>
+                    ${label ? `<span class="text-[9px] font-black ${color}">${label}</span>` : ''}
+                </div>`;
             };
 
             const legBadges = legs.map(l => {
@@ -1282,11 +1305,15 @@
                     if (!sched) return '–';
                     const base = sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
                     if (!actual) return `<span class="font-mono">${base}</span>`;
-                    const d = Math.round((actual - sched) / 60000);
-                    if (d === 0) return `<span class="font-mono text-green-400">${base}</span>`;
-                    const col  = d > 0 ? 'text-red-400' : 'text-blue-400';
-                    const sign = d > 0 ? '+' : '';
-                    return `<span class="font-mono text-gray-400 line-through mr-1 text-[10px]">${base}</span><span class="font-mono ${col}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} <span class="text-[9px]">${sign}${d}'</span></span>`;
+                    
+                    const dSec = Math.round((actual - sched) / 1000);
+                    const abs = Math.abs(dSec);
+                    
+                    const col  = dSec >= 60 ? 'text-red-400' : dSec > 0 ? 'text-orange-400' : dSec < 0 ? 'text-blue-400' : 'text-green-400';
+                    const label = dSec < 0 ? (abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`)
+                                           : (dSec >= 60 ? `+${Math.floor(dSec/60)}'` : (dSec === 0 ? '+0' : ''));
+                    
+                    return `<span class="font-mono text-gray-400 line-through mr-1 text-[10px]">${base}</span><span class="font-mono ${col}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} ${label ? `<span class="text-[9px] font-bold">${label}</span>` : ''}</span>`;
                 };
 
                 // Umsteigeampel zwischen diesem und dem nächsten Leg
@@ -1370,11 +1397,11 @@
                      onclick="toggleJourney('${detailId}', '${cardId}')">
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                            ${timeStr(depTime, depDelay)}
+                            ${timeStr(depTime, depDelaySec)}
                             <span class="text-gray-500">→</span>
-                            ${timeStr(arrTime, arrDelay)}
-                            <span class="text-gray-500 text-[11px]">(${formatDuration(durationMs)})</span>
-                            ${changes > 0 ? `<span class="text-gray-600 text-[10px]">${changes}× Umstieg</span>` : '<span class="text-green-600 text-[10px]">Direkt</span>'}
+                            ${timeStr(arrTime, arrDelaySec)}
+                            <span class="text-gray-500 text-[11px] ml-2">(${formatDuration(durationMs)})</span>
+                            ${changes > 0 ? `<span class="text-gray-600 text-[10px] ml-auto">${changes}× Umstieg</span>` : '<span class="text-green-600 text-[10px] ml-auto">Direkt</span>'}
                         </div>
                         <div class="flex items-center gap-1 mt-1 flex-wrap">${legBadges}</div>
                     </div>
@@ -1755,7 +1782,7 @@
                 // - Verfrühung (negativ): immer anzeigen, auch <60s (in Sekunden)
                 // - Verspätung (positiv): erst ab 60s (in Minuten)
                 // - Pünktlich (0): grünes +0
-                const makeDelayBadge = (sec) => {
+                const makeDelayBadge = (sec, actualTime) => {
                     if (sec === null || sec === undefined) return { badge: '', timeCls: '' };
                     const abs = Math.abs(sec);
                     // Farbklasse
@@ -1763,23 +1790,27 @@
                                   : sec > 0    ? 'text-orange-400'   // 1-59s Verspätung: orange
                                   : sec < 0    ? 'text-blue-400'     // Verfrühung: blau
                                   :              'text-green-400';   // pünktlich: grün
-                    // Badge-Label
+                    
+                    // Sekunden-Anzeige für die Ist-Zeit (immer wenn vorhanden)
+                    const actualStr = actualTime ? actualTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                    const actualHtml = actualStr ? `<span class="text-[9px] font-mono font-bold leading-none ${timeCls}">${actualStr}</span>` : '';
+
+                    // Badge-Label (+1', -15s, etc.)
                     let label, cls;
                     if (sec === 0) {
                         label = '+0'; cls = 'delay-zero';
                     } else if (sec < 0) {
-                        // Verfrühung immer anzeigen
                         label = abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`;
                         cls   = 'delay-neg';
                     } else if (sec >= 60) {
-                        // Verspätung ab 60s
                         label = `+${Math.floor(sec/60)}'`;
                         cls   = 'delay-pos';
                     } else {
-                        // Verspätung <60s: kein Badge, nur Farbe
-                        return { badge: '', timeCls };
+                        // 1-59s Verspätung: kein Label, nur Ist-Zeit
+                        return { badge: actualHtml, timeCls };
                     }
-                    return { badge: `<span class="itin-delay ${cls}">${label}</span>`, timeCls };
+                    const badgeHtml = `<span class="itin-delay ${cls}">${label}</span>`;
+                    return { badge: `${actualHtml}${badgeHtml}`, timeCls };
                 };
 
                 // Ankunft (nicht am Starthalt)
@@ -1789,7 +1820,7 @@
                     ? (stop.arrivalDelaySec   ?? (aArrD && pArrD ? Math.round((aArrD - pArrD) / 1000) : delaySec))
                     : null;
                 const arrEff  = aArrD || (pArrD && arrDSec !== null ? new Date(pArrD.getTime() + arrDSec * 1000) : null);
-                const { badge: arrBadge, timeCls: arrCls } = makeDelayBadge(arrDSec);
+                const { badge: arrBadge, timeCls: arrCls } = makeDelayBadge(arrDSec, arrEff);
 
                 // Abfahrt (nicht am Endhalt)
                 const pDepD   = !isLast ? pDep : null;
@@ -1798,17 +1829,13 @@
                     ? (stop.departureDelaySec ?? (aDepD && pDepD ? Math.round((aDepD - pDepD) / 1000) : delaySec))
                     : null;
                 const depEff  = aDepD || (pDepD && depDSec !== null ? new Date(pDepD.getTime() + depDSec * 1000) : null);
-                const { badge: depBadge, timeCls: depCls } = makeDelayBadge(depDSec);
+                const { badge: depBadge, timeCls: depCls } = makeDelayBadge(depDSec, depEff);
 
                 // Zeitzeile: Soll | Ist (dünn+kursiv wenn Zukunft) | Badge
                 const makeTimeRow = (label, schedD, effActD, badge, timeCls) => {
                     if (!schedD) return '';
-                    const isFuture = effActD ? effActD > new Date() : true;
-                    const actStr   = effActD ? fmt3(effActD) : null;
-                    const actHtml  = actStr
-                        ? `<span class="itin-actual ${timeCls}${isFuture ? ' font-light italic opacity-80' : ''}">${actStr}</span>`
-                        : '';
-                    return `<div class="itin-time-row"><span class="itin-label">${label}</span><span class="itin-sched${passed ? ' opacity-40' : ''}">${fmt2(schedD)}</span>${actHtml}${badge}</div>`;
+                    // Ist-Zeit (effActD) wird bereits im Badge/Label mit Sekunden angezeigt
+                    return `<div class="itin-time-row"><span class="itin-label">${label}</span><span class="itin-sched${passed ? ' opacity-40' : ''}">${fmt2(schedD)}</span>${badge}</div>`;
                 };
 
                 const arrRow = makeTimeRow('an', pArrD, arrEff, arrBadge, arrCls);
