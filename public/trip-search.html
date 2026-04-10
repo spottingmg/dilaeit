@@ -445,12 +445,12 @@
                 const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
                 const actualDep = stop.departure ? new Date(stop.departure) : null;
                 
-                const arrTime = schedArr ? schedArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
-                const depTime = schedDep ? schedDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                const arrTime = schedArr ? schedArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+                const depTime = schedDep ? schedDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
                 
                 // IMMER Sekundenanzeige (2-digit) für actual times
-                const arrActual = actualArr ? actualArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-                const depActual = actualDep ? actualDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                const arrActual = actualArr ? actualArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
+                const depActual = actualDep ? actualDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
                 
                 // delaySec kommt vom Server (oder berechnen wenn fehlt)
                 let arrDelaySec = stop.arrivalDelaySec;
@@ -497,15 +497,15 @@
                             <div class="text-right mono text-xs leading-tight shrink-0">
                                 <div class="flex items-center justify-end gap-1">
                                     <span class="text-gray-600 text-[10px]">AN</span>
-                                    <span class="font-mono">${arrTime}</span>
+                                    <span class="font-mono text-gray-400 line-through text-[10px]">${arrTime}</span>
                                     ${arrActual ? `<span class="precision-time ${arrDelayClass}">${arrActual}</span>` : ''}
-                                    ${arrDelayStr ? `<span class="text-[9px] ${arrDelayClass}">${arrDelayStr}</span>` : ''}
+                                    ${arrDelayStr ? `<span class="text-[9px] font-bold ${arrDelayClass}">${arrDelayStr}</span>` : ''}
                                 </div>
                                 <div class="flex items-center justify-end gap-1">
                                     <span class="text-gray-600 text-[10px]">AB</span>
-                                    <span class="font-mono">${depTime}</span>
+                                    <span class="font-mono text-gray-400 line-through text-[10px]">${depTime}</span>
                                     ${depActual ? `<span class="precision-time ${depDelayClass}">${depActual}</span>` : ''}
-                                    ${depDelayStr ? `<span class="text-[9px] ${depDelayClass}">${depDelayStr}</span>` : ''}
+                                    ${depDelayStr ? `<span class="text-[9px] font-bold ${depDelayClass}">${depDelayStr}</span>` : ''}
                                 </div>
                             </div>
                         </div>
