@@ -161,7 +161,7 @@
         /* Zeiten-Spalte */
         .itin-times {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 10.5px;
+            font-size: 12.5px;
             white-space: nowrap;
             display: flex;
             flex-direction: column;
@@ -175,10 +175,10 @@
             justify-content: flex-end;
             width: 100%;
         }
-        .itin-label  { font-size: 8px; color: #4b5563; text-transform: uppercase; min-width: 12px; }
-        .itin-sched  { color: #9ca3af; min-width: 38px; text-align: right; }
-        .itin-actual { font-weight: 700; }
-        .itin-delay  { font-size: 9px; font-weight: 700; padding: 0 2px; border-radius: 2px; }
+        .itin-label  { font-size: 9.5px; color: #4b5563; text-transform: uppercase; min-width: 12px; }
+        .itin-sched  { color: #9ca3af; min-width: 44px; text-align: right; }
+        .itin-actual { font-weight: 700; font-size: 12.5px; }
+        .itin-delay  { font-size: 11px; font-weight: 700; padding: 0 2px; border-radius: 2px; }
         .delay-pos  { color: #f87171; }   /* rot – Verspätung  */
         .delay-neg  { color: #60a5fa; }   /* blau – Verfrühung */
         .delay-zero { color: #4ade80; }   /* grün – pünktlich  */
@@ -995,12 +995,22 @@
                     :                    '';   // Verspätung <60s: kein Label
 
                 const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || Math.abs(delaySec) >= 60);
+                
+                // Zeit-Anzeige: HH:mm:ss für Züge (DB) oder wenn Sekunden vorhanden sind
+                const isTrainSource = dep._source && dep._source.includes('Bahn.expert');
+                const timeOptions = (isTrainSource || (delaySec !== null && delaySec % 60 !== 0))
+                    ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+                    : { hour: '2-digit', minute: '2-digit' };
+                
+                const timeDisplay = isCancelled 
+                    ? schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+                    : (actualTime || schedTime).toLocaleTimeString('de-DE', timeOptions);
 
                 item.innerHTML = `
                     <div class="flex items-center gap-4 group">
-                        <div class="w-16 flex flex-col items-center">
-                            <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delayLabel}</span>` : ''}
+                        <div class="w-20 flex flex-col items-center">
+                            <span class="text-xs font-bold ${isCancelled ? 'line-through text-gray-500' : (delaySec !== null ? delayColor : '')}">${timeDisplay}</span>
+                            ${showDelay ? `<span class="text-[10px] font-black ${delayColor}">${delayLabel}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -1793,7 +1803,7 @@
                 // - Verfrühung (negativ): immer anzeigen, auch <60s (in Sekunden)
                 // - Verspätung (positiv): erst ab 60s (in Minuten)
                 // - Pünktlich (0): grünes +0
-                const makeDelayBadge = (sec, actualTime) => {
+                const makeDelayBadge = (sec, actualTime, plannedTime) => {
                     if (sec === null || sec === undefined) return { badge: '', timeCls: '' };
                     const abs = Math.abs(sec);
                     // Farbklasse
@@ -1803,8 +1813,9 @@
                                   :              'text-green-400';   // pünktlich: grün
                     
                     // Sekunden-Anzeige für die Ist-Zeit (immer wenn vorhanden)
+                    // Wenn geplant auch Sekunden hat, zeigen wir diese evtl. auch? bahn.expert zeigt meist nur Ist mit Sekunden.
                     const actualStr = actualTime ? actualTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-                    const actualHtml = actualStr ? `<span class="text-[9px] font-mono font-bold leading-none ${timeCls}">${actualStr}</span>` : '';
+                    const actualHtml = actualStr ? `<span class="itin-actual ${timeCls}">${actualStr}</span>` : '';
 
                     // Badge-Label (+1', -15s, etc.)
                     let label, cls;
@@ -1817,7 +1828,7 @@
                         label = `+${Math.floor(sec/60)}'`;
                         cls   = 'delay-pos';
                     } else {
-                        // 1-59s Verspätung: kein Label, nur Ist-Zeit
+                        // 1-59s Verspätung: kein Label, nur Ist-Zeit (mit Sekunden)
                         return { badge: actualHtml, timeCls };
                     }
                     const badgeHtml = `<span class="itin-delay ${cls}">${label}</span>`;
@@ -1831,7 +1842,7 @@
                     ? (stop.arrivalDelaySec   ?? (aArrD && pArrD ? Math.round((aArrD - pArrD) / 1000) : delaySec))
                     : null;
                 const arrEff  = aArrD || (pArrD && arrDSec !== null ? new Date(pArrD.getTime() + arrDSec * 1000) : null);
-                const { badge: arrBadge, timeCls: arrCls } = makeDelayBadge(arrDSec, arrEff);
+                const { badge: arrBadge, timeCls: arrCls } = makeDelayBadge(arrDSec, arrEff, pArrD);
 
                 // Abfahrt (nicht am Endhalt)
                 const pDepD   = !isLast ? pDep : null;
@@ -1840,7 +1851,7 @@
                     ? (stop.departureDelaySec ?? (aDepD && pDepD ? Math.round((aDepD - pDepD) / 1000) : delaySec))
                     : null;
                 const depEff  = aDepD || (pDepD && depDSec !== null ? new Date(pDepD.getTime() + depDSec * 1000) : null);
-                const { badge: depBadge, timeCls: depCls } = makeDelayBadge(depDSec, depEff);
+                const { badge: depBadge, timeCls: depCls } = makeDelayBadge(depDSec, depEff, pDepD);
 
                 // Zeitzeile: Soll | Ist (dünn+kursiv wenn Zukunft) | Badge
                 const makeTimeRow = (label, schedD, effActD, badge, timeCls) => {
@@ -2441,8 +2452,9 @@
                             Aktualisiert: ${lastUpdate}
                         </div>
                     </div>
-                `, { closeButton: false })
-                .addTo(trainMap);
+                `, { closeButton: false, autoClose: false, closeOnClick: false })
+                .addTo(trainMap)
+                .openPopup();
 
             // Fokus setzen (nur wenn nicht manuell verschoben)
             trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 10 ? 12 : trainMap.getZoom());
