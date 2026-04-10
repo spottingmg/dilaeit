@@ -16,7 +16,7 @@ let publicPath = potentialPaths[0];
 for (const p of potentialPaths) {
   if (fs.existsSync(path.join(p, 'index.html'))) { publicPath = p; break; }
 }
-console.log('📂 Frontend:', publicPath);
+console.log(' Frontend:', publicPath);
 
 // ─── db-hafas (optional, dynamischer Import) ─────────────────────────────────
 // `import { createDbHafas } from 'db-hafas'` FUNKTIONIERT NICHT –
@@ -346,7 +346,7 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
         const tripId = decodeURIComponent(req.params.tripId);
-        const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true&polyline=true`;
+        const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`;
         const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!r.ok) throw new Error(`DB API ${r.status}`);
         const data = await r.json();
@@ -378,16 +378,8 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             };
         });
 
-        // Polyline-Koordinaten für genaue Streckendarstellung (inkl. NBS/Kurven)
-        const polylineCoords = trip.polyline?.features
-            ? trip.polyline.features
-                .filter(f => f.geometry?.type === 'LineString')
-                .flatMap(f => f.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })))
-            : (trip.polyline?.coordinates || []).map(([lng, lat]) => ({ lat, lng }));
-
         res.json({
             stopovers,
-            polyline: polylineCoords.length > 0 ? polylineCoords : null,
             remarks: (trip.remarks || []).map(r => ({ text: r.text || r.summary || '', type: r.category || 'info' })),
             source: 'Deutsche Bahn',
             tripId: trip.id,
