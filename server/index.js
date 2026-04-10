@@ -355,27 +355,13 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
         const tripId = decodeURIComponent(req.params.tripId);
-        const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`;
+        const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true&polyline=true`;
         const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!r.ok) throw new Error(`DB API ${r.status}`);
         const data = await r.json();
         const trip = data.trip ?? data;
         if (!trip?.stopovers) throw new Error('Keine Stopovers');
 
-        // Debug: log first stopover to see available delay fields
-        if (trip.stopovers?.[0]) {
-            const s0 = trip.stopovers[0];
-            console.log('[train-details] stopover fields sample:', JSON.stringify({
-                name: s0.stop?.name,
-                delay: s0.delay,
-                arrivalDelay: s0.arrivalDelay,
-                departureDelay: s0.departureDelay,
-                arrival: s0.arrival,
-                plannedArrival: s0.plannedArrival,
-                departure: s0.departure,
-                plannedDeparture: s0.plannedDeparture,
-            }));
-        }
         const stopovers = trip.stopovers.map(s => {
             const plannedArrival   = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
             const arrival          = s.arrival          ? new Date(s.arrival).toISOString()          : null;
@@ -481,50 +467,40 @@ app.get('/api/db/trips-by-name', async (req, res) => {
         const seen = new Set();
         let trips  = [];
 
-        // Schnell: DB /trips?query Endpoint (kein Hbf-Umweg)
-        try {
-            const searchUrl = `https://v6.db.transport.rest/trips?query=${encodeURIComponent(query)}&onlyCurrentlyRunning=false&when=${encodeURIComponent(when)}`;
-            const sr = await fetch(searchUrl, { signal: AbortSignal.timeout(5000) });
-            if (sr.ok) {
-                const sd = await sr.json();
-                trips = (sd.trips || [])
-                    .filter(t => {
-                        const name = (t.line?.name || '').toUpperCase().replace(/\s+/g, '');
-                        return (name === q || name.includes(q)) && t.id && !seen.has(t.id) && seen.add(t.id);
-                    })
-                    .slice(0, 15)
-                    .map(t => ({
-                        id: t.id,
-                        name: t.line?.name || query,
-                        direction: t.destination?.name || t.direction || 'Unbekannt',
-                        line: t.line,
-                        plannedDeparture: t.plannedWhen || t.departure || null
-                    }));
+        // Suche über mehrere NRW-Knotenpunkte parallel (schnell, kein Frankfurt-Umweg)
+        // Auch fahrtNr-Suche: RB 10612 → fahrtNr=10612
+        const fahrtNr = q.replace(/^[A-Z]+\s*/, ''); // "RB10612" → "10612"
+        const hubs = [
+            'https://v6.db.transport.rest/stops/8000207/departures', // Köln Hbf
+            'https://v6.db.transport.rest/stops/8000244/departures', // Düsseldorf Hbf
+            'https://v6.db.transport.rest/stops/8000105/departures', // Essen Hbf
+        ];
+
+        const params = `?when=${encodeURIComponent(when)}&duration=120&results=100&remarks=false`;
+        const results = await Promise.allSettled(
+            hubs.map(hub => fetch(hub + params, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null))
+        );
+
+        for (const r of results) {
+            if (r.status !== 'fulfilled' || !r.value) continue;
+            for (const d of (r.value.departures || [])) {
+                if (!d.tripId || seen.has(d.tripId)) continue;
+                const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
+                const fn   = (d.line?.fahrtNr || '').toString();
+                // Match by line name (e.g. "RB27") OR fahrtNr (e.g. "10612")
+                if (name === q || name.includes(q) || fn === fahrtNr || fn === q) {
+                    seen.add(d.tripId);
+                    trips.push({
+                        id: d.tripId,
+                        name: d.line?.name || query,
+                        direction: d.direction || 'Unbekannt',
+                        line: d.line,
+                        plannedDeparture: d.plannedWhen || null
+                    });
+                }
             }
-        } catch {}
-
-        // Fallback: Köln Hbf (nur 2h, 80 Ergebnisse – viel schneller als Frankfurt/720min)
-        if (!trips.length) {
-            const url = `https://v6.db.transport.rest/stops/8000207/departures` +
-                        `?when=${encodeURIComponent(when)}&duration=120&results=80&remarks=false`;
-            const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-            if (!r.ok) throw new Error(`DB API ${r.status}`);
-            const data = await r.json();
-            trips = (data.departures || [])
-                .filter(d => {
-                    const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
-                    return (name === q || name.includes(q)) && d.tripId && !seen.has(d.tripId) && seen.add(d.tripId);
-                })
-                .slice(0, 15)
-                .map(d => ({
-                    id: d.tripId,
-                    name: d.line?.name || query,
-                    direction: d.direction || 'Unbekannt',
-                    line: d.line,
-                    plannedDeparture: d.plannedWhen || null
-                }));
         }
-
+        trips = trips.slice(0, 15);
         res.json({ trips });
     } catch (e) {
         console.error('trips-by-name error:', e.message);
@@ -533,28 +509,41 @@ app.get('/api/db/trips-by-name', async (req, res) => {
 });
 
 // ─── Fahrtverlauf nach Nummer/TripId – via v6.db.transport.rest ──────────────
+
 app.get('/api/db/trip-details', async (req, res) => {
     const { number, date, tripId } = req.query;
     if (!number && !tripId) return res.status(400).json({ error: 'Missing number or tripId' });
     try {
         let finalTripId = tripId;
         if (!finalTripId) {
-            const when = date ? `${date}T08:00:00` : new Date().toISOString();
-            const url  = `https://v6.db.transport.rest/stops/8000085/departures` +
-                         `?when=${encodeURIComponent(when)}&duration=720&results=300&remarks=false`;
-            const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-            if (!r.ok) throw new Error(`DB API ${r.status}`);
-            const data = await r.json();
-            const q = number.trim().toUpperCase().replace(/\s+/g, '');
-            const match = (data.departures || []).find(d => {
-                const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
-                return name === q && d.tripId;
-            });
-            if (!match?.tripId) return res.status(404).json({ error: 'Fahrt nicht gefunden' });
-            finalTripId = match.tripId;
+            const when    = date ? `${date}T08:00:00` : new Date().toISOString();
+            const q       = number.trim().toUpperCase().replace(/\s+/g, '');
+            const fahrtNr = q.replace(/^[A-Z]+\s*/, '');
+            // Parallel an 3 NRW-Knotenpunkten suchen (viel schneller als 720min Frankfurt)
+            const hubs  = [
+                'https://v6.db.transport.rest/stops/8000207/departures', // Köln Hbf
+                'https://v6.db.transport.rest/stops/8000244/departures', // Düsseldorf Hbf
+                'https://v6.db.transport.rest/stops/8000105/departures', // Essen Hbf
+            ];
+            const params = `?when=${encodeURIComponent(when)}&duration=120&results=100&remarks=false`;
+            const settled = await Promise.allSettled(
+                hubs.map(h => fetch(h + params, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null))
+            );
+            for (const r of settled) {
+                if (finalTripId) break;
+                if (r.status !== 'fulfilled' || !r.value) continue;
+                for (const d of (r.value.departures || [])) {
+                    const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
+                    const fn   = (d.line?.fahrtNr || '').toString();
+                    if ((name === q || fn === fahrtNr || fn === q) && d.tripId) {
+                        finalTripId = d.tripId; break;
+                    }
+                }
+            }
+            if (!finalTripId) return res.status(404).json({ error: 'Fahrt nicht gefunden' });
         }
 
-        const tripUrl = `https://v6.db.transport.rest/trips/${encodeURIComponent(finalTripId)}?stopovers=true&remarks=true`;
+        const tripUrl = `https://v6.db.transport.rest/trips/${encodeURIComponent(finalTripId)}?stopovers=true&remarks=true&polyline=true`;
         const tr = await fetch(tripUrl, { signal: AbortSignal.timeout(10000) });
         if (!tr.ok) throw new Error(`DB trip API ${tr.status}`);
         const tData = await tr.json();
@@ -567,7 +556,13 @@ app.get('/api/db/trip-details', async (req, res) => {
             const pD = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
             const d  = s.departure        ? new Date(s.departure).toISOString()        : null;
             return {
-                stop: { name: s.stop?.name || '', id: s.stop?.id },
+                stop: {
+                    name: s.stop?.name || '',
+                    id:   s.stop?.id,
+                    location: s.stop?.location
+                        ? { latitude: s.stop.location.latitude, longitude: s.stop.location.longitude }
+                        : null
+                },
                 plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
                 arrivalDelaySec: (() => {
                     if (s.arrivalDelay   !== undefined && s.arrivalDelay   !== null) return s.arrivalDelay;
