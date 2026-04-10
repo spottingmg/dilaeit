@@ -459,16 +459,24 @@
                 if (depDelaySec === undefined && actualDep && schedDep) depDelaySec = Math.round((actualDep - schedDep) / 1000);
 
                 const formatDelay = (secs) => {
-                    if (secs === null || secs === undefined || secs === 0) return null;
+                    if (secs === null || secs === undefined) return null;
+                    if (secs === 0) return '+0';
                     const sign = secs > 0 ? '+' : '-';
-                    const absSecs = Math.abs(secs);
-                    // IMMER Sekunden anzeigen
-                    return `${sign}${absSecs}s`;
+                    const abs = Math.abs(secs);
+                    if (secs < 0) {
+                        return abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`;
+                    } else if (secs >= 60) {
+                        return `+${Math.floor(secs/60)}'`;
+                    }
+                    return null; // Verspätung < 60s nicht anzeigen
                 };
 
                 const getDelayClass = (secs) => {
                     if (secs === null || secs === undefined) return '';
-                    return secs > 0 ? 'delay-positive' : 'delay-zero'; // zero/negative covers early/green
+                    if (secs >= 60) return 'delay-positive'; // Rot
+                    if (secs > 0) return 'text-orange-400';  // Orange (muss in CSS/Tailwind definiert sein)
+                    if (secs < 0) return 'text-blue-400';    // Blau
+                    return 'delay-zero';                     // Grün
                 };
                 
                 const arrDelayStr = formatDelay(arrDelaySec);
