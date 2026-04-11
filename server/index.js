@@ -346,7 +346,7 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
         const tripId = decodeURIComponent(req.params.tripId);
-        const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`;
+        const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true&polyline=true`;
         const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
         if (!r.ok) throw new Error(`DB API ${r.status}`);
         const data = await r.json();
@@ -378,8 +378,19 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             };
         });
 
+        // Polyline aus GeoJSON extrahieren
+        let polyline = null;
+        if (trip.polyline?.features) {
+            polyline = trip.polyline.features
+                .filter(f=>f.geometry?.type==='LineString')
+                .flatMap(f=>f.geometry.coordinates.map(([lng,lat])=>({lat,lng})));
+        } else if (Array.isArray(trip.polyline?.coordinates)) {
+            polyline = trip.polyline.coordinates.map(([lng,lat])=>({lat,lng}));
+        }
+
         res.json({
             stopovers,
+            polyline: polyline?.length ? polyline : null,
             remarks: (trip.remarks || []).map(r => ({ text: r.text || r.summary || '', type: r.category || 'info' })),
             source: 'Deutsche Bahn',
             tripId: trip.id,
