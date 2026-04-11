@@ -942,9 +942,11 @@
                 }
 
                 // Verfrühung: grün + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
-                const delayColor = roundedDelay === null ? ''
-                    : roundedDelay > 0  ? 'text-red-500'
-                    : 'text-green-500';
+            const delayColor = delaySec === null  ? ''
+                    : delaySec >= 60 ? 'text-red-500'
+                    : delaySec > 0   ? 'text-red-500'
+                    : delaySec < 0   ? 'text-green-500'
+                    :                  'text-green-500';
                 const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
                 const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
 
@@ -2158,12 +2160,11 @@
             return result === 'granted';
         }
 
-        // ─── Detail-Tabs ─────────────────────────────────────────────────────────────
+             // ─── Detail-Tabs ─────────────────────────────────────────────────────────────
         let trainMap = null;
         let trainMarker = null;
         let trainPolyline = null;
         let trainStopMarkers = [];
-        let currentDetailPolyline = null;
         let mapRefreshTimer = null;
 
         function switchDetailTab(tab) {
@@ -2177,7 +2178,10 @@
                     active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'
                 }`;
             });
-            if (tab === 'map'         && currentTripDetail) initTrainMap(currentTripDetail);
+            if (tab === 'map'         && currentTripDetail) {
+                initTrainMap(currentTripDetail);
+                if (trainMap) setTimeout(() => trainMap.invalidateSize(), 400);
+            }
             if (tab === 'punctuality' && currentTripDetail) renderPunctualityHistory(currentTripDetail);
             if (tab === 'zuglauf'     && currentTripDetail) renderZuglauf(currentTripDetail);
             // Karten-Refresh stoppen wenn nicht auf Karte
@@ -2185,6 +2189,16 @@
                 clearInterval(mapRefreshTimer);
                 mapRefreshTimer = null;
             }
+        }
+
+        async function changeTripDate(offset) {
+            if (!currentTripDetail) return;
+            const currentStr = $('query-date').value || new Date().toISOString().slice(0, 10);
+            const date = new Date(currentStr);
+            date.setDate(date.getDate() + offset);
+            const newDateStr = date.toISOString().slice(0, 10);
+            $('query-date').value = newDateStr;
+            await showTripDetails(currentTripDetail);
         }
 
         // ─── Zugverfolgung auf Karte ─────────────────────────────────────────────────
@@ -2195,186 +2209,235 @@
 
             statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Kartendaten...';
 
-            // Karte immer neu aufbauen (verhindert Leaflet-DOM-Fehler nach Detail-View-Reopen)
-            if (trainMap) { try { trainMap.remove(); } catch {} trainMap = null; }
-            trainMarker = null; trainPolyline = null; trainStopMarkers = [];
+            // Karte immer neu aufbauen (DOM-Element kann nach Reopen neu sein)
+            if (trainMap) {
+                try { trainMap.remove(); } catch(e) {}
+                trainMap = null;
+                trainMarker = null;
+                trainPolyline = null;
+            }
+            // Sicherstellen dass das Element leer ist
             mapEl.innerHTML = '';
 
-            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false });
-            // CartoDB Dark Matter
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19, subdomains: 'abcd'
+            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false }).setView([51.1657, 10.4515], 6);
+
+            // Helle Basiskarte (CartoDB Voyager) - URL fix: {r} entfernt
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+                maxZoom: 19, subdomains: 'abcd',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
             }).addTo(trainMap);
-            // OpenRailwayMap Overlay (Gleise, Streckenklassen, Signale)
-            L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
-                maxZoom: 19, opacity: 0.7, attribution: '© OpenRailwayMap'
+
+            // OpenRailwayMap Overlay
+            L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                opacity: 0.6,
+                tileSize: 256,
+                zoomOffset: 0
             }).addTo(trainMap);
+
             L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
 
-            // Karte laden nachdem DOM gerendert ist
+            // Kurz warten bis das Element gerendert ist, dann Daten laden
             setTimeout(async () => {
                 trainMap.invalidateSize();
                 await updateTrainMapPosition(dep);
+
+                // Alle 20s aktualisieren solange Karte sichtbar
                 if (mapRefreshTimer) clearInterval(mapRefreshTimer);
                 mapRefreshTimer = setInterval(() => {
-                    if (!$('panel-map').classList.contains('hidden')) updateTrainMapPosition(dep);
+                    if (!$('panel-map').classList.contains('hidden')) {
+                        updateTrainMapPosition(dep);
+                    }
                 }, 20000);
-            }, 100);
-        }
-
-        // Haversine-Distanz in km
-        function haversineKm(lat1,lng1,lat2,lng2) {
-            const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
-            const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
-            return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-        }
-        // Geschwindigkeit zwischen letztem und nächstem Halt (km/h)
-        function calculateSpeedKmh(points,now) {
-            const i=points.reduce((b,p,idx)=>(p.actual||p.planned)<=now?idx:b,-1);
-            if(i<0||i>=points.length-1) return null;
-            const f=points[i],t=points[i+1];
-            const durH=((t.actual||t.planned)-(f.actual||f.planned))/3600000;
-            if(durH<=0) return null;
-            const km=haversineKm(f.lat,f.lng,t.lat,t.lng);
-            if(km<0.3) return null;
-            const v=Math.round(km/durH);
-            return (v<1||v>420)?null:v;
+            }, 300); // Erhöhtes Timeout für Layout-Settling
         }
 
         async function updateTrainMapPosition(dep) {
             const statusEl = $('map-status');
-            const dbTripId = dep.dbTripId || dep.tripId;
+            if (!trainMap) return;
 
-            // Stopovers + Polyline holen (gecacht oder direkt laden)
-            let stopovers = currentDetailStopovers;
-            let polyCoords = currentDetailPolyline;
+            const dbTripId = dep?.dbTripId || dep?.tripId;
+            const source   = dep?._source || (dep?.sourceApi === 'Deutsche Bahn' ? 'DB' : 'VRR');
+            let stopovers  = currentDetailStopovers;
 
-            if (!stopovers?.length && dbTripId) {
+            // 1. Falls keine Koordinaten da sind, versuchen nachzuladen
+            const hasCoords = stopovers?.some(s => (s.stop?.location?.latitude || s.stop?.location?.lat) && Math.abs(s.stop.location.latitude || s.stop.location.lat) > 1);
+
+            if (!hasCoords && dbTripId) {
                 try {
                     statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Streckendaten...';
-                    const r = await fetch(
-                        `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false&polyline=true`,
-                        { signal: AbortSignal.timeout(10000) }
-                    );
+                    const apiPath = source.includes('DB') || source.includes('Bahn') 
+                        ? `/api/db/trip-details?tripId=${encodeURIComponent(dbTripId)}`
+                        : `/api/trips/${encodeURIComponent(dbTripId)}`;
+                    
+                    const r = await fetch(`${API_BASE}${apiPath}`);
                     if (r.ok) {
                         const d = await r.json();
-                        const trip = d.trip ?? d;
-                        stopovers = trip.stopovers || [];
-                        // Polyline aus GeoJSON (Format: [[lng,lat],...])
-                        const pl = trip.polyline;
-                        if (pl?.features) {
-                            polyCoords = pl.features
-                                .filter(f=>f.geometry?.type==='LineString')
-                                .flatMap(f=>f.geometry.coordinates.map(([lng,lat])=>[lat,lng]));
-                        } else if (pl?.coordinates) {
-                            polyCoords = pl.coordinates.map(([lng,lat])=>[lat,lng]);
-                        }
+                        stopovers = d.stopovers || [];
+                        currentDetailStopovers = stopovers;
                     }
-                } catch { statusEl.textContent='Fehler beim Laden.'; return; }
+                } catch (e) { console.warn('Map data fetch error:', e); }
             }
 
-            if (!stopovers?.length) { statusEl.textContent='Keine Positionsdaten.'; return; }
-
-            const now = Date.now();
-            const points = stopovers
-                .filter(s=>s.stop?.location?.latitude)
-                .map(s=>({
-                    lat:s.stop.location.latitude, lng:s.stop.location.longitude,
-                    name:s.stop.name,
-                    planned:new Date(s.plannedDeparture||s.plannedArrival||0).getTime(),
-                    actual:(s.departure||s.arrival)?new Date(s.departure||s.arrival).getTime():null
+            // Koordinaten extrahieren & Validieren (gegen 0,0 / Weltkarten-Bug)
+            const points = (stopovers || [])
+                .filter(s => {
+                    const loc = s.stop?.location;
+                    const lat = loc?.latitude || loc?.lat;
+                    const lng = loc?.longitude || loc?.lng;
+                    // Strengere Validierung: Muss in Europa liegen (ca. 35-72 N, -25-45 E)
+                    return lat && lng && lat > 30 && lat < 75 && lng > -30 && lng < 50;
+                })
+                .map(s => ({
+                    lat:     s.stop.location.latitude || s.stop.location.lat,
+                    lng:     s.stop.location.longitude || s.stop.location.lng,
+                    name:    s.stop.name,
+                    planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
+                    actual:  (s.departure || s.arrival) ? new Date(s.departure || s.arrival).getTime() : null
                 }));
 
-            if (!points.length) { statusEl.innerHTML='<span class="text-yellow-400">Keine GPS-Daten.</span>'; return; }
+            if (!points.length) {
+                statusEl.innerHTML = '<span class="text-yellow-500"><i class="fas fa-info-circle mr-1"></i>Keine Positionsdaten für diese Fahrt verfügbar.</span>';
+                if (trainMap.getZoom() < 3) trainMap.setView([51.1657, 10.4515], 6);
+                return;
+            }
 
-            const pos = interpolateTrainPosition(points, now);
+            // 3. Karte initialisieren / updaten
+            const now  = Date.now();
+            const pos  = interpolateTrainPosition(points, now);
 
-            // ── Strecke: Polyline (NBS-genau) oder Stop-Fallback ──
-            if (trainPolyline) { try{trainMap.removeLayer(trainPolyline);}catch{} }
-            trainStopMarkers.forEach(m=>{try{trainMap.removeLayer(m);}catch{}});
-            trainStopMarkers=[];
+            // Layer aufräumen
+            trainStopMarkers.forEach(m => { try { trainMap.removeLayer(m); } catch(e){} });
+            trainStopMarkers = [];
+            if (trainPolyline) { try { trainMap.removeLayer(trainPolyline); } catch(e){} }
 
-            const route = (polyCoords?.length>1) ? polyCoords : points.map(p=>[p.lat,p.lng]);
+            // Strecke zeichnen (bevorzugt Polyline aus API, sonst direkte Punkte)
+            if (currentTripDetail?.polyline?.features?.length) {
+                // GeoJSON Polyline verwenden
+                trainPolyline = L.geoJSON(currentTripDetail.polyline, {
+                    style: { color: '#3b82f6', weight: 4, opacity: 0.7 }
+                }).addTo(trainMap);
+            } else {
+                const latLngs = points.map(p => [p.lat, p.lng]);
+                trainPolyline = L.polyline(latLngs, {
+                    color: '#3b82f6', weight: 4, opacity: 0.6
+                }).addTo(trainMap);
+            }
 
-            // Split: vergangene Strecke grau, zukünftige rot
-            let splitIdx=0, minD=Infinity;
-            route.forEach(([lat,lng],i)=>{
-                const d=Math.hypot(lat-pos.lat,lng-pos.lng);
-                if(d<minD){minD=d;splitIdx=i;}
+            // Halte zeichnen (Alle Halte!)
+            points.forEach((p, i) => {
+                const isPast = (p.actual || p.planned) < now;
+                const isNext = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
+                const color  = isPast ? '#94a3b8' : isNext ? '#ef4444' : '#cbd5e1';
+                
+                const sm = L.circleMarker([p.lat, p.lng], {
+                    radius: isNext ? 6 : 4,
+                    color: '#fff', weight: 1,
+                    fillColor: color, fillOpacity: 1
+                }).bindTooltip(p.name, { direction: 'top', offset: [0, -5] }).addTo(trainMap);
+                trainStopMarkers.push(sm);
             });
-            const pastRoute   = route.slice(0, splitIdx+1);
-            const futureRoute = route.slice(splitIdx);
-            if(pastRoute.length>1) L.polyline(pastRoute,{color:'#4b5563',weight:4,opacity:0.6}).addTo(trainMap);
-            trainPolyline = L.polyline(futureRoute,{color:'#ef4444',weight:4,opacity:0.9}).addTo(trainMap);
 
-            // Halte-Marker
-            points.forEach((p,i)=>{
-                const isPast=(p.actual||p.planned)<now;
-                const isNext=!isPast&&(i===0||(points[i-1].actual||points[i-1].planned)<now);
-                const col=isPast?'#4b5563':isNext?'#f97316':'#9ca3af';
-                const m=L.circleMarker([p.lat,p.lng],{
-                    radius:isNext?8:isPast?4:5, color:'#111', fillColor:col, fillOpacity:1, weight:1.5
-                }).bindTooltip(p.name,{direction:'top',offset:[0,-6]}).addTo(trainMap);
-                trainStopMarkers.push(m);
+            // Zug-Marker
+            if (trainMarker) trainMap.removeLayer(trainMarker);
+            const trainIcon = L.divIcon({
+                html: `<div class="train-marker-icon"><i class="fas fa-train"></i></div>`,
+                className: '', iconSize: [30, 30], iconAnchor: [15, 15]
             });
-
-            // Zugmarker
-            if (trainMarker) { try{trainMap.removeLayer(trainMarker);}catch{} }
-            const speed = calculateSpeedKmh(points, now);
-            const speedHtml = speed!==null?`<span style="color:#f97316;font-weight:700">${speed} km/h</span><br>`:'';
-            const icon = L.divIcon({
-                html:`<div class="train-marker-icon"><i class="fas fa-train" style="font-size:12px"></i></div>`,
-                className:'', iconSize:[28,28], iconAnchor:[14,14]
-            });
-            trainMarker = L.marker([pos.lat,pos.lng],{icon,zIndexOffset:1000})
+            
+            const lastUpdate = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const speedInfo = pos.speed > 0 ? `<br><span class="text-blue-400 font-bold">${pos.speed} km/h</span>` : '';
+            
+            trainMarker = L.marker([pos.lat, pos.lng], { icon: trainIcon, zIndexOffset: 1000 })
                 .bindPopup(`
-                    <b style="font-style:italic">${dep.line?.name||''}</b><br>
-                    ${dep.direction||''}<br>
-                    <span style="font-size:11px;color:#9ca3af">${pos.label}</span><br>
-                    ${speedHtml}
-                    <span style="font-size:10px;color:#6b7280">Aktualisiert: ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>
-                `,{maxWidth:240})
-                .addTo(trainMap);
-            trainMarker.openPopup();
+                    <div class="text-zinc-900 p-1">
+                        <div class="font-black text-red-600 italic">${dep.line?.name || ''}</div>
+                        <div class="font-bold text-xs mb-1">${dep.direction || ''}</div>
+                        <div class="text-[10px] text-zinc-500 border-t pt-1">
+                            ${pos.label}${speedInfo}<br>
+                            Aktualisiert: ${lastUpdate}
+                        </div>
+                    </div>
+                `, { closeButton: false, autoClose: false, closeOnClick: false })
+                .addTo(trainMap)
+                .openPopup();
 
-            trainMap.setView([pos.lat,pos.lng], trainMap.getZoom()<8?11:trainMap.getZoom());
-            setTimeout(()=>trainMap.invalidateSize(),100);
-
-            const spStr = speed!==null?` · <span style="color:#f97316">${speed} km/h</span>`:'';
-            statusEl.innerHTML=`<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label}${spStr} · ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+            // Fokus setzen (nur wenn nicht manuell verschoben)
+            trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 10 ? 12 : trainMap.getZoom());
+            
+            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label} (${lastUpdate})`;
+            setTimeout(() => trainMap.invalidateSize(), 200);
         }
 
-        // Interpoliert die aktuelle Zugposition zwischen zwei bekannten Halten
+        // Interpoliert die aktuelle Zugposition (bevorzugt auf der echten Polyline)
         function interpolateTrainPosition(points, now) {
-            if (!points.length) return { lat: 0, lng: 0, label: '?' };
+            if (!points.length) return { lat: 0, lng: 0, label: '?', speed: 0 };
 
-            // Alle bereits abgefahrenen Punkte
+            // 1. Polyline-Punkte nutzen falls vorhanden
+            let path = [];
+            if (currentTripDetail?.polyline?.features?.length) {
+                const feature = currentTripDetail.polyline.features.find(f => f.geometry.type === 'LineString');
+                if (feature) {
+                    path = feature.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+                }
+            }
+            
             const past   = points.filter(p => (p.actual || p.planned) <= now);
             const future = points.filter(p => (p.actual || p.planned) >  now);
 
-            if (!past.length)   return { ...points[0],    label: `Vor ${points[0].name}` };
-            if (!future.length) return { ...points[points.length-1], label: `Nach ${points[points.length-1].name}` };
+            if (!past.length)   return { ...points[0], label: `Vor ${points[0].name}`, speed: 0 };
+            if (!future.length) return { ...points[points.length-1], label: `Nach ${points[points.length-1].name}`, speed: 0 };
 
             const from = past[past.length - 1];
             const to   = future[0];
-
             const segStart = from.actual || from.planned;
             const segEnd   = to.actual   || to.planned;
             const segLen   = segEnd - segStart;
             const t        = segLen > 0 ? Math.min(1, Math.max(0, (now - segStart) / segLen)) : 0;
 
-            // Lineare Interpolation der Koordinaten
-            const lat = from.lat + (to.lat - from.lat) * t;
-            const lng = from.lng + (to.lng - from.lng) * t;
+            let lat, lng;
+            if (path.length > 0) {
+                // Den Teil der Polyline finden, der zwischen 'from' und 'to' liegt
+                // Wir suchen die Indizes der Haltestellen in der Polyline (näherungsweise)
+                const findIdx = (p) => {
+                    let minD = Infinity, idx = 0;
+                    for (let i=0; i<path.length; i++) {
+                        const d = Math.pow(path[i].lat - p.lat, 2) + Math.pow(path[i].lng - p.lng, 2);
+                        if (d < minD) { minD = d; idx = i; }
+                    }
+                    return idx;
+                };
+                const startIdx = findIdx(from);
+                const endIdx   = findIdx(to);
+                
+                if (startIdx < endIdx) {
+                    const subPath = path.slice(startIdx, endIdx + 1);
+                    const subIdx = Math.floor(t * (subPath.length - 1));
+                    const subT   = (t * (subPath.length - 1)) - subIdx;
+                    const p1 = subPath[subIdx];
+                    const p2 = subPath[Math.min(subIdx + 1, subPath.length - 1)];
+                    lat = p1.lat + (p2.lat - p1.lat) * subT;
+                    lng = p1.lng + (p2.lng - p1.lng) * subT;
+                } else {
+                    lat = from.lat + (to.lat - from.lat) * t;
+                    lng = from.lng + (to.lng - from.lng) * t;
+                }
+            } else {
+                lat = from.lat + (to.lat - from.lat) * t;
+                lng = from.lng + (to.lng - from.lng) * t;
+            }
+
+            // km/h Berechnung
+            const R = 6371;
+            const dLat = (to.lat - from.lat) * Math.PI / 180;
+            const dLng = (to.lng - from.lng) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const speed = segLen > 0 ? Math.round((R * c) / (segLen / 3600000)) : 0;
 
             const minLeft = Math.round((segEnd - now) / 60000);
-            const label   = minLeft <= 0
-                ? `Ankunft in ${to.name}`
-                : `→ ${to.name} in ~${minLeft} Min`;
-
-            return { lat, lng, label };
+            return { lat, lng, label: minLeft <= 0 ? `Ankunft in ${to.name}` : `→ ${to.name} in ~${minLeft} Min`, speed };
         }
-
         // Stopovers der aktuellen Fahrt cachen für Karten-Wiederverwendung
         let currentDetailStopovers = null;
 
