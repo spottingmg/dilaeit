@@ -12,7 +12,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
         
         :root {
-            --bg-primary: #ffffff;
+           --bg-primary: #ffffff;
             --bg-secondary: #f3f4f6;
             --text-primary: #111827;
             --text-secondary: #4b5563;
@@ -67,6 +67,7 @@
             color: #9ca3af !important;
             text-decoration: line-through;
         }
+
 
         .realtime-on-time { color: var(--success); }
         .realtime-delay { color: var(--error); }
@@ -933,7 +934,7 @@
                     : 'text-green-500';
                 const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
                 const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
-
+ 
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
