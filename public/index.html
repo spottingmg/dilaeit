@@ -124,52 +124,38 @@
         .thin-prognosis { font-weight: 300; }
         .precision-time { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
-        /* ── Kompakter Fahrtverlauf (bahn.expert-Stil) ─────────────────────────── */
-        .itinerary-line { display: none; }  /* wird nicht mehr gebraucht */
-
+        /* ── Kompakter Fahrtverlauf (bahn.expert-Stil) ── */
+        .itinerary-line { display:none; }
         .itinerary-item {
-            display: grid;
-            grid-template-columns: 120px 14px 1fr;
-            align-items: center;
-            min-height: 28px;
-            column-gap: 6px;
-            padding: 2px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            font-size: 11px;
+            display:grid; grid-template-columns:120px 14px 1fr;
+            align-items:center; min-height:28px; column-gap:6px;
+            padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04); font-size:11px;
         }
-        .itinerary-item:last-child { border-bottom: none; }
-        .itinerary-item.is-cancelled { opacity: 0.4; }
-        .itinerary-item.is-additional { border-left: 2px solid #3b82f6; padding-left: 4px; }
-
-        /* Zeitleisten-Spalte */
+        .itinerary-item:last-child { border-bottom:none; }
         .itin-dot-col { display:flex; flex-direction:column; align-items:center; height:100%; }
         .itin-seg { width:2px; flex:1; background:#4b5563; min-height:6px; }
         .itin-dot { width:8px; height:8px; border-radius:50%; background:#ef4444; border:2px solid #09090b; flex-shrink:0; }
         .itin-dot.terminus { width:10px; height:10px; }
         .itin-dot.passed   { background:#4b5563; }
-
-        /* Zeiten */
         .itin-times { font-family:'JetBrains Mono',monospace; font-size:10.5px; white-space:nowrap; }
         .itin-time-row { display:flex; align-items:baseline; gap:3px; justify-content:flex-end; }
-        .itin-label { font-size:8px; color:#4b5563; text-transform:uppercase; min-width:10px; }
-        .itin-sched { color:#9ca3af; }
+        .itin-label  { font-size:8px; color:#4b5563; text-transform:uppercase; min-width:10px; }
+        .itin-sched  { color:#9ca3af; }
         .itin-actual { font-weight:700; }
         .itin-delay  { font-size:9px; font-weight:700; }
         .itin-platform { font-size:9px; color:#6b7280; font-family:'JetBrains Mono',monospace; margin-left:4px; }
         .itin-platform.changed { color:#f97316; font-weight:700; }
         .itin-remark { font-size:9px; color:#ef4444; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .itin-name { font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .itin-name.terminus { font-weight:600; font-size:12px; }
+        .itin-name.terminus { font-weight:600; }
         .itin-name.passed   { opacity:0.5; }
-
         .delay-pos  { color:#f87171; }
         .delay-neg  { color:#60a5fa; }
         .delay-zero { color:#4ade80; }
-
-        .itinerary-item-content { margin-left: 12px; }
-        #trip-itinerary { max-height: 62vh; overflow-y: auto; }
-        #detail-trip-id { font-size: 0.76rem; font-weight: 700; }
-        .itinerary-info { font-size: 0.73rem; }
+        .itinerary-item-content { margin-left:12px; }
+        #trip-itinerary { max-height:62vh; overflow-y:auto; }
+        #detail-trip-id { font-size:0.76rem; font-weight:700; }
+        .itinerary-info { font-size:0.73rem; }
     </style>
     <script>
         tailwind.config = {
@@ -942,11 +928,9 @@
                 }
 
                 // Verfrühung: grün + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
-            const delayColor = delaySec === null  ? ''
-                    : delaySec >= 60 ? 'text-red-500'
-                    : delaySec > 0   ? 'text-red-500'
-                    : delaySec < 0   ? 'text-green-500'
-                    :                  'text-green-500';
+                const delayColor = roundedDelay === null ? ''
+                    : roundedDelay > 0  ? 'text-red-500'
+                    : 'text-green-500';
                 const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
                 const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
 
@@ -1505,9 +1489,7 @@
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
                 currentDetailStopovers = stops;
-                currentDetailPolyline  = data.polyline?.length
-                    ? data.polyline.map(p=>Array.isArray(p)?p:[p.lat,p.lng])
-                    : null;
+                currentDetailPolyline  = data.polyline?.length ? data.polyline.map(p=>Array.isArray(p)?p:[p.lat,p.lng]) : null;
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
                 // Neue Features
@@ -1727,9 +1709,8 @@
                 const schedDep  = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
                 const actualDep = stop.departure        ? new Date(stop.departure)         : null;
 
-                // Sekunden erzwingen sobald Ist-Zeit vorhanden (Task 2)
-                const hasLiveArr = !!(actualArr && schedArr);
-                const hasLiveDep = !!(actualDep && schedDep);
+                const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
+                const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
 
                 const formatTime = (sched, actual, hasLive, delaySec) => {
                     if (!sched) return '';
@@ -1738,7 +1719,7 @@
                     // Delay-Anzeige mit Sekunden-Präzision
                     let delayStr = '';
                     if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                        const dc = delaySec > 0 ? 'text-red-500' : 'text-green-500';
+                        const dc = delaySec > 0 ? 'text-red-500' : delaySec < 0 ? 'text-blue-400' : 'text-green-500';
                         const sign = delaySec > 0 ? '+' : ''; // Minus kommt automatisch bei negativen Zahlen
                         const absDelay = Math.abs(delaySec);
                         
@@ -1764,7 +1745,7 @@
 
                     // Bestimme Farbe basierend auf Verspätung/Verfrühung
                     const rtColor = delaySec !== null && delaySec !== undefined
-                        ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
+                        ? (delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-green-400')
                         : (actual && sched ? (Math.round((actual - sched) / 60000) >= 1 ? 'text-red-400' : 'text-green-400') : 'text-green-400');
 
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
@@ -1777,79 +1758,59 @@
                     }
                 };
 
-                // ── Kompaktes bahn.expert-Layout ──────────────────────────────
-                const sortedIdx  = sortedStopovers.indexOf(stop);
-                const isFirst    = sortedIdx === 0;
-                const isLast     = sortedIdx === sortedStopovers.length - 1;
-                const isTerminus = isFirst || isLast;
-                const now2       = Date.now();
-                const passed     = (actualDep && actualDep < now2) ||
-                                   (actualArr && actualArr < now2) ||
-                                   (!actualDep && !actualArr && schedDep && schedDep < now2);
+                const si2     = sortedStopovers.indexOf(stop);
+                const isFirst = si2 === 0;
+                const isLast  = si2 === sortedStopovers.length - 1;
+                const isTerm  = isFirst || isLast;
+                const tnow    = Date.now();
+                const passed  = (actualDep&&actualDep<tnow)||(actualArr&&actualArr<tnow)||(!actualDep&&!actualArr&&schedDep&&schedDep<tnow);
 
-                // Delay-Badge
                 const mkBadge = (sec) => {
-                    if (sec === null || sec === undefined) return { badge:'', cls:'' };
-                    const abs = Math.abs(sec);
-                    const tcls = sec>=60?'text-red-400':sec<=-60?'text-blue-400':'text-green-400';
-                    if (sec===0) return { badge:`<span class="itin-delay delay-zero">+0</span>`, cls:tcls };
-                    if (sec<0)   return { badge:`<span class="itin-delay delay-neg">${abs>=60?`-${Math.round(abs/60)}'`:`-${abs}s`}</span>`, cls:tcls };
-                    if (abs<60)  return { badge:'', cls:tcls };
-                    return { badge:`<span class="itin-delay delay-pos">+${Math.round(abs/60)}'</span>`, cls:tcls };
+                    if (sec===null||sec===undefined) return {b:'',c:''};
+                    const abs=Math.abs(sec), tc=sec>=60?'text-red-400':sec<=-60?'text-blue-400':'text-green-400';
+                    if (sec===0)  return {b:'<span class="itin-delay delay-zero">+0</span>',c:tc};
+                    if (sec<0)    return {b:`<span class="itin-delay delay-neg">${abs>=60?`-${Math.round(abs/60)}'`:`-${abs}s`}</span>`,c:tc};
+                    if (abs<60)   return {b:'',c:tc};
+                    return {b:`<span class="itin-delay delay-pos">+${Math.round(abs/60)}'</span>`,c:tc};
                 };
-                const { badge:arrBadge, cls:arrCls } = mkBadge(stop.arrivalDelaySec);
-                const { badge:depBadge, cls:depCls } = mkBadge(stop.departureDelaySec);
+                const {b:ab,c:ac}=mkBadge(stop.arrivalDelaySec);
+                const {b:db,c:dc2}=mkBadge(stop.departureDelaySec);
 
-                const fmt2 = d => d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
-                const fmt3 = d => d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-
-                const mkRow = (label, sched, actual, badge, cls, isReal) => {
-                    if (!sched) return '';
-                    const isFuture = actual ? actual > new Date() : true;
-                    const actHtml = actual
-                        ? `<span class="itin-actual ${cls}${isFuture?' font-light italic opacity-80':''}">${isReal&&!isFuture?fmt3(actual):fmt2(actual)}</span>`
-                        : '';
-                    return `<div class="itin-time-row"><span class="itin-label">${label}</span><span class="itin-sched${passed?' opacity-40':''}">${fmt2(sched)}</span>${actHtml}${badge}</div>`;
+                const f2=d=>d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                const f3=d=>d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+                const mkRow=(lbl,sch,act,bdg,cls,real)=>{
+                    if(!sch) return '';
+                    const fut=act?act>new Date():true;
+                    const ah=act?`<span class="itin-actual ${cls}${fut?' font-light italic opacity-80':''}">${real&&!fut?f3(act):f2(act)}</span>`:'';
+                    return `<div class="itin-time-row"><span class="itin-label">${lbl}</span><span class="itin-sched${passed?' opacity-40':''}">${f2(sch)}</span>${ah}${bdg}</div>`;
                 };
 
-                // Plattform
-                const platPlanned = stop.plannedPlatform||null;
-                const platActual  = stop.platform||null;
-                const platChanged = platPlanned&&platActual&&platPlanned!==platActual;
-                const platDisplay = platActual||platPlanned;
-                const platHtml    = platDisplay
-                    ? `<span class="itin-platform${platChanged?' changed':''}">${platChanged?`⚠ Gl.${platActual} <s>${platPlanned}</s>`:`Gl.${platDisplay}`}</span>`
-                    : '';
+                const platPlan=stop.plannedPlatform||null, platAct=stop.platform||null;
+                const platChg=platPlan&&platAct&&platPlan!==platAct, platDisp=platAct||platPlan;
+                const platHtml=platDisp?`<span class="itin-platform${platChg?' changed':''}">${platChg?`⚠ Gl.${platAct} <s>${platPlan}</s>`:`Gl.${platDisp}`}</span>`:'';
+                const remHtml=(stop.remarks?.length?`<span class="itin-remark"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>`:'')
+                    +(isCancelled?'<span class="itin-remark text-red-500">Halt entfällt</span>':'')
+                    +(isAdditional?'<span class="itin-remark text-blue-400">Zusatzhalt</span>':'');
 
-                // Hinweis
-                const remHtml = stop.remarks?.length
-                    ? `<span class="itin-remark"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>`
-                    : (isCancelled ? `<span class="itin-remark text-red-500">Halt entfällt</span>` : '')
-                    + (isAdditional ? `<span class="itin-remark text-blue-400">Zusatzhalt</span>` : '');
+                const arrRow=!isFirst?mkRow('an',schedArr,actualArr,ab,ac,!!actualArr):'';
+                const depRow=!isLast ?mkRow('ab',schedDep,actualDep,db,dc2,!!actualDep):'';
+                const endRow=isLast  ?mkRow('an',schedArr,actualArr,ab,ac,!!actualArr):'';
 
-                const dotCls = `itin-dot${isTerminus?' terminus':''}${passed?' passed':''}`;
-                const nameCls = `itin-name${isTerminus?' terminus':''}${passed?' passed':''}${isCancelled?' line-through opacity-40':''}${isAdditional?' text-blue-400':''}`;
-
-                // Zeitzeilen: Start=nur AB, Ende=nur AN, Mitte=AN+AB
-                const arrRow = !isFirst ? mkRow('an', schedArr, actualArr, arrBadge, arrCls, !!actualArr) : '';
-                const depRow = !isLast  ? mkRow('ab', schedDep, actualDep, depBadge, depCls, !!actualDep) : '';
-                const endRow = isLast   ? mkRow('an', schedArr, actualArr, arrBadge, arrCls, !!actualArr) : '';
-
-                const stopItem = document.createElement('div');
-                stopItem.className = ['itinerary-item', isCancelled?'is-cancelled':'', isAdditional?'is-additional':''].join(' ').trim();
-                stopItem.innerHTML = `
+                const stopItem=document.createElement('div');
+                stopItem.className=['itinerary-item',isCancelled?'is-cancelled':'',isAdditional?'is-additional':''].join(' ').trim();
+                stopItem.innerHTML=`
                     <div class="itin-times">
-                        ${isFirst ? depRow : arrRow}
-                        ${!isFirst && !isLast ? depRow : ''}
+                        ${isFirst?depRow:arrRow}
+                        ${!isFirst&&!isLast?depRow:''}
                         ${endRow}
                     </div>
                     <div class="itin-dot-col">
                         <div class="itin-seg${isFirst?' opacity-0':''}"></div>
-                        <div class="${dotCls}"></div>
+                        <div class="itin-dot${isTerm?' terminus':''}${passed?' passed':''}"></div>
                         <div class="itin-seg${isLast?' opacity-0':''}"></div>
                     </div>
                     <div>
-                        <span class="${nameCls}">${stop.stop.name}</span>${platHtml}${remHtml}
+                        <span class="itin-name${isTerm?' terminus':''}${passed?' passed':''}${isCancelled?' line-through opacity-40':''}${isAdditional?' text-blue-400':''}">${stop.stop.name}</span>${platHtml}${remHtml}
                     </div>
                 `;
                 container.appendChild(stopItem);
@@ -2160,11 +2121,10 @@
             return result === 'granted';
         }
 
-             // ─── Detail-Tabs ─────────────────────────────────────────────────────────────
+        // ─── Detail-Tabs ─────────────────────────────────────────────────────────────
         let trainMap = null;
         let trainMarker = null;
         let trainPolyline = null;
-        let trainStopMarkers = [];
         let mapRefreshTimer = null;
 
         function switchDetailTab(tab) {
@@ -2178,10 +2138,7 @@
                     active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'
                 }`;
             });
-            if (tab === 'map'         && currentTripDetail) {
-                initTrainMap(currentTripDetail);
-                if (trainMap) setTimeout(() => trainMap.invalidateSize(), 400);
-            }
+            if (tab === 'map'         && currentTripDetail) initTrainMap(currentTripDetail);
             if (tab === 'punctuality' && currentTripDetail) renderPunctualityHistory(currentTripDetail);
             if (tab === 'zuglauf'     && currentTripDetail) renderZuglauf(currentTripDetail);
             // Karten-Refresh stoppen wenn nicht auf Karte
@@ -2189,16 +2146,6 @@
                 clearInterval(mapRefreshTimer);
                 mapRefreshTimer = null;
             }
-        }
-
-        async function changeTripDate(offset) {
-            if (!currentTripDetail) return;
-            const currentStr = $('query-date').value || new Date().toISOString().slice(0, 10);
-            const date = new Date(currentStr);
-            date.setDate(date.getDate() + offset);
-            const newDateStr = date.toISOString().slice(0, 10);
-            $('query-date').value = newDateStr;
-            await showTripDetails(currentTripDetail);
         }
 
         // ─── Zugverfolgung auf Karte ─────────────────────────────────────────────────
@@ -2209,235 +2156,133 @@
 
             statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Kartendaten...';
 
-            // Karte immer neu aufbauen (DOM-Element kann nach Reopen neu sein)
-            if (trainMap) {
-                try { trainMap.remove(); } catch(e) {}
-                trainMap = null;
-                trainMarker = null;
-                trainPolyline = null;
-            }
-            // Sicherstellen dass das Element leer ist
+            // Karte immer neu aufbauen (verhindert Leaflet-DOM-Fehler nach Reopen)
+            if (trainMap) { try { trainMap.remove(); } catch {} trainMap = null; }
+            trainMarker = null; trainPolyline = null; trainStopMarkers = [];
             mapEl.innerHTML = '';
 
-            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false }).setView([51.1657, 10.4515], 6);
-
-            // Helle Basiskarte (CartoDB Voyager) - URL fix: {r} entfernt
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
-                maxZoom: 19, subdomains: 'abcd',
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false });
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19, subdomains: 'abcd'
             }).addTo(trainMap);
-
             // OpenRailwayMap Overlay
-            L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
-                maxZoom: 19,
-                opacity: 0.6,
-                tileSize: 256,
-                zoomOffset: 0
+            L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+                maxZoom: 19, opacity: 0.7, attribution: '© OpenRailwayMap'
             }).addTo(trainMap);
-
             L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
 
-            // Kurz warten bis das Element gerendert ist, dann Daten laden
             setTimeout(async () => {
                 trainMap.invalidateSize();
                 await updateTrainMapPosition(dep);
-
-                // Alle 20s aktualisieren solange Karte sichtbar
                 if (mapRefreshTimer) clearInterval(mapRefreshTimer);
                 mapRefreshTimer = setInterval(() => {
-                    if (!$('panel-map').classList.contains('hidden')) {
-                        updateTrainMapPosition(dep);
-                    }
+                    if (!$('panel-map').classList.contains('hidden')) updateTrainMapPosition(dep);
                 }, 20000);
-            }, 300); // Erhöhtes Timeout für Layout-Settling
+            }, 100);
         }
+
+        // Haversine-Distanz (km) und Geschwindigkeit
+        function haversineKm(a,b,c,d){const R=6371,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180,x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dG/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+        function calculateSpeedKmh(pts,now){const i=pts.reduce((b,p,j)=>(p.actual||p.planned)<=now?j:b,-1);if(i<0||i>=pts.length-1)return null;const f=pts[i],t=pts[i+1],h=((t.actual||t.planned)-(f.actual||f.planned))/3600000;if(h<=0)return null;const k=haversineKm(f.lat,f.lng,t.lat,t.lng);if(k<0.3)return null;const v=Math.round(k/h);return(v<1||v>420)?null:v;}
 
         async function updateTrainMapPosition(dep) {
             const statusEl = $('map-status');
-            if (!trainMap) return;
+            const dbTripId = dep.dbTripId || dep.tripId;
 
-            const dbTripId = dep?.dbTripId || dep?.tripId;
-            const source   = dep?._source || (dep?.sourceApi === 'Deutsche Bahn' ? 'DB' : 'VRR');
             let stopovers  = currentDetailStopovers;
+            let polyCoords = currentDetailPolyline;
 
-            // 1. Falls keine Koordinaten da sind, versuchen nachzuladen
-            const hasCoords = stopovers?.some(s => (s.stop?.location?.latitude || s.stop?.location?.lat) && Math.abs(s.stop.location.latitude || s.stop.location.lat) > 1);
-
-            if (!hasCoords && dbTripId) {
+            if (!stopovers?.length && dbTripId) {
                 try {
                     statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Streckendaten...';
-                    const apiPath = source.includes('DB') || source.includes('Bahn') 
-                        ? `/api/db/trip-details?tripId=${encodeURIComponent(dbTripId)}`
-                        : `/api/trips/${encodeURIComponent(dbTripId)}`;
-                    
-                    const r = await fetch(`${API_BASE}${apiPath}`);
+                    const r = await fetch(
+                        `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false&polyline=true`,
+                        { signal: AbortSignal.timeout(10000) }
+                    );
                     if (r.ok) {
-                        const d = await r.json();
-                        stopovers = d.stopovers || [];
-                        currentDetailStopovers = stopovers;
+                        const d = await r.json(); const trip = d.trip ?? d;
+                        stopovers = trip.stopovers || [];
+                        const pl = trip.polyline;
+                        if (pl?.features) polyCoords = pl.features.filter(f=>f.geometry?.type==='LineString').flatMap(f=>f.geometry.coordinates.map(([g,lat])=>[lat,g]));
+                        else if (pl?.coordinates) polyCoords = pl.coordinates.map(([g,lat])=>[lat,g]);
                     }
-                } catch (e) { console.warn('Map data fetch error:', e); }
+                } catch { statusEl.textContent='Fehler beim Laden.'; return; }
             }
+            if (!stopovers?.length) { statusEl.textContent='Keine Positionsdaten.'; return; }
 
-            // Koordinaten extrahieren & Validieren (gegen 0,0 / Weltkarten-Bug)
-            const points = (stopovers || [])
-                .filter(s => {
-                    const loc = s.stop?.location;
-                    const lat = loc?.latitude || loc?.lat;
-                    const lng = loc?.longitude || loc?.lng;
-                    // Strengere Validierung: Muss in Europa liegen (ca. 35-72 N, -25-45 E)
-                    return lat && lng && lat > 30 && lat < 75 && lng > -30 && lng < 50;
-                })
-                .map(s => ({
-                    lat:     s.stop.location.latitude || s.stop.location.lat,
-                    lng:     s.stop.location.longitude || s.stop.location.lng,
-                    name:    s.stop.name,
-                    planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
-                    actual:  (s.departure || s.arrival) ? new Date(s.departure || s.arrival).getTime() : null
-                }));
+            const now = Date.now();
+            const points = stopovers.filter(s=>s.stop?.location?.latitude).map(s=>({
+                lat:s.stop.location.latitude, lng:s.stop.location.longitude, name:s.stop.name,
+                planned:new Date(s.plannedDeparture||s.plannedArrival||0).getTime(),
+                actual:(s.departure||s.arrival)?new Date(s.departure||s.arrival).getTime():null
+            }));
+            if (!points.length){statusEl.innerHTML='<span class="text-yellow-400">Keine GPS-Daten verfügbar.</span>';return;}
 
-            if (!points.length) {
-                statusEl.innerHTML = '<span class="text-yellow-500"><i class="fas fa-info-circle mr-1"></i>Keine Positionsdaten für diese Fahrt verfügbar.</span>';
-                if (trainMap.getZoom() < 3) trainMap.setView([51.1657, 10.4515], 6);
-                return;
-            }
+            const pos = interpolateTrainPosition(points, now);
 
-            // 3. Karte initialisieren / updaten
-            const now  = Date.now();
-            const pos  = interpolateTrainPosition(points, now);
+            // Alte Layer entfernen
+            if (trainPolyline){try{trainMap.removeLayer(trainPolyline);}catch{}}
+            trainStopMarkers.forEach(m=>{try{trainMap.removeLayer(m);}catch{}});
+            trainStopMarkers=[];
 
-            // Layer aufräumen
-            trainStopMarkers.forEach(m => { try { trainMap.removeLayer(m); } catch(e){} });
-            trainStopMarkers = [];
-            if (trainPolyline) { try { trainMap.removeLayer(trainPolyline); } catch(e){} }
+            // Strecke: Polyline (NBS-genau) oder Stop-Linie als Fallback
+            const route = (polyCoords?.length>1) ? polyCoords : points.map(p=>[p.lat,p.lng]);
+            let si=0, md=Infinity;
+            route.forEach(([la,lg],i)=>{const d=Math.hypot(la-pos.lat,lg-pos.lng);if(d<md){md=d;si=i;}});
+            if(route.slice(0,si+1).length>1) L.polyline(route.slice(0,si+1),{color:'#4b5563',weight:4,opacity:0.6}).addTo(trainMap);
+            trainPolyline=L.polyline(route.slice(si),{color:'#ef4444',weight:4,opacity:0.9}).addTo(trainMap);
 
-            // Strecke zeichnen (bevorzugt Polyline aus API, sonst direkte Punkte)
-            if (currentTripDetail?.polyline?.features?.length) {
-                // GeoJSON Polyline verwenden
-                trainPolyline = L.geoJSON(currentTripDetail.polyline, {
-                    style: { color: '#3b82f6', weight: 4, opacity: 0.7 }
-                }).addTo(trainMap);
-            } else {
-                const latLngs = points.map(p => [p.lat, p.lng]);
-                trainPolyline = L.polyline(latLngs, {
-                    color: '#3b82f6', weight: 4, opacity: 0.6
-                }).addTo(trainMap);
-            }
-
-            // Halte zeichnen (Alle Halte!)
-            points.forEach((p, i) => {
-                const isPast = (p.actual || p.planned) < now;
-                const isNext = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
-                const color  = isPast ? '#94a3b8' : isNext ? '#ef4444' : '#cbd5e1';
-                
-                const sm = L.circleMarker([p.lat, p.lng], {
-                    radius: isNext ? 6 : 4,
-                    color: '#fff', weight: 1,
-                    fillColor: color, fillOpacity: 1
-                }).bindTooltip(p.name, { direction: 'top', offset: [0, -5] }).addTo(trainMap);
-                trainStopMarkers.push(sm);
+            // Halte-Marker
+            points.forEach((p,i)=>{
+                const ip=(p.actual||p.planned)<now, in_=!ip&&(i===0||(points[i-1].actual||points[i-1].planned)<now);
+                const m=L.circleMarker([p.lat,p.lng],{radius:in_?8:ip?4:5,color:'#111',fillColor:ip?'#4b5563':in_?'#f97316':'#9ca3af',fillOpacity:1,weight:1.5})
+                    .bindTooltip(p.name,{direction:'top',offset:[0,-6]}).addTo(trainMap);
+                trainStopMarkers.push(m);
             });
 
-            // Zug-Marker
-            if (trainMarker) trainMap.removeLayer(trainMarker);
-            const trainIcon = L.divIcon({
-                html: `<div class="train-marker-icon"><i class="fas fa-train"></i></div>`,
-                className: '', iconSize: [30, 30], iconAnchor: [15, 15]
-            });
-            
-            const lastUpdate = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const speedInfo = pos.speed > 0 ? `<br><span class="text-blue-400 font-bold">${pos.speed} km/h</span>` : '';
-            
-            trainMarker = L.marker([pos.lat, pos.lng], { icon: trainIcon, zIndexOffset: 1000 })
-                .bindPopup(`
-                    <div class="text-zinc-900 p-1">
-                        <div class="font-black text-red-600 italic">${dep.line?.name || ''}</div>
-                        <div class="font-bold text-xs mb-1">${dep.direction || ''}</div>
-                        <div class="text-[10px] text-zinc-500 border-t pt-1">
-                            ${pos.label}${speedInfo}<br>
-                            Aktualisiert: ${lastUpdate}
-                        </div>
-                    </div>
-                `, { closeButton: false, autoClose: false, closeOnClick: false })
-                .addTo(trainMap)
-                .openPopup();
-
-            // Fokus setzen (nur wenn nicht manuell verschoben)
-            trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 10 ? 12 : trainMap.getZoom());
-            
-            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label} (${lastUpdate})`;
-            setTimeout(() => trainMap.invalidateSize(), 200);
+            // Zugmarker
+            if(trainMarker){try{trainMap.removeLayer(trainMarker);}catch{}}
+            const spd=calculateSpeedKmh(points,now);
+            trainMarker=L.marker([pos.lat,pos.lng],{icon:L.divIcon({html:'<div class="train-marker-icon"><i class="fas fa-train" style="font-size:12px"></i></div>',className:'',iconSize:[28,28],iconAnchor:[14,14]}),zIndexOffset:1000})
+                .bindPopup(`<b style="font-style:italic">${dep.line?.name||''}</b><br>${dep.direction||''}<br><span style="font-size:11px;color:#9ca3af">${pos.label}</span><br>${spd!==null?`<span style="color:#f97316;font-weight:700">${spd} km/h</span><br>`:''}<span style="font-size:10px;color:#6b7280">Aktualisiert: ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>`,{maxWidth:240})
+                .addTo(trainMap);
+            trainMarker.openPopup();
+            trainMap.setView([pos.lat,pos.lng],trainMap.getZoom()<8?11:trainMap.getZoom());
+            setTimeout(()=>trainMap.invalidateSize(),100);
+            statusEl.innerHTML=`<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label}${spd!==null?` · <span style="color:#f97316">${spd} km/h</span>`:''} · ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
         }
 
-        // Interpoliert die aktuelle Zugposition (bevorzugt auf der echten Polyline)
+        // Interpoliert die aktuelle Zugposition zwischen zwei bekannten Halten
         function interpolateTrainPosition(points, now) {
-            if (!points.length) return { lat: 0, lng: 0, label: '?', speed: 0 };
+            if (!points.length) return { lat: 0, lng: 0, label: '?' };
 
-            // 1. Polyline-Punkte nutzen falls vorhanden
-            let path = [];
-            if (currentTripDetail?.polyline?.features?.length) {
-                const feature = currentTripDetail.polyline.features.find(f => f.geometry.type === 'LineString');
-                if (feature) {
-                    path = feature.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
-                }
-            }
-            
+            // Alle bereits abgefahrenen Punkte
             const past   = points.filter(p => (p.actual || p.planned) <= now);
             const future = points.filter(p => (p.actual || p.planned) >  now);
 
-            if (!past.length)   return { ...points[0], label: `Vor ${points[0].name}`, speed: 0 };
-            if (!future.length) return { ...points[points.length-1], label: `Nach ${points[points.length-1].name}`, speed: 0 };
+            if (!past.length)   return { ...points[0],    label: `Vor ${points[0].name}` };
+            if (!future.length) return { ...points[points.length-1], label: `Nach ${points[points.length-1].name}` };
 
             const from = past[past.length - 1];
             const to   = future[0];
+
             const segStart = from.actual || from.planned;
             const segEnd   = to.actual   || to.planned;
             const segLen   = segEnd - segStart;
             const t        = segLen > 0 ? Math.min(1, Math.max(0, (now - segStart) / segLen)) : 0;
 
-            let lat, lng;
-            if (path.length > 0) {
-                // Den Teil der Polyline finden, der zwischen 'from' und 'to' liegt
-                // Wir suchen die Indizes der Haltestellen in der Polyline (näherungsweise)
-                const findIdx = (p) => {
-                    let minD = Infinity, idx = 0;
-                    for (let i=0; i<path.length; i++) {
-                        const d = Math.pow(path[i].lat - p.lat, 2) + Math.pow(path[i].lng - p.lng, 2);
-                        if (d < minD) { minD = d; idx = i; }
-                    }
-                    return idx;
-                };
-                const startIdx = findIdx(from);
-                const endIdx   = findIdx(to);
-                
-                if (startIdx < endIdx) {
-                    const subPath = path.slice(startIdx, endIdx + 1);
-                    const subIdx = Math.floor(t * (subPath.length - 1));
-                    const subT   = (t * (subPath.length - 1)) - subIdx;
-                    const p1 = subPath[subIdx];
-                    const p2 = subPath[Math.min(subIdx + 1, subPath.length - 1)];
-                    lat = p1.lat + (p2.lat - p1.lat) * subT;
-                    lng = p1.lng + (p2.lng - p1.lng) * subT;
-                } else {
-                    lat = from.lat + (to.lat - from.lat) * t;
-                    lng = from.lng + (to.lng - from.lng) * t;
-                }
-            } else {
-                lat = from.lat + (to.lat - from.lat) * t;
-                lng = from.lng + (to.lng - from.lng) * t;
-            }
-
-            // km/h Berechnung
-            const R = 6371;
-            const dLat = (to.lat - from.lat) * Math.PI / 180;
-            const dLng = (to.lng - from.lng) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLng/2) * Math.sin(dLng/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            const speed = segLen > 0 ? Math.round((R * c) / (segLen / 3600000)) : 0;
+            // Lineare Interpolation der Koordinaten
+            const lat = from.lat + (to.lat - from.lat) * t;
+            const lng = from.lng + (to.lng - from.lng) * t;
 
             const minLeft = Math.round((segEnd - now) / 60000);
-            return { lat, lng, label: minLeft <= 0 ? `Ankunft in ${to.name}` : `→ ${to.name} in ~${minLeft} Min`, speed };
+            const label   = minLeft <= 0
+                ? `Ankunft in ${to.name}`
+                : `→ ${to.name} in ~${minLeft} Min`;
+
+            return { lat, lng, label };
         }
+
         // Stopovers der aktuellen Fahrt cachen für Karten-Wiederverwendung
         let currentDetailStopovers = null;
 
