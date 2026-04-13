@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>dilaeit - ÖPNV in Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    </head>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -91,7 +90,7 @@
         .trip-progress-fill { height: 100%; background: linear-gradient(90deg, #ef4444, #f97316); border-radius: 2px; transition: width 1s ease; }
 
         /* Zugverfolgung Karte */
-        #train-map { height: 280px; border-radius: 12px; overflow: hidden; z-index: 1; }
+        #train-map { height: 320px; border-radius: 12px; overflow: hidden; z-index: 1; background: #f8fafc; border: 1px solid rgba(255,255,255,0.05); }
         .train-marker-icon {
             background: #ef4444; color: white; border-radius: 50%;
             width: 28px; height: 28px; display: flex; align-items: center;
@@ -125,24 +124,77 @@
         .thin-prognosis { font-weight: 300; }
         .precision-time { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
-        .itinerary-line {
-            position: absolute;
-            left: 14px; top: 0; bottom: 0;
-            width: 2px;
-            background-color: #374151;
-            z-index: 0;
-        }
+        /* ── Kompakter Fahrtverlauf (bahn.expert-Stil) ── */
+        .itinerary-line { display: none; } /* wird nicht mehr gebraucht */
 
         .itinerary-item {
-            padding-left: 32px;
-            margin-bottom: 0.45rem;
-            min-height: 48px;
+            display: grid;
+            grid-template-columns: 130px 14px 1fr;
+            align-items: center;
+            min-height: 32px;
+            column-gap: 6px;
+            padding: 1px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 11px;
+            line-height: 1.3;
+        }
+        .itinerary-item:last-child { border-bottom: none; }
+        .itinerary-item.is-cancelled { opacity: 0.4; text-decoration: line-through; }
+        .itinerary-item.is-additional { border-left: 2px solid #22c55e; }
+
+        /* Zeitleiste-Spalte */
+        .itin-dot-col {
             display: flex;
             flex-direction: column;
-            gap: 0.25rem;
+            align-items: center;
+            height: 100%;
         }
+        .itin-seg { width: 2px; flex: 1; background: #4b5563; min-height: 6px; }
+        .itin-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            border: 2px solid #09090b;
+            flex-shrink: 0;
+        }
+        .itin-dot.terminus { width: 10px; height: 10px; }
+        .itin-dot.passed   { background: #4b5563; }
 
-        .itinerary-item-content { margin-left: 12px; }
+        /* Zeiten-Spalte */
+        .itin-times {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12.5px;
+            white-space: nowrap;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0;
+        }
+        .itin-time-row {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            justify-content: flex-end;
+            width: 100%;
+        }
+        .itin-label  { font-size: 9.5px; color: #4b5563; text-transform: uppercase; min-width: 12px; }
+        .itin-sched  { color: #9ca3af; min-width: 44px; text-align: right; }
+        .itin-actual { font-weight: 700; font-size: 12.5px; }
+        .itin-delay  { font-size: 11px; font-weight: 700; padding: 0 2px; border-radius: 2px; }
+        .delay-pos  { color: #f87171; }   /* rot – Verspätung  */
+        .delay-neg  { color: #60a5fa; }   /* blau – Verfrühung */
+        .delay-zero { color: #4ade80; }   /* grün – pünktlich  */
+
+        /* Stationsname */
+        .itin-name {
+            font-size: 11.5px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .itin-name.terminus { font-weight: 600; font-size: 12px; }
+        .itin-name.passed   { opacity: 0.5; }
+
+        .itin-platform { font-size: 9px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 4px; }
+        .itin-platform.changed { color: #f97316; font-weight: 700; }
+
+        .itin-remark { font-size: 9px; color: #ef4444; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 
         #trip-itinerary { max-height: 62vh; overflow-y: auto; }
         #detail-trip-id { font-size: 0.76rem; font-weight: 700; }
@@ -284,6 +336,14 @@
                 <button id="close-detail" class="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-zinc-900 flex items-center justify-center hover:scale-105 transition-transform">
                     <i class="fas fa-chevron-left"></i>
                 </button>
+                <div class="flex flex-col gap-1">
+                    <button onclick="changeTripDate(-1)" class="w-8 h-8 rounded-lg bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 flex items-center justify-center text-[10px] transition-colors">
+                        <i class="fas fa-chevron-up"></i>
+                    </button>
+                    <button onclick="changeTripDate(1)" class="w-8 h-8 rounded-lg bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 flex items-center justify-center text-[10px] transition-colors">
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                </div>
                 <button id="reload-trip" class="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-500 transition">Neu laden</button>
                 <div class="flex-1">
                     <div class="flex items-center gap-3">
@@ -323,8 +383,7 @@
             </div>
 
             <div class="flex-1 relative" id="panel-itinerary">
-                <div class="itinerary-line"></div>
-                <div id="trip-itinerary" class="space-y-10 relative z-10"></div>
+                <div id="trip-itinerary" class="relative z-10"></div>
             </div>
 
             <footer class="mt-8 pt-4 border-t border-gray-100 dark:border-zinc-900">
@@ -567,8 +626,21 @@
                 switchDetailTab('itinerary');
             });
             $('push-subscribe-btn').addEventListener('click', async () => {
-                await requestNotificationPermission();
-                if (currentTripDetail) toggleWatch(currentTripDetail);
+                const granted = await requestNotificationPermission();
+                if (!granted) {
+                    showLocalNotification('Benachrichtigungen blockiert', 'Bitte erlaube Benachrichtigungen in den Browser-Einstellungen.');
+                    return;
+                }
+                if (currentTripDetail) {
+                    toggleWatch(currentTripDetail);
+                    // Sofort prüfen damit Nutzer Feedback bekommt
+                    if (isWatched(makeTripKey(currentTripDetail))) {
+                        showLocalNotification(
+                            `${currentTripDetail.line?.name} wird beobachtet`,
+                            'Du erhältst eine Benachrichtigung bei ≥3 Min Verspätung.'
+                        );
+                    }
+                }
             });
             document.addEventListener('click', e => {
                 if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
@@ -898,38 +970,47 @@
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
                 const actualTime  = dep.when ? new Date(dep.when) : null;
 
-                // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
-                let roundedDelay = null;
-                let showSeconds = false;
-                if (dep.delay !== null && dep.delay !== undefined) {
-                    const secs = dep.delay;
-                    // Wenn die Quelle Deutsche Bahn ist, zeigen wir immer Sekunden an, falls vorhanden
-                    if (dep._source === 'Deutsche Bahn') {
-                        showSeconds = true;
-                        roundedDelay = secs;
-                    } else if (Math.abs(secs) >= 60) {
-                        roundedDelay = secs >= 0 ? Math.floor(secs / 60) : Math.ceil(secs / 60);
-                    } else if (secs !== 0) {
-                        // Für präzise Anzeige unter 1 Min zeigen wir Sekunden
-                        roundedDelay = secs;
-                        showSeconds = true;
-                    } else {
-                        roundedDelay = 0;
-                    }
+                // delay in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
+                // Sekunden werden IMMER angezeigt wenn vorhanden (unabhängig von Quelle)
+                let delaySec = (dep.delay !== null && dep.delay !== undefined) ? dep.delay : null;
+                
+                // Fallback: Wenn delaySec 0 ist, aber Ist-Zeit vorhanden, manuell prüfen
+                if (delaySec === 0 && actualTime && schedTime) {
+                    const diff = Math.round((actualTime - schedTime) / 1000);
+                    if (diff !== 0) delaySec = diff;
                 }
 
-                // Verfrühung: grün + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
-                const delayColor = roundedDelay === null ? ''
-                    : roundedDelay > 0  ? 'text-red-500'
-                    : 'text-green-500';
-                const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
-                const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
+                // Verfrühung: blau + Minus; Verspätung: rot + Plus; pünktlich: grün +0
+                const delayColor = delaySec === null  ? ''
+                    : delaySec >= 60 ? 'text-red-500'
+                    : delaySec > 0   ? 'text-orange-400'
+                    : delaySec < 0   ? 'text-blue-400'
+                    :                  'text-green-500';
+                
+                // Verfrühung immer anzeigen (auch <60s), Verspätung erst ab 60s
+                const delayLabel = delaySec === null ? ''
+                    : delaySec === 0    ? '+0'
+                    : delaySec < 0      ? (Math.abs(delaySec) >= 60 ? `-${Math.floor(Math.abs(delaySec)/60)}'` : `-${Math.abs(delaySec)}s`)
+                    : delaySec >= 60    ? `+${Math.floor(delaySec/60)}'`
+                    :                    '';   // Verspätung <60s: kein Label
+
+                const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || Math.abs(delaySec) >= 60);
+                
+                // Zeit-Anzeige: HH:mm:ss für Züge (DB) oder wenn Sekunden vorhanden sind
+                const isTrainSource = dep._source && dep._source.includes('Bahn.expert');
+                const timeOptions = (isTrainSource || (delaySec !== null && delaySec % 60 !== 0))
+                    ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+                    : { hour: '2-digit', minute: '2-digit' };
+                
+                const timeDisplay = isCancelled 
+                    ? schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+                    : (actualTime || schedTime).toLocaleTimeString('de-DE', timeOptions);
 
                 item.innerHTML = `
-                    <div class="flex items-center gap-4">
-                        <div class="w-16 flex flex-col items-center">
-                            <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${Math.abs(roundedDelay)}${showSeconds ? 's' : "'"}</span>` : ''}
+                    <div class="flex items-center gap-4 group">
+                        <div class="w-20 flex flex-col items-center">
+                            <span class="text-xs font-bold ${isCancelled ? 'line-through text-gray-500' : (delaySec !== null ? delayColor : '')}">${timeDisplay}</span>
+                            ${showDelay ? `<span class="text-[10px] font-black ${delayColor}">${delayLabel}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -1097,12 +1178,12 @@
             let payload = null;
             try { payload = JSON.parse(decodeURIComponent(encodedPayload)); } catch { payload = null; }
             if (!payload?.tripId) return;
-
             const dep = {
-                tripId: payload.tripId,
-                dbTripId: payload.tripId, // Da aus Verbindungssuche (DB), setzen wir es als dbTripId
+                tripId:    payload.tripId,
+                dbTripId:  payload.dbTripId || payload.tripId,
                 prognosis: { tripId: payload.tripId },
-                line: payload.line || null,
+                line:      payload.line || null,
+                // direction = Endziel der Linie (nicht des Users)
                 direction: payload.direction || ''
             };
             return showTripDetails(dep);
@@ -1167,8 +1248,24 @@
                     operator: firstLine.line?.operator?.name ? { name: firstLine.line.operator.name } : undefined
                 }
                 : null;
-            const journeyDetailsPayload = tripId
-                ? encodeURIComponent(JSON.stringify({ tripId, line: minimalLine, direction: directionGuess }))
+            // Per-Leg payloads — jede Fahrt bekommt ihren eigenen Details-Button
+            // direction = Endziel der Linie (leg.direction), nicht Ziel des Users
+            const legPayloads = legs
+                .filter(l => l.tripId && l.line)
+                .map(l => ({
+                    tripId:    l.tripId,
+                    dbTripId:  l.tripId,
+                    line: {
+                        name:    l.line?.name || l.line?.id || '?',
+                        id:      l.line?.id,
+                        product: (l.line?.product || l.mode || '').toString(),
+                        operator: l.line?.operator?.name ? { name: l.line.operator.name } : undefined
+                    },
+                    direction: l.direction || ''  // Endziel der Linie, nicht Reiseziel
+                }));
+            // Für Rückwärtskompatibilität: journeyDetailsPayload = erster Leg
+            const journeyDetailsPayload = legPayloads[0]
+                ? encodeURIComponent(JSON.stringify(legPayloads[0]))
                 : '';
 
             const depTime  = new Date(firstLeg?.plannedDeparture || firstLeg?.departure || journey.departure);
@@ -1176,18 +1273,35 @@
             const depActual = firstLeg?.departure ? new Date(firstLeg.departure) : null;
             const arrActual = lastLeg?.arrival    ? new Date(lastLeg.arrival)    : null;
 
-            const depDelay  = depActual ? Math.round((depActual - depTime) / 60000) : null;
-            const arrDelay  = arrActual ? Math.round((arrActual - arrTime) / 60000) : null;
+            const depDelaySec = depActual ? Math.round((depActual - depTime) / 1000) : null;
+            const arrDelaySec = arrActual ? Math.round((arrActual - arrTime) / 1000) : null;
 
             const durationMs = arrTime - depTime;
             const changes    = legs.filter(l => l.line).length - 1;
 
-            const timeStr = (t, delay) => {
+            const timeStr = (t, delaySec) => {
                 const base = t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                if (!delay || delay === 0) return `<span class="font-mono font-semibold">${base}</span>`;
-                const color = delay > 0 ? 'text-red-400' : 'text-blue-400';
-                const sign  = delay > 0 ? '+' : '';
-                return `<span class="font-mono font-semibold ${color}">${base} <span class="text-[10px]">${sign}${delay}'</span></span>`;
+                if (delaySec === null || delaySec === undefined) return `<span class="font-mono font-semibold">${base}</span>`;
+                
+                const abs = Math.abs(delaySec);
+                const color = delaySec >= 60  ? 'text-red-400'
+                            : delaySec > 0    ? 'text-orange-400'
+                            : delaySec < 0    ? 'text-blue-400'
+                            :                  'text-green-400';
+                
+                const actual = new Date(t.getTime() + delaySec * 1000);
+                const actStr = actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                
+                let label = '';
+                if (delaySec === 0) label = '+0';
+                else if (delaySec < 0) label = abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`;
+                else if (delaySec >= 60) label = `+${Math.floor(delaySec/60)}'`;
+
+                return `<div class="flex flex-col items-center leading-tight">
+                    <span class="font-mono font-semibold text-gray-400 text-[10px] line-through">${base}</span>
+                    <span class="font-mono font-bold ${color}">${actStr}</span>
+                    ${label ? `<span class="text-[9px] font-black ${color}">${label}</span>` : ''}
+                </div>`;
             };
 
             const legBadges = legs.map(l => {
@@ -1210,11 +1324,15 @@
                     if (!sched) return '–';
                     const base = sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
                     if (!actual) return `<span class="font-mono">${base}</span>`;
-                    const d = Math.round((actual - sched) / 60000);
-                    if (d === 0) return `<span class="font-mono text-green-400">${base}</span>`;
-                    const col  = d > 0 ? 'text-red-400' : 'text-blue-400';
-                    const sign = d > 0 ? '+' : '';
-                    return `<span class="font-mono text-gray-400 line-through mr-1 text-[10px]">${base}</span><span class="font-mono ${col}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} <span class="text-[9px]">${sign}${d}'</span></span>`;
+                    
+                    const dSec = Math.round((actual - sched) / 1000);
+                    const abs = Math.abs(dSec);
+                    
+                    const col  = dSec >= 60 ? 'text-red-400' : dSec > 0 ? 'text-orange-400' : dSec < 0 ? 'text-blue-400' : 'text-green-400';
+                    const label = dSec < 0 ? (abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`)
+                                           : (dSec >= 60 ? `+${Math.floor(dSec/60)}'` : (dSec === 0 ? '+0' : ''));
+                    
+                    return `<span class="font-mono text-gray-400 line-through mr-1 text-[10px]">${base}</span><span class="font-mono ${col}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} ${label ? `<span class="text-[9px] font-bold">${label}</span>` : ''}</span>`;
                 };
 
                 // Umsteigeampel zwischen diesem und dem nächsten Leg
@@ -1261,11 +1379,22 @@
                 }).join('');
 
                 const cancelled = leg.cancelled ? 'opacity-40' : '';
+                const legPayload = leg.tripId ? encodeURIComponent(JSON.stringify({
+                    tripId:   leg.tripId,
+                    dbTripId: leg.tripId,
+                    line: {
+                        name:    leg.line?.name || '?',
+                        id:      leg.line?.id,
+                        product: (leg.line?.product || leg.mode || '').toString(),
+                    },
+                    direction: leg.direction || ''  // echtes Linien-Endziel
+                })) : '';
                 return `<div class="rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden mb-2 ${cancelled}">
                     <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-zinc-800">
                         <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic shrink-0">${leg.line?.name || '?'}</span>
                         <span class="text-xs font-semibold truncate flex-1">${leg.direction || ''}</span>
                         ${leg.cancelled ? '<span class="text-red-500 text-[10px] font-bold shrink-0">[Fällt aus]</span>' : ''}
+                        ${legPayload ? `<button class="px-2 py-1 rounded-lg text-[10px] font-semibold bg-blue-600 text-white hover:bg-blue-500 shrink-0" onclick="event.stopPropagation(); showJourneyTripDetailsFromEncodedPayload('${legPayload}')" type="button">Verlauf</button>` : ''}
                     </div>
                     <div class="px-3 py-2 text-[11px] space-y-1">
                         <div class="flex justify-between">
@@ -1287,11 +1416,11 @@
                      onclick="toggleJourney('${detailId}', '${cardId}')">
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                            ${timeStr(depTime, depDelay)}
+                            ${timeStr(depTime, depDelaySec)}
                             <span class="text-gray-500">→</span>
-                            ${timeStr(arrTime, arrDelay)}
-                            <span class="text-gray-500 text-[11px]">(${formatDuration(durationMs)})</span>
-                            ${changes > 0 ? `<span class="text-gray-600 text-[10px]">${changes}× Umstieg</span>` : '<span class="text-green-600 text-[10px]">Direkt</span>'}
+                            ${timeStr(arrTime, arrDelaySec)}
+                            <span class="text-gray-500 text-[11px] ml-2">(${formatDuration(durationMs)})</span>
+                            ${changes > 0 ? `<span class="text-gray-600 text-[10px] ml-auto">${changes}× Umstieg</span>` : '<span class="text-green-600 text-[10px] ml-auto">Direkt</span>'}
                         </div>
                         <div class="flex items-center gap-1 mt-1 flex-wrap">${legBadges}</div>
                     </div>
@@ -1434,58 +1563,60 @@
                 let url;
                 let sourceName = 'VRR OpenService';
                 
-                // PRIORITÄT: Wenn wir eine DB-TripId haben, nutzen wir diese IMMER für Züge
-                if (dbTripId) {
-                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`;
-                    sourceName = 'Deutsche Bahn';
-                } else if (isTrainLine) {
-                    // Falls wir noch keine DB-ID haben, versuchen wir sie über die Zugnummer zu finden
-                    const number = dep.line?.name || dep.line?.id || '';
-                    const date = $('query-date').value || new Date().toISOString().slice(0, 10);
-                    const searchUrl = `${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`;
-                    
-                    try {
-                        const searchRes = await fetch(searchUrl, {
-                            signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
-                        });
-                        if (searchRes.ok) {
-                            const searchData = await searchRes.json();
-                            if (searchData?.tripId) {
-                                url = `${API_BASE}/api/train-details/${encodeURIComponent(searchData.tripId)}`;
-                                sourceName = 'Deutsche Bahn';
-                            }
-                        }
-                    } catch (e) { console.warn('DB-Suche fehlgeschlagen, Fallback zu VRR'); }
-                }
-
-                // Falls wir IMMER NOCH keine URL haben, aber es ein Zug ist, erzwingen wir eine Suche über die Nummer
-                if (!url && isTrainLine) {
-                    sourceName = 'Deutsche Bahn';
-                    // ... (hier wurde bereits oben gesucht, falls fehlgeschlagen bleibt url null)
-                }
-
-                // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
-                if (!url && vrrTripId) {
-                    url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                    sourceName = isTrainLine ? 'Deutsche Bahn' : 'VRR OpenData';
-                }
+                const queryDate = $('query-date').value || new Date().toISOString().slice(0, 10);
                 
-                if (!url) throw new Error('Keine gültige Trip-ID gefunden');
+                let data;
+                if (dbTripId) {
+                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}?date=${encodeURIComponent(queryDate)}`;
+                    sourceName = 'Deutsche Bahn';
+                    const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    data = await res.json();
+                } else if (isTrainLine) {
+                    const number = dep.line?.name || dep.line?.id || '';
+                    const direction = dep.direction || '';
+                    sourceName   = 'Deutsche Bahn';
+                    try {
+                        const res = await fetch(
+                            `${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(queryDate)}&direction=${encodeURIComponent(direction)}`,
+                            { signal: AbortSignal.timeout(8000) }
+                        );
+                        if (res.ok) data = await res.json();
+                    } catch (e) { console.warn('DB-Suche fehlgeschlagen, Fallback zu VRR'); }
+                    // Fallback zu VRR wenn DB nicht antwortet
+                    if (!data?.stopovers?.length && vrrTripId) {
+                        url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}?date=${encodeURIComponent(queryDate)}`;
+                        sourceName = 'VRR OpenService';
+                        const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        data = await res.json();
+                    }
+                } else {
+                    // Bus / Tram / lokaler ÖPNV → VRR
+                    if (!vrrTripId) throw new Error('Keine Trip-ID verfügbar');
+                    url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}?date=${encodeURIComponent(queryDate)}`;
+                    sourceName = 'VRR OpenService';
+                    const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    data = await res.json();
+                }
 
-                const res = await fetch(url, {
-                    signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
+                if (!data) throw new Error('Keine Daten empfangen');
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
                 currentDetailStopovers = stops; // Für Karte cachen
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
+                
                 // Neue Features
                 updateTripPosition(stops);
                 loadWagonFormation(dep);
                 updatePushButton(dep);
+
+                // Karte aktualisieren falls Tab offen
+                if (!$('panel-map').classList.contains('hidden')) {
+                    initTrainMap(dep);
+                }
             } catch (e) {
                 console.error('Trip details failed', e);
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
@@ -1497,303 +1628,326 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
-            // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
+            // ── Verspätungs-Übersetzungstabelle (unverändert) ────────────────────────
             const translationMap = {
-                // ── Betrieb & Verspätungsgründe (Typ R) ─────────────────────────────
-                "no delay reason":                                   "keine Verspätungsbegründung",
-                "further information shortly":                       "nähere Informationen in Kürze",
-                "Delay due to a police operation":                   "Polizeieinsatz",
-                "fire brigade operation":                            "Feuerwehreinsatz auf der Strecke",
-                "Delay due to a medical emergency":                  "ärztliche Versorgung eines Fahrgastes",
-                "emergency brake activated":                         "unbefugtes Ziehen der Notbremse",
-                "persons on the track":                              "unbefugte Personen auf der Strecke",
-                "emergency doctor on track":                         "Notarzteinsatz auf der Strecke",
-                "Delay due to a strike":                             "Streikauswirkungen",
-                "animals on the track":                              "Tiere auf der Strecke",
-                "Delay due to storm damage":                         "Unwetter",
-                "waiting for a delayed ferry":                       "Warten auf ein verspätetes Schiff",
-                "passport and customs control":                      "Pass- und Zollkontrolle",
-                "technical defect at the station":                   "technischer Defekt am Bahnhof",
-                "Delay caused by vandalism":                         "Beeinträchtigung durch Vandalismus",
-                "bomb disposal":                                     "Entschärfung einer Fliegerbombe",
-                "bridge damage":                                     "Beschädigung einer Brücke",
-                "fallen tree on the track":                          "umgestürzter Baum auf der Strecke",
-                "level crossing accident":                           "Unfall an einem Bahnübergang",
-                "Delay due to waiting for connecting passengers":    "Warten auf Anschlussreisende",
-                "weather-related disruption":                        "Witterungsbedingte Beeinträchtigungen",
-                "delay abroad":                                      "Verspätung im Ausland",
-                "waiting for additional coaches":                    "Bereitstellung weiterer Wagen",
-                "decoupling of coaches":                             "Abhängen von Wagen",
-                "objects on the track":                              "Gegenstände auf der Strecke",
-                "Replacement service":                               "Ersatzverkehr mit Bus ist eingerichtet",
-                "Delay due to construction work":                    "Bauarbeiten",
-                "boarding assistance":                               "Unterstützung beim Ein- und Ausstieg",
-                "overhead line fault":                               "Reparatur an der Oberleitung",
-                "Delay due to a track obstruction":                  "Streckensperrung",
-                "signal fault":                                      "Reparatur an einem Signal",
-                "Delay due to a technical defect":                   "Reparatur am Zug",
-                "technical defect on the route":                     "Reparatur an der Strecke",
-                "points failure":                                    "defektes Stellwerk",
-                "level crossing fault":                              "technischer Defekt an einem Bahnübergang",
-                "temporary speed restriction":                       "vorübergehend verminderte Geschwindigkeit auf der Strecke",
-                "Delay due to a broken down train":                  "Verspätung eines vorausfahrenden Zuges",
-                "Delay of previous train":                           "Verspätung eines vorausfahrenden Zuges",
-                "waiting for an oncoming train":                     "Warten auf einen entgegenkommenden Zug",
-                "train overtaken":                                   "Vorfahrt eines anderen Zuges",
-                "waiting for free entry":                            "Vorfahrt eines anderen Zuges",
-                "delayed provision of the train":                    "verspätete Bereitstellung des Zuges",
-                "Delay from previous journey":                       "Verspätung aus vorheriger Fahrt",
-                "short-term staff shortage":                         "kurzfristiger Personalausfall",
-                "short-term illness of staff":                       "kurzfristige Erkrankung von Personal",
-                "delayed staff from previous journey":               "verspätetes Personal aus vorheriger Fahrt",
-                "strike":                                            "Streik",
-                "storm effects":                                     "Unwetterauswirkungen",
-                "track availability currently restricted":           "Verfügbarkeit der Gleise derzeit eingeschränkt",
-                "technical defect on another train":                 "technischer Defekt an einem anderen Zug",
-                "additional stop for boarding and alighting":        "zusätzlicher Halt zum Ein- und Ausstieg",
-                "Train is diverted":                                 "Umleitung des Zuges",
-                "Train is diverted. Stops are omitted.":             "Umleitung des Zuges. Einige Halte entfallen.",
-                "snow and ice":                                      "Schnee und Eis",
-                "weather-related reduced speed":                     "witterungsbedingt verminderte Geschwindigkeit",
-                "defective door":                                    "defekte Tür",
-                "technical defect resolved":                         "behobener technischer Defekt am Zug",
-                "technical inspection of the train":                 "technische Untersuchung am Zug",
-                "switch failure":                                    "Reparatur an der Weiche",
-                "landslide":                                         "Erdrutsch",
-                "flooding":                                          "Hochwasser",
-                "official measure":                                  "behördliche Maßnahme",
-                "high passenger volume":                             "hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
-                "train running at reduced speed":                    "Zug verkehrt mit verminderter Geschwindigkeit",
-                "Stops are omitted":                                 "Einige Halte entfallen.",
-                "Enter only, no exiting allowed" : "Hält nur zum Einsteigen.",
-                "Platform change":                                   "Gleiswechsel.",
-                "Change of platform":                                "Gleiswechsel.",
-                "Track change":                                      "Gleiswechsel.",
-                "Stop cancelled":                                    "Halt entfällt.",
-                "Additional stop":                                   "Zusatzhalt.",
-                "Special service":                                   "Sonderfahrt.",
-                "Train is cancelled":                                "Zug fällt aus.",
-                "Unfortunately, the train is cancelled.":            "Zug fällt aus.",
-                "The train is cancelled due to a technical defect.": "Reparatur am Zug.",
-                "The train is cancelled due to construction work.":  "Bauarbeiten.",
-                "The train is cancelled due to a staff shortage.":   "kurzfristiger Personalausfall.",
-                // ── Qualitätsmeldungen (Typ Q) ────────────────────────────────────────
-                "WiFi available":                                    "WLAN verfügbar.",
-                "WLAN not available":                                "WLAN nicht verfügbar",
-                "WiFi not available in one or more coaches":         "WLAN in einem/mehreren Wagen nicht verfügbar",
-                "info/entertainment not available":                  "Info-/Entertainment nicht verfügbar",
-                "today: multi-purpose compartment at the front":     "Heute: Mehrzweckabteil vorne",
-                "today: multi-purpose compartment at the rear":      "Heute: Mehrzweckabteil hinten",
-                "today: 1st class at the front":                    "Heute: 1. Klasse vorne",
-                "today: 1st class at the rear":                     "Heute: 1. Klasse hinten",
-                "no 1st class":                                      "1. Klasse fehlt",
-                "no multi-purpose compartment":                      "Mehrzweckabteil fehlt",
-                "different coach order":                             "andere Reihenfolge der Wagen",
-                "several coaches missing":                           "mehrere Wagen fehlen",
-                "Vehicle-bound boarding aid available":              "fahrzeuggebundene Einstiegshilfe vorhanden.",
-                "defective vehicle-bound boarding aid":              "defekte fahrzeuggebundene Einstiegshilfe",
-                "train running in correct formation":                "Zug verkehrt richtig gereiht",
-                "one coach missing":                                 "ein Wagen fehlt",
-                "entire train without reservation":                  "gesamter Zug ohne Reservierung",
-                "individual coaches without reservation":            "einzelne Wagen ohne Reservierung",
-                "no quality defects":                                "keine Qualitätsmängel",
-                "reservations available again":                      "Reservierungen sind wieder vorhanden",
-                "no catering":                                       "kein gastronomisches Angebot",
-                "On-board restaurant":                               "Bordrestaurant.",
-                "Bicycles conveyed - not possible":                  "Fahrradmitnahme nicht möglich.",
-                "Number of bicycles conveyed limited":               "Eingeschränkte Fahrradbeförderung.",
-                "Bicycles conveyed":                                 "Fahrradmitnahme möglich.",
-                "Bicycles conveyed - subject to reservation":        "Fahrradmitnahme – Reservierung erforderlich.",
-                "Bicycles conveyed - subject to availability":       "Fahrradmitnahme – je nach Verfügbarkeit.",
-                "no accessible facilities":                          "behindertengerechte Einrichtung fehlt",
-                "replacement catering":                              "Ersatzbewirtschaftung",
-                "WC accessible for wheelchair users":                "Rollstuhlgerechtes WC vorhanden.",
-                "no accessible toilet":                              "Universal-WC fehlt",
-                "overcrowded with compensation":                     "Überbesetzung mit Kulanzleistungen",
-                "overcrowded without compensation":                  "Überbesetzung ohne Kulanzleistungen",
-                "other quality defects":                             "sonstige Qualitätsmängel",
-                "operational delays":                                "Verzögerungen im Betriebsablauf",
-                "Step-free access":                                  "Stufenfreier Zugang.",
-                "Power sockets available":                           "Steckdosen verfügbar.",
-                "Quiet zone":                                        "Ruhebereich.",
-                "Air conditioning":                                  "Klimaanlage vorhanden.",
-                "Area for people with reduced mobility":             "Bereich für mobilitätseingeschränkte Personen.",
+                // Betrieb & Verspätungsgründe
+                "no delay reason":"keine Verspätungsbegründung",
+                "further information shortly":"nähere Informationen folgen",
+                "Delay due to a police operation":"Polizeieinsatz",
+                "police operation":"Polizeieinsatz",
+                "fire brigade operation":"Feuerwehreinsatz auf der Strecke",
+                "Delay due to a medical emergency":"ärztliche Versorgung eines Fahrgastes",
+                "emergency brake activated":"Notbremse wurde betätigt",
+                "persons on the track":"unbefugte Personen auf der Strecke",
+                "emergency doctor on track":"Notarzteinsatz auf der Strecke",
+                "Delay due to a strike":"Streikauswirkungen",
+                "strike":"Streik",
+                "animals on the track":"Tiere auf der Strecke",
+                "Delay due to storm damage":"Unwetterschäden",
+                "storm effects":"Unwetterauswirkungen",
+                "weather-related disruption":"Witterungsbedingte Beeinträchtigungen",
+                "weather-related reduced speed":"witterungsbedingt langsamere Fahrt",
+                "snow and ice":"Schnee und Eis",
+                "flooding":"Hochwasser",
+                "landslide":"Erdrutsch",
+                "Delay due to construction work":"Bauarbeiten",
+                "overhead line fault":"Störung an der Oberleitung",
+                "Delay due to a track obstruction":"Streckensperrung",
+                "signal fault":"Störung an einem Signal",
+                "Delay due to a technical defect":"technischer Defekt am Fahrzeug",
+                "technical defect on the route":"technischer Defekt auf der Strecke",
+                "technical defect at the station":"technischer Defekt im Bahnhof",
+                "technical defect resolved":"technischer Defekt behoben",
+                "technical inspection of the train":"technische Prüfung am Zug",
+                "technical defect on another train":"technischer Defekt an einem anderen Zug",
+                "points failure":"Weichenstörung",
+                "switch failure":"Weichenstörung",
+                "level crossing fault":"Störung an einem Bahnübergang",
+                "level crossing accident":"Unfall an einem Bahnübergang",
+                "temporary speed restriction":"vorübergehende Langsamfahrstelle",
+                "Delay due to a broken down train":"Verspätung eines vorausfahrenden Zuges",
+                "Delay of previous train":"Verspätung eines vorausfahrenden Zuges",
+                "waiting for an oncoming train":"Warten auf einen entgegenkommenden Zug",
+                "train overtaken":"Vorfahrt eines anderen Zuges",
+                "waiting for free entry":"Warten auf freie Einfahrt",
+                "Delay from previous journey":"Verspätung aus vorheriger Fahrt",
+                "delayed provision of the train":"verspätete Bereitstellung des Zuges",
+                "short-term staff shortage":"kurzfristiger Personalausfall",
+                "short-term illness of staff":"kurzfristige Erkrankung eines Mitarbeiters",
+                "delayed staff from previous journey":"verspätetes Personal aus vorheriger Fahrt",
+                "waiting for a delayed ferry":"Warten auf eine verspätete Fähre",
+                "passport and customs control":"Pass- und Zollkontrolle",
+                "delay abroad":"Verspätung im Ausland",
+                "Delay due to vandalism":"Vandalismus",
+                "bomb disposal":"Bombenentschärfung",
+                "bridge damage":"Beschädigung einer Brücke",
+                "fallen tree on the track":"Baum auf der Strecke",
+                "objects on the track":"Gegenstände auf der Strecke",
+                "Replacement service":"Schienenersatzverkehr (Bus) eingerichtet",
+                "boarding assistance":"Einstiegshilfe in Anspruch genommen",
+                "waiting for additional coaches":"Bereitstellung zusätzlicher Wagen",
+                "decoupling of coaches":"Trennen von Zugteilen",
+                "additional stop for boarding and alighting":"Zusatzhalt für Ein-/Ausstieg",
+                "high passenger volume":"hohes Fahrgastaufkommen",
+                "Train is diverted":"Zug wird umgeleitet",
+                "Train is diverted. Stops are omitted.":"Zug wird umgeleitet. Einige Halte entfallen.",
+                "train running at reduced speed":"Zug fährt langsamer",
+                "track availability currently restricted":"Streckenkapazität derzeit eingeschränkt",
+                "official measure":"behördliche Maßnahme",
+                "operational delays":"Betriebliche Verzögerungen",
+                // Ausfall / Zusatz / Sonder
+                "Train is cancelled":"Zug fällt aus",
+                "Unfortunately, the train is cancelled.":"Zug fällt aus",
+                "The train is cancelled due to a technical defect.":"Zug fällt aus (technischer Defekt)",
+                "The train is cancelled due to construction work.":"Zug fällt aus (Bauarbeiten)",
+                "The train is cancelled due to a staff shortage.":"Zug fällt aus (Personalausfall)",
+                "Stop cancelled":"Halt entfällt",
+                "Stops are omitted":"Einige Halte entfallen",
+                "Additional stop":"Zusatzhalt",
+                "Special service":"Sonderfahrt",
+                "Platform change":"Gleiswechsel",
+                "Change of platform":"Gleiswechsel",
+                "Track change":"Gleiswechsel",
+                "Enter only, no exiting allowed":"Nur Einstieg, kein Ausstieg",
+                // Qualität / Ausstattung
+                "defective door":"defekte Tür",
+                "WiFi available":"WLAN verfügbar",
+                "WLAN not available":"WLAN nicht verfügbar",
+                "WiFi not available in one or more coaches":"WLAN in einzelnen Wagen gestört",
+                "info/entertainment not available":"Info-/Unterhaltungssystem nicht verfügbar",
+                "no catering":"kein Bordrestaurant",
+                "On-board restaurant":"Bordrestaurant vorhanden",
+                "replacement catering":"Ersatzbewirtschaftung",
+                "no accessible facilities":"behindertengerechte Ausstattung fehlt",
+                "no accessible toilet":"rollstuhlgerechtes WC nicht vorhanden",
+                "WC accessible for wheelchair users":"rollstuhlgerechtes WC vorhanden",
+                "defective vehicle-bound boarding aid":"Einstiegshilfe defekt",
+                "Vehicle-bound boarding aid available":"Einstiegshilfe vorhanden",
+                "Power sockets available":"Steckdosen vorhanden",
+                "Quiet zone":"Ruhebereich",
+                "Air conditioning":"Klimaanlage vorhanden",
+                "Step-free access":"Stufenfreier Einstieg",
+                "Area for people with reduced mobility":"Bereich für mobilitätseingeschränkte Personen",
+                "Bicycles conveyed":"Fahrradmitnahme möglich",
+                "Bicycles conveyed - not possible":"Fahrradmitnahme nicht möglich",
+                "Bicycles conveyed - subject to reservation":"Fahrradmitnahme nur mit Reservierung",
+                "Bicycles conveyed - subject to availability":"Fahrradmitnahme nach Verfügbarkeit",
+                "Number of bicycles conveyed limited":"Fahrradmitnahme eingeschränkt",
+                "one coach missing":"ein Wagen fehlt",
+                "several coaches missing":"mehrere Wagen fehlen",
+                "different coach order":"geänderte Wagenreihung",
+                "no 1st class":"1. Klasse fehlt",
+                "no multi-purpose compartment":"Mehrzweckabteil fehlt",
+                "today: multi-purpose compartment at the front":"heute: Mehrzweckabteil vorne",
+                "today: multi-purpose compartment at the rear":"heute: Mehrzweckabteil hinten",
+                "today: 1st class at the front":"heute: 1. Klasse vorne",
+                "today: 1st class at the rear":"heute: 1. Klasse hinten",
+                "entire train without reservation":"kein Zug ohne Reservierung",
+                "individual coaches without reservation":"einzelne Wagen ohne Reservierung",
+                "overcrowded with compensation":"Überfüllung mit Kulanz",
+                "overcrowded without compensation":"Überfüllung ohne Kulanz",
+                "other quality defects":"sonstige Qualitätsmängel",
+                "no quality defects":"keine Qualitätsmängel",
+                "reservations available again":"Reservierungen wieder möglich",
+                "train running in correct formation":"Zug wieder korrekt gereiht",
             };
-
-            // Regex-Muster für dynamische Meldungen mit eingebetteten Liniennamen.
-            // Die API liefert z.B. "Bus 605 heading towards Büdeshm.-Kempten from here"
-            // oder "Throughbinding from line X" – der Linienname ist variabel.
             const regexTranslations = [
-                // "Bus 605 heading towards Büdeshm.-Kempten from here"
-                // → Fahrzeug kommt von woanders und fährt ab hier als diese Linie
-                {
-                    pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i,
-                    replace: (_, line, dest) =>
-                        `Durchbindung: Kommt als Linie ${line.trim()} aus Richtung ${dest.trim()}.`
-                },
-                // "Bus 605 heading towards Kempten - Bingen Stadtbf"
-                // → Fahrzeug fährt ab hier als andere Linie weiter
-                {
-                    pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,
-                    replace: (_, line, dest) =>
-                        `Durchbindung: Fährt weiter als Linie ${line.trim()} Richtung ${dest.trim()}.`
-                },
-                // Generische Throughbinding-Varianten der DB/VRR API
-                {
-                    pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Durchbindung von Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Durchbindung auf Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Fährt weiter als Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Kommt als Linie ${line.trim()}.`
-                },
-                // "Delay of approx. 5 minutes"
-                {
-                    pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i,
-                    replace: (_, min) => `Verspätung von ca. ${min} Minuten.`
-                },
-                // "Cancelled due to …"
-                {
-                    pattern: /^cancelled\s+due\s+to\s+(.+)$/i,
-                    replace: (_, reason) => `Fällt aus wegen ${reason.trim()}.`
-                },
-                // "Stop X is not served"
-                {
-                    pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,
-                    replace: (_, stop) => `Halt ${stop.trim()} entfällt.`
-                },
+                { pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i, replace: (_, l, d) => `Durchbindung: Kommt als Linie ${l.trim()} aus Richtung ${d.trim()}.` },
+                { pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,             replace: (_, l, d) => `Durchbindung: Fährt weiter als Linie ${l.trim()} Richtung ${d.trim()}.` },
+                { pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,       replace: (_, l) => `Durchbindung von Linie ${l.trim()}.` },
+                { pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i, replace: (_, l) => `Durchbindung auf Linie ${l.trim()}.` },
+                { pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,             replace: (_, l) => `Fährt weiter als Linie ${l.trim()}.` },
+                { pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,               replace: (_, l) => `Kommt als Linie ${l.trim()}.` },
+                { pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i, replace: (_, m) => `Verspätung von ca. ${m} Minuten.` },
+                { pattern: /^cancelled\s+due\s+to\s+(.+)$/i,                    replace: (_, r) => `Fällt aus wegen: ${r.trim()}.` },
+                { pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,          replace: (_, s) => `Halt ${s.trim()} entfällt.` },
             ];
-
-            // Übersetzt einen API-Hinweistext: erst statische Map, dann Regex-Muster
             const translate = (text) => {
                 if (!text) return '';
-                // 1. Exakter Treffer in der statischen Map
                 if (translationMap[text]) return translationMap[text];
-                // 2. Regex-Muster durchprobieren
                 for (const { pattern, replace } of regexTranslations) {
-                    const m = text.match(pattern);
-                    if (m) return text.replace(pattern, replace);
+                    if (text.match(pattern)) return text.replace(pattern, replace);
                 }
-                // 3. Unbekannt: Originaltext zurückgeben
                 return text;
             };
 
-            const sortedStopovers = [...stopovers].sort((a, b) => {
-                return new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival);
-            });
+            const sorted = [...stopovers].sort((a, b) =>
+                new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival)
+            );
+            const now = Date.now();
 
-            sortedStopovers.forEach(stop => {
-                const isCancelled  = stop.cancelled;
-                const isAdditional = stop.additional;
+            sorted.forEach((stop, idx) => {
+                const isFirst    = idx === 0;
+                const isLast     = idx === sorted.length - 1;
+                const isTerminus = isFirst || isLast;
 
-                const schedArr  = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
-                const actualArr = stop.arrival          ? new Date(stop.arrival)           : null;
-                const schedDep  = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
-                const actualDep = stop.departure        ? new Date(stop.departure)         : null;
+                const pArr = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
+                const aArr = stop.arrival          ? new Date(stop.arrival)          : null;
+                const pDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const aDep = stop.departure        ? new Date(stop.departure)        : null;
 
-                const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
-                const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
+                // Welche Zeit in der Zeiten-Spalte: Start→nur Abfahrt, Ende→nur Ankunft, Mitte→Ankunft bevorzugt
+                const schedTime  = isFirst ? pDep : (pArr || pDep);
+                const actualTime = isFirst ? aDep : (aArr || aDep);
+                let   delaySec   = isFirst
+                    ? (stop.departureDelaySec ?? (aDep && pDep ? Math.round((aDep - pDep) / 1000) : null))
+                    : (stop.arrivalDelaySec   ?? (aArr && pArr ? Math.round((aArr - pArr) / 1000) : null));
+                if (delaySec === undefined) delaySec = null;
 
-                const formatTime = (sched, actual, hasLive, delaySec) => {
-                    if (!sched) return '';
-                    const isPast  = actual && actual.getTime() < Date.now();
+                const passed = (aDep && aDep < now) || (aArr && aArr < now) || (!aDep && !aArr && pDep && pDep < now);
+
+                const fmt2 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : null;
+                const fmt3 = d => d ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
+
+                // Delay-Badge:
+                // - Verfrühung (negativ): immer anzeigen, auch <60s (in Sekunden)
+                // - Verspätung (positiv): erst ab 60s (in Minuten)
+                // - Pünktlich (0): grünes +0
+                const makeDelayBadge = (sec, actualTime, plannedTime) => {
+                    if (sec === null || sec === undefined) return { badge: '', timeCls: '' };
+                    const abs = Math.abs(sec);
+                    // Farbklasse
+                    const timeCls = sec >= 60  ? 'text-red-400'
+                                  : sec > 0    ? 'text-orange-400'   // 1-59s Verspätung: orange
+                                  : sec < 0    ? 'text-blue-400'     // Verfrühung: blau
+                                  :              'text-green-400';   // pünktlich: grün
                     
-                    // Delay-Anzeige mit Sekunden-Präzision
-                    let delayStr = '';
-                    if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                        const dc = delaySec > 0 ? 'text-red-500' : 'text-green-500';
-                        const sign = delaySec > 0 ? '+' : ''; // Minus kommt automatisch bei negativen Zahlen
-                        const absDelay = Math.abs(delaySec);
-                        
-                        if (absDelay >= 60) {
-                            // Bei >= 60 Sekunden: Minuten anzeigen (abgerundet für +1 erst ab 60s)
-                            const mins = delaySec >= 0 ? Math.floor(delaySec / 60) : Math.ceil(delaySec / 60);
-                            if (mins !== 0) {
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${mins > 0 ? '+' : ''}${mins}'</span>`;
-                            } else {
-                                // Wenn mins 0 ist (z.B. 59s), zeigen wir Sekunden
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
-                            }
-                        } else {
-                            // Bei < 60 Sekunden: Sekunden anzeigen
-                            delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
-                        }
-                    }
+                    // Sekunden-Anzeige für die Ist-Zeit (immer wenn vorhanden)
+                    // Wenn geplant auch Sekunden hat, zeigen wir diese evtl. auch? bahn.expert zeigt meist nur Ist mit Sekunden.
+                    const actualStr = actualTime ? actualTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                    const actualHtml = actualStr ? `<span class="itin-actual ${timeCls}">${actualStr}</span>` : '';
 
-                    // Keine Echtzeitdaten: nur Soll-Zeit
-                    if (!hasLive && !actual) {
-                        return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    }
-
-                    // Bestimme Farbe basierend auf Verspätung/Verfrühung
-                    const rtColor = delaySec !== null && delaySec !== undefined
-                        ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
-                        : (actual && sched ? (Math.round((actual - sched) / 60000) >= 1 ? 'text-red-400' : 'text-green-400') : 'text-green-400');
-
-                    const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    const showSeconds = delaySec !== null && delaySec !== undefined;
-
-                    if (isPast || showSeconds) {
-                        return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
+                    // Badge-Label (+1', -15s, etc.)
+                    let label, cls;
+                    if (sec === 0) {
+                        label = '+0'; cls = 'delay-zero';
+                    } else if (sec < 0) {
+                        label = abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`;
+                        cls   = 'delay-neg';
+                    } else if (sec >= 60) {
+                        label = `+${Math.floor(sec/60)}'`;
+                        cls   = 'delay-pos';
                     } else {
-                        return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
+                        // 1-59s Verspätung: kein Label, nur Ist-Zeit (mit Sekunden)
+                        return { badge: actualHtml, timeCls };
                     }
+                    const badgeHtml = `<span class="itin-delay ${cls}">${label}</span>`;
+                    return { badge: `${actualHtml}${badgeHtml}`, timeCls };
                 };
 
-                const stopItem = document.createElement('div');
-                stopItem.className = `relative itinerary-item ${isCancelled ? 'opacity-40' : ''}`;
-                stopItem.innerHTML = `
-                    <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}"></div>
-                    <div class="itinerary-item-content">
-                        <div class="flex justify-between items-start gap-2">
-                            <div class="min-w-0">
-                                <h4 class="font-semibold ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''} text-sm">
-                                    ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
-                                </h4>
-                                <div class="itinerary-info mt-1 text-gray-600 dark:text-gray-300">
-                                    ${(() => {
-                                        const planned  = stop.plannedPlatform || stop.stop?.station?.entrances?.[0] || null;
-                                        const actual   = stop.platform || stop.arrivalPlatform || stop.departurePlatform || null;
-                                        const changed  = planned && actual && actual !== planned;
-                                        if (!planned && !actual) return '';
-                                        const display  = actual || planned;
-                                        const cls      = changed ? 'platform-changed' : 'text-gray-500 dark:text-gray-400';
-                                        const label    = changed
-                                            ? `Gleis <span class="line-through opacity-50">${planned}</span> → <span>${actual}</span>`
-                                            : `Gleis ${display}`;
-                                        return `<span class="${cls} font-semibold">${label}</span>`;
-                                    })()}
-                                    ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
-                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 block truncate max-w-full mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
-                                </div>
-                            </div>
-                            <div class="text-right mono text-[11px] leading-tight shrink-0">
-                                ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec)}</div>` : ''}
-                                ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep, stop.departureDelaySec)}</div>` : ''}
-                            </div>
-                        </div>
-                    </div>`;
-                container.appendChild(stopItem);
+                // Ankunft (nicht am Starthalt)
+                const pArrD   = !isFirst ? pArr : null;
+                const aArrD   = !isFirst ? aArr : null;
+                const arrDSec = !isFirst
+                    ? (stop.arrivalDelaySec   ?? (aArrD && pArrD ? Math.round((aArrD - pArrD) / 1000) : delaySec))
+                    : null;
+                const arrEff  = aArrD || (pArrD && arrDSec !== null ? new Date(pArrD.getTime() + arrDSec * 1000) : null);
+                const { badge: arrBadge, timeCls: arrCls } = makeDelayBadge(arrDSec, arrEff, pArrD);
+
+                // Abfahrt (nicht am Endhalt)
+                const pDepD   = !isLast ? pDep : null;
+                const aDepD   = !isLast ? aDep : null;
+                const depDSec = !isLast
+                    ? (stop.departureDelaySec ?? (aDepD && pDepD ? Math.round((aDepD - pDepD) / 1000) : delaySec))
+                    : null;
+                const depEff  = aDepD || (pDepD && depDSec !== null ? new Date(pDepD.getTime() + depDSec * 1000) : null);
+                const { badge: depBadge, timeCls: depCls } = makeDelayBadge(depDSec, depEff, pDepD);
+
+                // Zeitzeile: Soll | Ist (dünn+kursiv wenn Zukunft) | Badge
+                const makeTimeRow = (label, schedD, effActD, badge, timeCls) => {
+                    if (!schedD) return '';
+                    // Ist-Zeit (effActD) wird bereits im Badge/Label mit Sekunden angezeigt
+                    return `<div class="itin-time-row"><span class="itin-label">${label}</span><span class="itin-sched${passed ? ' opacity-40' : ''}">${fmt2(schedD)}</span>${badge}</div>`;
+                };
+
+                const arrRow = makeTimeRow('an', pArrD, arrEff, arrBadge, arrCls);
+                const depRow = makeTimeRow('ab', pDepD, depEff, depBadge, depCls);
+
+                const row = document.createElement('div');
+                row.className = [
+                    'itinerary-item',
+                    stop.cancelled  ? 'is-cancelled'  : '',
+                    stop.additional ? 'is-additional' : '',
+                ].join(' ').trim();
+
+                // Gleis-Daten (finale HTML-Ausgabe passiert weiter unten nach Produkt-Erkennung)
+                const platPlanned = stop.plannedPlatform || null;
+                const platActual  = stop.platform || null;
+                const platChanged = platPlanned && platActual && platPlanned !== platActual;
+                const platDisplay = platActual || platPlanned;
+
+                // Hinweis
+                const remarkText = stop.remarks?.[0]?.text;
+                const remarkHtml = remarkText
+                    ? `<span class="itin-remark"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(remarkText)}</span>`
+                    : '';
+
+                // Besondere Halt-Zustände bestimmen
+                const isCancelledStop  = stop.cancelled;
+                const isAdditionalStop = stop.additional;
+                // Produkt aus Liniendaten (wird im Fahrtverlauf nicht immer geliefert)
+                // Wir nutzen den übergeordneten currentTripDetail
+                const isBusTrip = currentTripDetail?.line?.product === 'bus' ||
+                                  currentTripDetail?.line?.product === 'tram' ||
+                                  currentTripDetail?.line?.product === 'subway';
+                const platLabel = isBusTrip ? 'Bussteig' : 'Gleis';
+
+                // Dot-Farbe nach Status
+                const dotColor = isCancelledStop  ? 'bg-gray-600'
+                               : isAdditionalStop ? 'bg-blue-500'
+                               : passed           ? 'bg-gray-600'
+                               :                    'bg-red-600';
+
+                // Namens-Style
+                const nameStyle = isCancelledStop
+                    ? 'line-through text-gray-500'
+                    : isAdditionalStop
+                        ? 'text-blue-400'
+                        : '';
+
+                // Statusbadge
+                const statusBadge = isCancelledStop
+                    ? '<span class="ml-1.5 text-[9px] font-bold text-red-500 uppercase bg-red-500/10 px-1 rounded">entfällt</span>'
+                    : isAdditionalStop
+                        ? '<span class="ml-1.5 text-[9px] font-bold text-blue-400 uppercase bg-blue-500/10 px-1 rounded">Zusatz</span>'
+                        : '';
+
+                // Gleis/Bussteig mit Änderungsmarkierung
+                const platHtmlFinal = platDisplay
+                    ? platChanged
+                        ? `<span class="itin-platform changed" title="Gleis geändert">⚠ ${platLabel} ${platActual} <span class="line-through opacity-50">${platPlanned}</span></span>`
+                        : `<span class="itin-platform">${platLabel} ${platDisplay}</span>`
+                    : '';
+
+                row.innerHTML = `
+                    <div class="itin-times">
+                        ${isFirst ? depRow : arrRow}
+                        ${!isFirst && !isLast ? depRow : ''}
+                        ${isLast  ? makeTimeRow('an', pArr, arrEff, arrBadge, arrCls) : ''}
+                    </div>
+                    <div class="itin-dot-col">
+                        <div class="itin-seg${isFirst ? ' opacity-0' : ''}"></div>
+                        <div class="itin-dot ${dotColor}${isTerminus ? ' terminus' : ''}"></div>
+                        <div class="itin-seg${isLast ? ' opacity-0' : ''}"></div>
+                    </div>
+                    <div>
+                        <span class="itin-name${isTerminus ? ' terminus' : ''}${passed && !isCancelledStop ? ' passed' : ''} ${nameStyle}">${stop.stop.name}</span>${statusBadge}${platHtmlFinal}${remarkHtml}
+                    </div>
+                `;
+                container.appendChild(row);
             });
 
+            // Gesamthinweise am Ende
             if (tripRemarks.length > 0) {
-                const remarksContainer = document.createElement('div');
-                remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-1';
-                tripRemarks.forEach(rem => {
-                    const rDiv = document.createElement('div');
-                    rDiv.className = 'text-[10px] text-red-500 font-medium flex items-start gap-2';
-                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${translate(rem.text)}</span>`;
-                    remarksContainer.appendChild(rDiv);
+                const rem = document.createElement('div');
+                rem.className = 'mt-3 pt-3 border-t border-zinc-900 space-y-1';
+                tripRemarks.forEach(r => {
+                    const d = document.createElement('div');
+                    d.className = 'text-[10px] text-red-500 flex items-start gap-1.5';
+                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5 shrink-0"></i><span>${translate(r.text)}</span>`;
+                    rem.appendChild(d);
                 });
-                container.appendChild(remarksContainer);
+                container.appendChild(rem);
             }
         }
 
@@ -2053,14 +2207,25 @@
             for (const trip of trips) {
                 if (!trip.tripId) continue;
                 try {
-                    const res  = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(trip.tripId)}`);
+                    // Versuche DB-Endpoint, dann VRR-Fallback
+                    let res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(trip.tripId)}`);
+                    if (!res.ok) res = await fetch(`${API_BASE}/api/trips/${encodeURIComponent(trip.tripId)}`);
                     if (!res.ok) continue;
                     const data = await res.json();
                     const dep  = data.stopovers?.find(s => s.departureDelaySec !== null);
-                    if (dep && dep.departureDelaySec >= 300) {
+                    // Benachrichtigung ab +3 Minuten (180s) Verspätung
+                    const notifKey = `notif_${trip.key}_${Math.floor(Date.now()/300000)}`; // max 1x alle 5min
+                    const worstStop = data.stopovers?.reduce((best, s) => {
+                        const d = s.departureDelaySec ?? s.arrivalDelaySec;
+                        return (d !== null && (best === null || d > (best.departureDelaySec ?? best.arrivalDelaySec ?? 0))) ? s : best;
+                    }, null);
+                    const worstDelay = worstStop ? (worstStop.departureDelaySec ?? worstStop.arrivalDelaySec ?? 0) : 0;
+                    if (worstDelay >= 180 && !sessionStorage.getItem(notifKey)) {
+                        sessionStorage.setItem(notifKey, '1');
+                        const mins = Math.round(worstDelay / 60);
                         showLocalNotification(
                             `${trip.line} → ${trip.direction}`,
-                            `Verspätung: +${Math.round(dep.departureDelaySec/60)} Min bei ${dep.stop?.name}`
+                            `+${mins} Min Verspätung bei ${worstStop?.stop?.name || 'einem Halt'}`
                         );
                     }
                 } catch {}
@@ -2093,6 +2258,7 @@
         let trainMap = null;
         let trainMarker = null;
         let trainPolyline = null;
+        let trainStopMarkers = [];
         let mapRefreshTimer = null;
 
         function switchDetailTab(tab) {
@@ -2106,7 +2272,10 @@
                     active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'
                 }`;
             });
-            if (tab === 'map'         && currentTripDetail) initTrainMap(currentTripDetail);
+            if (tab === 'map'         && currentTripDetail) {
+                initTrainMap(currentTripDetail);
+                if (trainMap) setTimeout(() => trainMap.invalidateSize(), 400);
+            }
             if (tab === 'punctuality' && currentTripDetail) renderPunctualityHistory(currentTripDetail);
             if (tab === 'zuglauf'     && currentTripDetail) renderZuglauf(currentTripDetail);
             // Karten-Refresh stoppen wenn nicht auf Karte
@@ -2114,6 +2283,16 @@
                 clearInterval(mapRefreshTimer);
                 mapRefreshTimer = null;
             }
+        }
+
+        async function changeTripDate(offset) {
+            if (!currentTripDetail) return;
+            const currentStr = $('query-date').value || new Date().toISOString().slice(0, 10);
+            const date = new Date(currentStr);
+            date.setDate(date.getDate() + offset);
+            const newDateStr = date.toISOString().slice(0, 10);
+            $('query-date').value = newDateStr;
+            await showTripDetails(currentTripDetail);
         }
 
         // ─── Zugverfolgung auf Karte ─────────────────────────────────────────────────
@@ -2124,142 +2303,234 @@
 
             statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Kartendaten...';
 
-            // Karte initialisieren (nur einmal)
-            if (!trainMap) {
-                trainMap = L.map('train-map', { zoomControl: true, attributionControl: false });
-                // Dark-Mode Kacheln (CartoDB Dark Matter)
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 18, subdomains: 'abcd'
-                }).addTo(trainMap);
-                L.control.attribution({ prefix: '© OSM · CartoDB' }).addTo(trainMap);
+            // Karte immer neu aufbauen (DOM-Element kann nach Reopen neu sein)
+            if (trainMap) {
+                try { trainMap.remove(); } catch(e) {}
+                trainMap = null;
+                trainMarker = null;
+                trainPolyline = null;
             }
+            // Sicherstellen dass das Element leer ist
+            mapEl.innerHTML = '';
 
-            // Alte Layer entfernen
-            if (trainMarker)   { trainMap.removeLayer(trainMarker);   trainMarker   = null; }
-            if (trainPolyline) { trainMap.removeLayer(trainPolyline); trainPolyline = null; }
+            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false }).setView([51.1657, 10.4515], 6);
 
-            await updateTrainMapPosition(dep);
+            // Helle Basiskarte (CartoDB Voyager) - URL fix: {r} entfernt
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+                maxZoom: 19, subdomains: 'abcd',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            }).addTo(trainMap);
 
-            // Alle 20s aktualisieren solange Karte sichtbar
-            if (mapRefreshTimer) clearInterval(mapRefreshTimer);
-            mapRefreshTimer = setInterval(() => {
-                if (!$('panel-map').classList.contains('hidden')) {
-                    updateTrainMapPosition(dep);
-                }
-            }, 20000);
+            // OpenRailwayMap Overlay
+            L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                opacity: 0.6,
+                tileSize: 256,
+                zoomOffset: 0
+            }).addTo(trainMap);
+
+            L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
+
+            // Kurz warten bis das Element gerendert ist, dann Daten laden
+            setTimeout(async () => {
+                trainMap.invalidateSize();
+                await updateTrainMapPosition(dep);
+
+                // Alle 20s aktualisieren solange Karte sichtbar
+                if (mapRefreshTimer) clearInterval(mapRefreshTimer);
+                mapRefreshTimer = setInterval(() => {
+                    if (!$('panel-map').classList.contains('hidden')) {
+                        updateTrainMapPosition(dep);
+                    }
+                }, 20000);
+            }, 300); // Erhöhtes Timeout für Layout-Settling
         }
 
         async function updateTrainMapPosition(dep) {
             const statusEl = $('map-status');
-            const dbTripId = dep.dbTripId || dep.tripId;
+            if (!trainMap) return;
 
-            // Stopovers holen (nutze gecachte wenn vorhanden)
-            let stopovers = currentDetailStopovers;
-            if (!stopovers?.length && dbTripId) {
+            const dbTripId = dep?.dbTripId || dep?.tripId;
+            const source   = dep?._source || (dep?.sourceApi === 'Deutsche Bahn' ? 'DB' : 'VRR');
+            let stopovers  = currentDetailStopovers;
+
+            // 1. Falls keine Koordinaten da sind, versuchen nachzuladen
+            const hasCoords = stopovers?.some(s => (s.stop?.location?.latitude || s.stop?.location?.lat) && Math.abs(s.stop.location.latitude || s.stop.location.lat) > 1);
+
+            if (!hasCoords && dbTripId) {
                 try {
-                    const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false`;
-                    const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Streckendaten...';
+                    const apiPath = source.includes('DB') || source.includes('Bahn') 
+                        ? `/api/db/trip-details?tripId=${encodeURIComponent(dbTripId)}`
+                        : `/api/trips/${encodeURIComponent(dbTripId)}`;
+                    
+                    const r = await fetch(`${API_BASE}${apiPath}`);
                     if (r.ok) {
                         const d = await r.json();
-                        stopovers = (d.trip ?? d).stopovers || [];
+                        stopovers = d.stopovers || [];
+                        currentDetailStopovers = stopovers;
                     }
-                } catch {}
+                } catch (e) { console.warn('Map data fetch error:', e); }
             }
 
-            if (!stopovers?.length) {
-                statusEl.textContent = 'Keine Positionsdaten verfügbar.';
-                return;
-            }
-
-            // Koordinaten der Halte aus den Stopovers extrahieren
-            // v6.db.transport.rest liefert stop.location.latitude/longitude
-            const points = stopovers
-                .filter(s => s.stop?.location?.latitude)
+            // Koordinaten extrahieren & Validieren (gegen 0,0 / Weltkarten-Bug)
+            const points = (stopovers || [])
+                .filter(s => {
+                    const loc = s.stop?.location;
+                    const lat = loc?.latitude || loc?.lat;
+                    const lng = loc?.longitude || loc?.lng;
+                    // Strengere Validierung: Muss in Europa liegen (ca. 35-72 N, -25-45 E)
+                    return lat && lng && lat > 30 && lat < 75 && lng > -30 && lng < 50;
+                })
                 .map(s => ({
-                    lat:    s.stop.location.latitude,
-                    lng:    s.stop.location.longitude,
-                    name:   s.stop.name,
+                    lat:     s.stop.location.latitude || s.stop.location.lat,
+                    lng:     s.stop.location.longitude || s.stop.location.lng,
+                    name:    s.stop.name,
                     planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
-                    actual:  s.departure || s.arrival
-                        ? new Date(s.departure || s.arrival).getTime()
-                        : null
+                    actual:  (s.departure || s.arrival) ? new Date(s.departure || s.arrival).getTime() : null
                 }));
 
             if (!points.length) {
-                statusEl.textContent = 'Keine Koordinaten in den Streckendaten.';
+                statusEl.innerHTML = '<span class="text-yellow-500"><i class="fas fa-info-circle mr-1"></i>Keine Positionsdaten für diese Fahrt verfügbar.</span>';
+                if (trainMap.getZoom() < 3) trainMap.setView([51.1657, 10.4515], 6);
                 return;
             }
 
-            // Zugposition interpolieren
+            // 3. Karte initialisieren / updaten
             const now  = Date.now();
             const pos  = interpolateTrainPosition(points, now);
 
-            // Strecke zeichnen
-            if (trainPolyline) trainMap.removeLayer(trainPolyline);
-            const latLngs = points.map(p => [p.lat, p.lng]);
-            trainPolyline = L.polyline(latLngs, {
-                color: '#ef4444', weight: 3, opacity: 0.7, dashArray: '6,4'
-            }).addTo(trainMap);
+            // Layer aufräumen
+            trainStopMarkers.forEach(m => { try { trainMap.removeLayer(m); } catch(e){} });
+            trainStopMarkers = [];
+            if (trainPolyline) { try { trainMap.removeLayer(trainPolyline); } catch(e){} }
 
-            // Halte als kleine Kreise zeichnen
+            // Strecke zeichnen (bevorzugt Polyline aus API, sonst direkte Punkte)
+            if (currentTripDetail?.polyline?.features?.length) {
+                // GeoJSON Polyline verwenden
+                trainPolyline = L.geoJSON(currentTripDetail.polyline, {
+                    style: { color: '#3b82f6', weight: 4, opacity: 0.7 }
+                }).addTo(trainMap);
+            } else {
+                const latLngs = points.map(p => [p.lat, p.lng]);
+                trainPolyline = L.polyline(latLngs, {
+                    color: '#3b82f6', weight: 4, opacity: 0.6
+                }).addTo(trainMap);
+            }
+
+            // Halte zeichnen (Alle Halte!)
             points.forEach((p, i) => {
-                const isPast    = (p.actual || p.planned) < now;
-                const isNext    = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
-                const color     = isPast ? '#374151' : isNext ? '#f97316' : '#6b7280';
-                const radius    = isNext ? 7 : 5;
-                L.circleMarker([p.lat, p.lng], {
-                    radius, color, fillColor: color, fillOpacity: 1, weight: isNext ? 2 : 1,
-                    bubblingMouseEvents: false
-                }).bindTooltip(p.name, { direction: 'top', offset: [0, -8] }).addTo(trainMap);
+                const isPast = (p.actual || p.planned) < now;
+                const isNext = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
+                const color  = isPast ? '#94a3b8' : isNext ? '#ef4444' : '#cbd5e1';
+                
+                const sm = L.circleMarker([p.lat, p.lng], {
+                    radius: isNext ? 6 : 4,
+                    color: '#fff', weight: 1,
+                    fillColor: color, fillOpacity: 1
+                }).bindTooltip(p.name, { direction: 'top', offset: [0, -5] }).addTo(trainMap);
+                trainStopMarkers.push(sm);
             });
 
-            // Zugmarker setzen / updaten
+            // Zug-Marker
             if (trainMarker) trainMap.removeLayer(trainMarker);
             const trainIcon = L.divIcon({
-                html: '<div class="train-marker-icon"><i class="fas fa-train" style="font-size:12px"></i></div>',
-                className: '', iconSize: [28, 28], iconAnchor: [14, 14]
+                html: `<div class="train-marker-icon"><i class="fas fa-train"></i></div>`,
+                className: '', iconSize: [30, 30], iconAnchor: [15, 15]
             });
+            
+            const lastUpdate = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const speedInfo = pos.speed > 0 ? `<br><span class="text-blue-400 font-bold">${pos.speed} km/h</span>` : '';
+            
             trainMarker = L.marker([pos.lat, pos.lng], { icon: trainIcon, zIndexOffset: 1000 })
-                .bindPopup(`<b>${dep.line?.name || ''}</b><br>${dep.direction || ''}<br><span style="font-size:11px;color:#9ca3af">${pos.label}</span>`)
-                .addTo(trainMap);
+                .bindPopup(`
+                    <div class="text-zinc-900 p-1">
+                        <div class="font-black text-red-600 italic">${dep.line?.name || ''}</div>
+                        <div class="font-bold text-xs mb-1">${dep.direction || ''}</div>
+                        <div class="text-[10px] text-zinc-500 border-t pt-1">
+                            ${pos.label}${speedInfo}<br>
+                            Aktualisiert: ${lastUpdate}
+                        </div>
+                    </div>
+                `, { closeButton: false, autoClose: false, closeOnClick: false })
+                .addTo(trainMap)
+                .openPopup();
 
-            // Karte auf Zug zentrieren
-            trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 8 ? 11 : trainMap.getZoom());
-            // Invalidate size (wichtig wenn Tab vorher hidden war)
-            setTimeout(() => trainMap.invalidateSize(), 100);
-
-            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label} · zuletzt aktualisiert ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+            // Fokus setzen (nur wenn nicht manuell verschoben)
+            trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 10 ? 12 : trainMap.getZoom());
+            
+            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label} (${lastUpdate})`;
+            setTimeout(() => trainMap.invalidateSize(), 200);
         }
 
-        // Interpoliert die aktuelle Zugposition zwischen zwei bekannten Halten
+        // Interpoliert die aktuelle Zugposition (bevorzugt auf der echten Polyline)
         function interpolateTrainPosition(points, now) {
-            if (!points.length) return { lat: 0, lng: 0, label: '?' };
+            if (!points.length) return { lat: 0, lng: 0, label: '?', speed: 0 };
 
-            // Alle bereits abgefahrenen Punkte
+            // 1. Polyline-Punkte nutzen falls vorhanden
+            let path = [];
+            if (currentTripDetail?.polyline?.features?.length) {
+                const feature = currentTripDetail.polyline.features.find(f => f.geometry.type === 'LineString');
+                if (feature) {
+                    path = feature.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+                }
+            }
+            
             const past   = points.filter(p => (p.actual || p.planned) <= now);
             const future = points.filter(p => (p.actual || p.planned) >  now);
 
-            if (!past.length)   return { ...points[0],    label: `Vor ${points[0].name}` };
-            if (!future.length) return { ...points[points.length-1], label: `Nach ${points[points.length-1].name}` };
+            if (!past.length)   return { ...points[0], label: `Vor ${points[0].name}`, speed: 0 };
+            if (!future.length) return { ...points[points.length-1], label: `Nach ${points[points.length-1].name}`, speed: 0 };
 
             const from = past[past.length - 1];
             const to   = future[0];
-
             const segStart = from.actual || from.planned;
             const segEnd   = to.actual   || to.planned;
             const segLen   = segEnd - segStart;
             const t        = segLen > 0 ? Math.min(1, Math.max(0, (now - segStart) / segLen)) : 0;
 
-            // Lineare Interpolation der Koordinaten
-            const lat = from.lat + (to.lat - from.lat) * t;
-            const lng = from.lng + (to.lng - from.lng) * t;
+            let lat, lng;
+            if (path.length > 0) {
+                // Den Teil der Polyline finden, der zwischen 'from' und 'to' liegt
+                // Wir suchen die Indizes der Haltestellen in der Polyline (näherungsweise)
+                const findIdx = (p) => {
+                    let minD = Infinity, idx = 0;
+                    for (let i=0; i<path.length; i++) {
+                        const d = Math.pow(path[i].lat - p.lat, 2) + Math.pow(path[i].lng - p.lng, 2);
+                        if (d < minD) { minD = d; idx = i; }
+                    }
+                    return idx;
+                };
+                const startIdx = findIdx(from);
+                const endIdx   = findIdx(to);
+                
+                if (startIdx < endIdx) {
+                    const subPath = path.slice(startIdx, endIdx + 1);
+                    const subIdx = Math.floor(t * (subPath.length - 1));
+                    const subT   = (t * (subPath.length - 1)) - subIdx;
+                    const p1 = subPath[subIdx];
+                    const p2 = subPath[Math.min(subIdx + 1, subPath.length - 1)];
+                    lat = p1.lat + (p2.lat - p1.lat) * subT;
+                    lng = p1.lng + (p2.lng - p1.lng) * subT;
+                } else {
+                    lat = from.lat + (to.lat - from.lat) * t;
+                    lng = from.lng + (to.lng - from.lng) * t;
+                }
+            } else {
+                lat = from.lat + (to.lat - from.lat) * t;
+                lng = from.lng + (to.lng - from.lng) * t;
+            }
+
+            // km/h Berechnung
+            const R = 6371;
+            const dLat = (to.lat - from.lat) * Math.PI / 180;
+            const dLng = (to.lng - from.lng) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const speed = segLen > 0 ? Math.round((R * c) / (segLen / 3600000)) : 0;
 
             const minLeft = Math.round((segEnd - now) / 60000);
-            const label   = minLeft <= 0
-                ? `Ankunft in ${to.name}`
-                : `→ ${to.name} in ~${minLeft} Min`;
-
-            return { lat, lng, label };
+            return { lat, lng, label: minLeft <= 0 ? `Ankunft in ${to.name}` : `→ ${to.name} in ~${minLeft} Min`, speed };
         }
 
         // Stopovers der aktuellen Fahrt cachen für Karten-Wiederverwendung
@@ -2360,8 +2631,10 @@
                 const total     = records.length;
                 const cancelled = records.filter(r => r.cancelled).length;
                 const withDelay = records.filter(r => !r.cancelled && r.delaySec !== null);
-                const onTime    = withDelay.filter(r => r.delaySec < 60).length;
-                const delayed   = withDelay.filter(r => r.delaySec >= 60).length;
+                // DB offiziell ab +6min, ÖPNV ab +3min
+                const punctThreshSec = isTrain({ name: lineName }) ? 360 : 180;
+                const onTime    = withDelay.filter(r => r.delaySec < punctThreshSec).length;
+                const delayed   = withDelay.filter(r => r.delaySec >= punctThreshSec).length;
                 const avgDelay  = withDelay.length
                     ? Math.round(withDelay.reduce((s, r) => s + Math.max(0, r.delaySec), 0) / withDelay.length)
                     : 0;
@@ -2393,7 +2666,7 @@
                         <div class="flex items-center justify-between">
                             <div>
                                 <div class="text-3xl font-black ${pctColor}">${pctOnTime}%</div>
-                                <div class="text-[10px] text-gray-500">pünktlich (< 1 Min)</div>
+                                <div class="text-[10px] text-gray-500">pünktlich (< ${isTrain({name:lineName})?'6':'3'} Min)</div>
                             </div>
                             <div class="text-right text-[10px] text-gray-400 space-y-0.5">
                                 <div><span class="text-white font-bold">${total}</span> Fahrten gespeichert</div>
@@ -2509,9 +2782,17 @@
                                     const act  = s.departure || s.arrival;
                                     const plan = s.plannedDeparture || s.plannedArrival;
                                     if (!act || !plan) return '';
-                                    const d = Math.round((new Date(act) - new Date(plan)) / 60000);
-                                    if (d <= 0) return '';
-                                    return `<span class="text-red-400 text-[9px] ml-1">+${d}'</span>`;
+                                    const d = Math.round((new Date(act) - new Date(plan)) / 1000);
+                                    if (Math.abs(d) < 60) return '';
+                                    const mins = Math.round(d / 60);
+                                    const sign = mins > 0 ? '+' : '';
+                                    const cls  = mins >= 1 ? 'text-red-400' : 'text-blue-400';
+                                    return `<span class="${cls} text-[9px] ml-1">${sign}${mins}'</span>`;
+                                })();
+                                const actTime = (() => {
+                                    const act  = s.departure || s.arrival;
+                                    if (!act) return '';
+                                    return `<span class="text-gray-300 text-[9px] ml-1">${new Date(act).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>`;
                                 })();
                                 const cancelled = s.cancelled
                                     ? '<span class="text-red-500 text-[9px] ml-1">[entfällt]</span>' : '';
@@ -2522,7 +2803,7 @@
                                 return `<div class="flex items-center gap-2 px-3 py-1.5 text-xs ${bg} ${isFirst||isLast?'font-bold':''}">
                                     <span class="text-[10px] w-3 text-center">${dot}</span>
                                     <span class="flex-1 truncate ${s.cancelled?'line-through text-gray-500':''}">${s.stop?.name||''}</span>
-                                    <span class="font-mono text-gray-400 shrink-0">${timeStr}${delay}${cancelled}</span>
+                                    <span class="font-mono text-gray-400 shrink-0">${timeStr}${actTime}${delay}${cancelled}</span>
                                 </div>`;
                             }).join('')}
                         </div>
