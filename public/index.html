@@ -2533,12 +2533,9 @@
 
         // ─── autoSaveDepartures in refreshDepartures einbinden ────────────────────────
 
+        // Alle 90s watched trips prüfen
+        setInterval(checkWatchedTrips, 90000);
 
-setInterval(checkWatchedTrips, 90000);
-
-        // Uhrzeit sofort beim Laden starten
-        updateClock();
-        setInterval(updateClock, 1000);
         init();
     </script>
 </body>
