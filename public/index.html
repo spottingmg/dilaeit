@@ -12,7 +12,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
         
         :root {
-           --bg-primary: #ffffff;
+            --bg-primary: #ffffff;
             --bg-secondary: #f3f4f6;
             --text-primary: #111827;
             --text-secondary: #4b5563;
@@ -67,7 +67,6 @@
             color: #9ca3af !important;
             text-decoration: line-through;
         }
-
 
         .realtime-on-time { color: var(--success); }
         .realtime-delay { color: var(--error); }
@@ -125,38 +124,28 @@
         .thin-prognosis { font-weight: 300; }
         .precision-time { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
-        /* ── Kompakter Fahrtverlauf (bahn.expert-Stil) ── */
-        .itinerary-line { display:none; }
-        .itinerary-item {
-            display:grid; grid-template-columns:120px 14px 1fr;
-            align-items:center; min-height:28px; column-gap:6px;
-            padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04); font-size:11px;
+        .itinerary-line {
+            position: absolute;
+            left: 14px; top: 0; bottom: 0;
+            width: 2px;
+            background-color: #374151;
+            z-index: 0;
         }
-        .itinerary-item:last-child { border-bottom:none; }
-        .itin-dot-col { display:flex; flex-direction:column; align-items:center; height:100%; }
-        .itin-seg { width:2px; flex:1; background:#4b5563; min-height:6px; }
-        .itin-dot { width:8px; height:8px; border-radius:50%; background:#ef4444; border:2px solid #09090b; flex-shrink:0; }
-        .itin-dot.terminus { width:10px; height:10px; }
-        .itin-dot.passed   { background:#4b5563; }
-        .itin-times { font-family:'JetBrains Mono',monospace; font-size:10.5px; white-space:nowrap; }
-        .itin-time-row { display:flex; align-items:baseline; gap:3px; justify-content:flex-end; }
-        .itin-label  { font-size:8px; color:#4b5563; text-transform:uppercase; min-width:10px; }
-        .itin-sched  { color:#9ca3af; }
-        .itin-actual { font-weight:700; }
-        .itin-delay  { font-size:9px; font-weight:700; }
-        .itin-platform { font-size:9px; color:#6b7280; font-family:'JetBrains Mono',monospace; margin-left:4px; }
-        .itin-platform.changed { color:#f97316; font-weight:700; }
-        .itin-remark { font-size:9px; color:#ef4444; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .itin-name { font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .itin-name.terminus { font-weight:600; }
-        .itin-name.passed   { opacity:0.5; }
-        .delay-pos  { color:#f87171; }
-        .delay-neg  { color:#60a5fa; }
-        .delay-zero { color:#4ade80; }
-        .itinerary-item-content { margin-left:12px; }
-        #trip-itinerary { max-height:62vh; overflow-y:auto; }
-        #detail-trip-id { font-size:0.76rem; font-weight:700; }
-        .itinerary-info { font-size:0.73rem; }
+
+        .itinerary-item {
+            padding-left: 32px;
+            margin-bottom: 0.45rem;
+            min-height: 48px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .itinerary-item-content { margin-left: 12px; }
+
+        #trip-itinerary { max-height: 62vh; overflow-y: auto; }
+        #detail-trip-id { font-size: 0.76rem; font-weight: 700; }
+        .itinerary-info { font-size: 0.73rem; }
     </style>
     <script>
         tailwind.config = {
@@ -934,7 +923,7 @@
                     : 'text-green-500';
                 const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
                 const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
- 
+
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
@@ -1477,7 +1466,7 @@
                 // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
                 if (!url && vrrTripId) {
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                    sourceName = isTrainLine ? 'Deutsche Bahn (Fallback)' : 'VRR OpenService';
+                    sourceName = isTrainLine ? 'Deutsche Bahn' : 'VRR OpenData;
                 }
                 
                 if (!url) throw new Error('Keine gültige Trip-ID gefunden');
@@ -1489,8 +1478,7 @@
                 const data = await res.json();
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
-                currentDetailStopovers = stops;
-                currentDetailPolyline  = data.polyline?.length ? data.polyline.map(p=>Array.isArray(p)?p:[p.lat,p.lng]) : null;
+                currentDetailStopovers = stops; // Für Karte cachen
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
                 // Neue Features
@@ -1720,7 +1708,7 @@
                     // Delay-Anzeige mit Sekunden-Präzision
                     let delayStr = '';
                     if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                        const dc = delaySec > 0 ? 'text-red-500' : delaySec < 0 ? 'text-blue-400' : 'text-green-500';
+                        const dc = delaySec > 0 ? 'text-red-500' : 'text-green-500';
                         const sign = delaySec > 0 ? '+' : ''; // Minus kommt automatisch bei negativen Zahlen
                         const absDelay = Math.abs(delaySec);
                         
@@ -1746,7 +1734,7 @@
 
                     // Bestimme Farbe basierend auf Verspätung/Verfrühung
                     const rtColor = delaySec !== null && delaySec !== undefined
-                        ? (delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-green-400')
+                        ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
                         : (actual && sched ? (Math.round((actual - sched) / 60000) >= 1 ? 'text-red-400' : 'text-green-400') : 'text-green-400');
 
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
@@ -1759,61 +1747,39 @@
                     }
                 };
 
-                const si2     = sortedStopovers.indexOf(stop);
-                const isFirst = si2 === 0;
-                const isLast  = si2 === sortedStopovers.length - 1;
-                const isTerm  = isFirst || isLast;
-                const tnow    = Date.now();
-                const passed  = (actualDep&&actualDep<tnow)||(actualArr&&actualArr<tnow)||(!actualDep&&!actualArr&&schedDep&&schedDep<tnow);
-
-                const mkBadge = (sec) => {
-                    if (sec===null||sec===undefined) return {b:'',c:''};
-                    const abs=Math.abs(sec), tc=sec>=60?'text-red-400':sec<=-60?'text-blue-400':'text-green-400';
-                    if (sec===0)  return {b:'<span class="itin-delay delay-zero">+0</span>',c:tc};
-                    if (sec<0)    return {b:`<span class="itin-delay delay-neg">${abs>=60?`-${Math.round(abs/60)}'`:`-${abs}s`}</span>`,c:tc};
-                    if (abs<60)   return {b:'',c:tc};
-                    return {b:`<span class="itin-delay delay-pos">+${Math.round(abs/60)}'</span>`,c:tc};
-                };
-                const {b:ab,c:ac}=mkBadge(stop.arrivalDelaySec);
-                const {b:db,c:dc2}=mkBadge(stop.departureDelaySec);
-
-                const f2=d=>d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
-                const f3=d=>d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-                const mkRow=(lbl,sch,act,bdg,cls,real)=>{
-                    if(!sch) return '';
-                    const fut=act?act>new Date():true;
-                    const ah=act?`<span class="itin-actual ${cls}${fut?' font-light italic opacity-80':''}">${real&&!fut?f3(act):f2(act)}</span>`:'';
-                    return `<div class="itin-time-row"><span class="itin-label">${lbl}</span><span class="itin-sched${passed?' opacity-40':''}">${f2(sch)}</span>${ah}${bdg}</div>`;
-                };
-
-                const platPlan=stop.plannedPlatform||null, platAct=stop.platform||null;
-                const platChg=platPlan&&platAct&&platPlan!==platAct, platDisp=platAct||platPlan;
-                const platHtml=platDisp?`<span class="itin-platform${platChg?' changed':''}">${platChg?`⚠ Gl.${platAct} <s>${platPlan}</s>`:`Gl.${platDisp}`}</span>`:'';
-                const remHtml=(stop.remarks?.length?`<span class="itin-remark"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>`:'')
-                    +(isCancelled?'<span class="itin-remark text-red-500">Halt entfällt</span>':'')
-                    +(isAdditional?'<span class="itin-remark text-blue-400">Zusatzhalt</span>':'');
-
-                const arrRow=!isFirst?mkRow('an',schedArr,actualArr,ab,ac,!!actualArr):'';
-                const depRow=!isLast ?mkRow('ab',schedDep,actualDep,db,dc2,!!actualDep):'';
-                const endRow=isLast  ?mkRow('an',schedArr,actualArr,ab,ac,!!actualArr):'';
-
-                const stopItem=document.createElement('div');
-                stopItem.className=['itinerary-item',isCancelled?'is-cancelled':'',isAdditional?'is-additional':''].join(' ').trim();
-                stopItem.innerHTML=`
-                    <div class="itin-times">
-                        ${isFirst?depRow:arrRow}
-                        ${!isFirst&&!isLast?depRow:''}
-                        ${endRow}
-                    </div>
-                    <div class="itin-dot-col">
-                        <div class="itin-seg${isFirst?' opacity-0':''}"></div>
-                        <div class="itin-dot${isTerm?' terminus':''}${passed?' passed':''}"></div>
-                        <div class="itin-seg${isLast?' opacity-0':''}"></div>
-                    </div>
-                    <div>
-                        <span class="itin-name${isTerm?' terminus':''}${passed?' passed':''}${isCancelled?' line-through opacity-40':''}${isAdditional?' text-blue-400':''}">${stop.stop.name}</span>${platHtml}${remHtml}
-                    </div>
-                `;
+                const stopItem = document.createElement('div');
+                stopItem.className = `relative itinerary-item ${isCancelled ? 'opacity-40' : ''}`;
+                stopItem.innerHTML = `
+                    <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}"></div>
+                    <div class="itinerary-item-content">
+                        <div class="flex justify-between items-start gap-2">
+                            <div class="min-w-0">
+                                <h4 class="font-semibold ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''} text-sm">
+                                    ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
+                                </h4>
+                                <div class="itinerary-info mt-1 text-gray-600 dark:text-gray-300">
+                                    ${(() => {
+                                        const planned  = stop.plannedPlatform || stop.stop?.station?.entrances?.[0] || null;
+                                        const actual   = stop.platform || stop.arrivalPlatform || stop.departurePlatform || null;
+                                        const changed  = planned && actual && actual !== planned;
+                                        if (!planned && !actual) return '';
+                                        const display  = actual || planned;
+                                        const cls      = changed ? 'platform-changed' : 'text-gray-500 dark:text-gray-400';
+                                        const label    = changed
+                                            ? `Gleis <span class="line-through opacity-50">${planned}</span> → <span>${actual}</span>`
+                                            : `Gleis ${display}`;
+                                        return `<span class="${cls} font-semibold">${label}</span>`;
+                                    })()}
+                                    ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
+                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 block truncate max-w-full mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right mono text-[11px] leading-tight shrink-0">
+                                ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec)}</div>` : ''}
+                                ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep, stop.departureDelaySec)}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>`;
                 container.appendChild(stopItem);
             });
 
@@ -2157,100 +2123,111 @@
 
             statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Kartendaten...';
 
-            // Karte immer neu aufbauen (verhindert Leaflet-DOM-Fehler nach Reopen)
-            if (trainMap) { try { trainMap.remove(); } catch {} trainMap = null; }
-            trainMarker = null; trainPolyline = null; trainStopMarkers = [];
-            mapEl.innerHTML = '';
+            // Karte initialisieren (nur einmal)
+            if (!trainMap) {
+                trainMap = L.map('train-map', { zoomControl: true, attributionControl: false });
+                // Dark-Mode Kacheln (CartoDB Dark Matter)
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 18, subdomains: 'abcd'
+                }).addTo(trainMap);
+                L.control.attribution({ prefix: '© OSM · CartoDB' }).addTo(trainMap);
+            }
 
-            trainMap = L.map(mapEl, { zoomControl: true, attributionControl: false });
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19, subdomains: 'abcd'
-            }).addTo(trainMap);
-            // OpenRailwayMap Overlay
-            L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
-                maxZoom: 19, opacity: 0.7, attribution: '© OpenRailwayMap'
-            }).addTo(trainMap);
-            L.control.attribution({ prefix: '© OSM · CartoDB · OpenRailwayMap' }).addTo(trainMap);
+            // Alte Layer entfernen
+            if (trainMarker)   { trainMap.removeLayer(trainMarker);   trainMarker   = null; }
+            if (trainPolyline) { trainMap.removeLayer(trainPolyline); trainPolyline = null; }
 
-            setTimeout(async () => {
-                trainMap.invalidateSize();
-                await updateTrainMapPosition(dep);
-                if (mapRefreshTimer) clearInterval(mapRefreshTimer);
-                mapRefreshTimer = setInterval(() => {
-                    if (!$('panel-map').classList.contains('hidden')) updateTrainMapPosition(dep);
-                }, 20000);
-            }, 100);
+            await updateTrainMapPosition(dep);
+
+            // Alle 20s aktualisieren solange Karte sichtbar
+            if (mapRefreshTimer) clearInterval(mapRefreshTimer);
+            mapRefreshTimer = setInterval(() => {
+                if (!$('panel-map').classList.contains('hidden')) {
+                    updateTrainMapPosition(dep);
+                }
+            }, 20000);
         }
-
-        // Haversine-Distanz (km) und Geschwindigkeit
-        function haversineKm(a,b,c,d){const R=6371,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180,x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dG/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
-        function calculateSpeedKmh(pts,now){const i=pts.reduce((b,p,j)=>(p.actual||p.planned)<=now?j:b,-1);if(i<0||i>=pts.length-1)return null;const f=pts[i],t=pts[i+1],h=((t.actual||t.planned)-(f.actual||f.planned))/3600000;if(h<=0)return null;const k=haversineKm(f.lat,f.lng,t.lat,t.lng);if(k<0.3)return null;const v=Math.round(k/h);return(v<1||v>420)?null:v;}
 
         async function updateTrainMapPosition(dep) {
             const statusEl = $('map-status');
             const dbTripId = dep.dbTripId || dep.tripId;
 
-            let stopovers  = currentDetailStopovers;
-            let polyCoords = currentDetailPolyline;
-
+            // Stopovers holen (nutze gecachte wenn vorhanden)
+            let stopovers = currentDetailStopovers;
             if (!stopovers?.length && dbTripId) {
                 try {
-                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Streckendaten...';
-                    const r = await fetch(
-                        `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false&polyline=true`,
-                        { signal: AbortSignal.timeout(10000) }
-                    );
+                    const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false`;
+                    const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
                     if (r.ok) {
-                        const d = await r.json(); const trip = d.trip ?? d;
-                        stopovers = trip.stopovers || [];
-                        const pl = trip.polyline;
-                        if (pl?.features) polyCoords = pl.features.filter(f=>f.geometry?.type==='LineString').flatMap(f=>f.geometry.coordinates.map(([g,lat])=>[lat,g]));
-                        else if (pl?.coordinates) polyCoords = pl.coordinates.map(([g,lat])=>[lat,g]);
+                        const d = await r.json();
+                        stopovers = (d.trip ?? d).stopovers || [];
                     }
-                } catch { statusEl.textContent='Fehler beim Laden.'; return; }
+                } catch {}
             }
-            if (!stopovers?.length) { statusEl.textContent='Keine Positionsdaten.'; return; }
 
-            const now = Date.now();
-            const points = stopovers.filter(s=>s.stop?.location?.latitude).map(s=>({
-                lat:s.stop.location.latitude, lng:s.stop.location.longitude, name:s.stop.name,
-                planned:new Date(s.plannedDeparture||s.plannedArrival||0).getTime(),
-                actual:(s.departure||s.arrival)?new Date(s.departure||s.arrival).getTime():null
-            }));
-            if (!points.length){statusEl.innerHTML='<span class="text-yellow-400">Keine GPS-Daten verfügbar.</span>';return;}
+            if (!stopovers?.length) {
+                statusEl.textContent = 'Keine Positionsdaten verfügbar.';
+                return;
+            }
 
-            const pos = interpolateTrainPosition(points, now);
+            // Koordinaten der Halte aus den Stopovers extrahieren
+            // v6.db.transport.rest liefert stop.location.latitude/longitude
+            const points = stopovers
+                .filter(s => s.stop?.location?.latitude)
+                .map(s => ({
+                    lat:    s.stop.location.latitude,
+                    lng:    s.stop.location.longitude,
+                    name:   s.stop.name,
+                    planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
+                    actual:  s.departure || s.arrival
+                        ? new Date(s.departure || s.arrival).getTime()
+                        : null
+                }));
 
-            // Alte Layer entfernen
-            if (trainPolyline){try{trainMap.removeLayer(trainPolyline);}catch{}}
-            trainStopMarkers.forEach(m=>{try{trainMap.removeLayer(m);}catch{}});
-            trainStopMarkers=[];
+            if (!points.length) {
+                statusEl.textContent = 'Keine Koordinaten in den Streckendaten.';
+                return;
+            }
 
-            // Strecke: Polyline (NBS-genau) oder Stop-Linie als Fallback
-            const route = (polyCoords?.length>1) ? polyCoords : points.map(p=>[p.lat,p.lng]);
-            let si=0, md=Infinity;
-            route.forEach(([la,lg],i)=>{const d=Math.hypot(la-pos.lat,lg-pos.lng);if(d<md){md=d;si=i;}});
-            if(route.slice(0,si+1).length>1) L.polyline(route.slice(0,si+1),{color:'#4b5563',weight:4,opacity:0.6}).addTo(trainMap);
-            trainPolyline=L.polyline(route.slice(si),{color:'#ef4444',weight:4,opacity:0.9}).addTo(trainMap);
+            // Zugposition interpolieren
+            const now  = Date.now();
+            const pos  = interpolateTrainPosition(points, now);
 
-            // Halte-Marker
-            points.forEach((p,i)=>{
-                const ip=(p.actual||p.planned)<now, in_=!ip&&(i===0||(points[i-1].actual||points[i-1].planned)<now);
-                const m=L.circleMarker([p.lat,p.lng],{radius:in_?8:ip?4:5,color:'#111',fillColor:ip?'#4b5563':in_?'#f97316':'#9ca3af',fillOpacity:1,weight:1.5})
-                    .bindTooltip(p.name,{direction:'top',offset:[0,-6]}).addTo(trainMap);
-                trainStopMarkers.push(m);
+            // Strecke zeichnen
+            if (trainPolyline) trainMap.removeLayer(trainPolyline);
+            const latLngs = points.map(p => [p.lat, p.lng]);
+            trainPolyline = L.polyline(latLngs, {
+                color: '#ef4444', weight: 3, opacity: 0.7, dashArray: '6,4'
+            }).addTo(trainMap);
+
+            // Halte als kleine Kreise zeichnen
+            points.forEach((p, i) => {
+                const isPast    = (p.actual || p.planned) < now;
+                const isNext    = !isPast && (i === 0 || (points[i-1].actual || points[i-1].planned) < now);
+                const color     = isPast ? '#374151' : isNext ? '#f97316' : '#6b7280';
+                const radius    = isNext ? 7 : 5;
+                L.circleMarker([p.lat, p.lng], {
+                    radius, color, fillColor: color, fillOpacity: 1, weight: isNext ? 2 : 1,
+                    bubblingMouseEvents: false
+                }).bindTooltip(p.name, { direction: 'top', offset: [0, -8] }).addTo(trainMap);
             });
 
-            // Zugmarker
-            if(trainMarker){try{trainMap.removeLayer(trainMarker);}catch{}}
-            const spd=calculateSpeedKmh(points,now);
-            trainMarker=L.marker([pos.lat,pos.lng],{icon:L.divIcon({html:'<div class="train-marker-icon"><i class="fas fa-train" style="font-size:12px"></i></div>',className:'',iconSize:[28,28],iconAnchor:[14,14]}),zIndexOffset:1000})
-                .bindPopup(`<b style="font-style:italic">${dep.line?.name||''}</b><br>${dep.direction||''}<br><span style="font-size:11px;color:#9ca3af">${pos.label}</span><br>${spd!==null?`<span style="color:#f97316;font-weight:700">${spd} km/h</span><br>`:''}<span style="font-size:10px;color:#6b7280">Aktualisiert: ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>`,{maxWidth:240})
+            // Zugmarker setzen / updaten
+            if (trainMarker) trainMap.removeLayer(trainMarker);
+            const trainIcon = L.divIcon({
+                html: '<div class="train-marker-icon"><i class="fas fa-train" style="font-size:12px"></i></div>',
+                className: '', iconSize: [28, 28], iconAnchor: [14, 14]
+            });
+            trainMarker = L.marker([pos.lat, pos.lng], { icon: trainIcon, zIndexOffset: 1000 })
+                .bindPopup(`<b>${dep.line?.name || ''}</b><br>${dep.direction || ''}<br><span style="font-size:11px;color:#9ca3af">${pos.label}</span>`)
                 .addTo(trainMap);
-            trainMarker.openPopup();
-            trainMap.setView([pos.lat,pos.lng],trainMap.getZoom()<8?11:trainMap.getZoom());
-            setTimeout(()=>trainMap.invalidateSize(),100);
-            statusEl.innerHTML=`<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label}${spd!==null?` · <span style="color:#f97316">${spd} km/h</span>`:''} · ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+
+            // Karte auf Zug zentrieren
+            trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 8 ? 11 : trainMap.getZoom());
+            // Invalidate size (wichtig wenn Tab vorher hidden war)
+            setTimeout(() => trainMap.invalidateSize(), 100);
+
+            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label} · zuletzt aktualisiert ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
         }
 
         // Interpoliert die aktuelle Zugposition zwischen zwei bekannten Halten
