@@ -154,16 +154,43 @@ app.get('/api/db/locations', async (req, res) => {
     const query = (req.query.query || '').toString().trim();
     if (query.length < 2) return res.json({ locations: [] });
 
-    const url = `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=12&fuzzy=true`;
-    const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) throw new Error(`DB API ${r.status}`);
-    const data = await r.json();
+    // Parallel: v6.db.transport.rest + Marudor HAFAS (schneller Fallback)
+    const [dbResult, marudorResult] = await Promise.allSettled([
+        fetch(`https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=10&fuzzy=true`,
+              { signal: AbortSignal.timeout(5000) }).then(r => r.ok ? r.json() : null),
+        fetch(`https://marudor.de/api/hafas/v2/location?searchTerm=${encodeURIComponent(query)}&type=S`,
+              { signal: AbortSignal.timeout(5000) }).then(r => r.ok ? r.json() : null)
+    ]);
 
-    const locs = (Array.isArray(data) ? data : [])
-      .filter(l => l.type === 'stop' || l.type === 'station')
-      .map(l => ({ id: String(l.id), name: l.name, type: l.type, source: 'DB' }));
+    const seen = new Set();
+    const locs = [];
 
-    res.json({ locations: locs });
+    // DB REST Ergebnisse (bevorzugt, genauere IDs)
+    if (dbResult.status === 'fulfilled' && Array.isArray(dbResult.value)) {
+        dbResult.value
+            .filter(l => l.type === 'stop' || l.type === 'station')
+            .forEach(l => {
+                if (!seen.has(l.name)) {
+                    seen.add(l.name);
+                    locs.push({ id: String(l.id), name: l.name, type: l.type, source: 'DB' });
+                }
+            });
+    }
+
+    // Marudor als Ergänzung wenn DB wenig liefert
+    if (locs.length < 4 && marudorResult.status === 'fulfilled' && Array.isArray(marudorResult.value)) {
+        marudorResult.value
+            .filter(l => l.type === 'S' || l.type === 'ST')
+            .forEach(l => {
+                const name = l.name || l.title;
+                if (name && !seen.has(name)) {
+                    seen.add(name);
+                    locs.push({ id: String(l.extId || l.id), name, type: 'stop', source: 'DB' });
+                }
+            });
+    }
+
+    res.json({ locations: locs.slice(0, 12) });
   } catch (e) {
     console.error('DB locations error:', e.message);
     res.status(502).json({ error: e.message });
@@ -368,7 +395,6 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 // ─── Hilfsfunktion für Marudor-API (sekundengenau, echte Verfrühung) ──────────
 async function fetchMarudorTrip(tripId) {
     try {
-        // marudor tripId ist meist identisch mit HAFAS tripId
         const url = `https://marudor.de/api/journey/v1/trip/${encodeURIComponent(tripId)}`;
         const r = await fetch(url, {
             headers: { 'User-Agent': 'dilaeit-proxy/1.0' },
@@ -379,34 +405,66 @@ async function fetchMarudorTrip(tripId) {
         if (!data || !data.stops) return null;
 
         const stopovers = data.stops.map(s => {
-            const pA = s.arrival?.scheduledTime;
-            const a  = s.arrival?.time;
-            const pD = s.departure?.scheduledTime;
-            const d  = s.departure?.time;
+            const pA = s.arrival?.scheduledTime   ?? null;
+            const a  = s.arrival?.time            ?? null;   // null wenn kein RT
+            const pD = s.departure?.scheduledTime ?? null;
+            const d  = s.departure?.time          ?? null;
+
+            // Verfrühung/Verspätung: bevorzuge Zeitdifferenz (Sekunden-genau),
+            // Fallback auf delay-Feld (Marudor liefert Sekunden als Integer)
+            const calcDelay = (actual, planned, delayField) => {
+                if (actual && planned) return Math.round((new Date(actual) - new Date(planned)) / 1000);
+                if (delayField !== null && delayField !== undefined) return delayField; // bereits Sekunden
+                return null;
+            };
+
+            const arrDelaySec = calcDelay(a, pA, s.arrival?.delay  ?? null);
+            const depDelaySec = calcDelay(d, pD, s.departure?.delay ?? null);
+
             return {
                 stop: {
                     name: s.station.name,
                     id:   s.station.id,
-                    location: s.station.location ? { latitude: s.station.location.latitude || s.station.location.lat, longitude: s.station.location.longitude || s.station.location.lng } : null
+                    location: s.station.location
+                        ? { latitude:  s.station.location.latitude  ?? s.station.location.lat,
+                            longitude: s.station.location.longitude ?? s.station.location.lng }
+                        : null
                 },
-                plannedArrival: pA, arrival: a,
-                plannedDeparture: pD, departure: d,
-                arrivalDelaySec: (a && pA) ? Math.round((new Date(a) - new Date(pA)) / 1000) : (s.arrival?.delay ?? null),
-                departureDelaySec: (d && pD) ? Math.round((new Date(d) - new Date(pD)) / 1000) : (s.departure?.delay ?? null),
-                platform: s.realtimePlatform || s.platform || null,
+                plannedArrival:    pA,
+                arrival:           a,
+                plannedDeparture:  pD,
+                departure:         d,
+                // Verfrühung: negativ, Verspätung: positiv, null = kein Signal
+                arrivalDelaySec:   arrDelaySec,
+                departureDelaySec: depDelaySec,
+                platform:        s.realtimePlatform || s.platform || null,
                 plannedPlatform: s.platform || null,
-                cancelled: s.arrival?.cancelled || s.departure?.cancelled || false,
-                additional: s.additional || false,
-                remarks: [] // Marudor hat remarks woanders oder anders strukturiert
+                cancelled:  s.arrival?.cancelled  || s.departure?.cancelled  || false,
+                additional: s.arrival?.additional || s.departure?.additional || s.additional || false,
+                remarks: []
             };
         });
 
+        // GPS-Fahrzeugposition aus Marudor wenn vorhanden
+        const vehiclePos = data.currentPosition
+            ?? data.vehicle?.position
+            ?? data.vehiclePosition
+            ?? null;
+
         return {
-            tripId: data.tripId || tripId,
-            line: { name: data.train?.name || '', product: data.train?.type || 'train' },
+            tripId:    data.tripId || tripId,
+            line:      { name: data.train?.name || '', product: (data.train?.type || 'train').toLowerCase() },
             stopovers,
-            remarks: [],
-            source: 'Bahn.expert (Marudor)'
+            remarks:   [],
+            source:    'Bahn.expert (Marudor)',
+            // Echtzeit-GPS-Position des Fahrzeugs (falls vorhanden)
+            vehiclePosition: vehiclePos ? {
+                lat: vehiclePos.lat ?? vehiclePos.latitude,
+                lng: vehiclePos.lng ?? vehiclePos.longitude ?? vehiclePos.long,
+                heading: vehiclePos.heading ?? null,
+                speed:   vehiclePos.speed   ?? null,
+                ts:      vehiclePos.time    ?? vehiclePos.timestamp ?? Date.now()
+            } : null
         };
     } catch (e) {
         console.warn('Marudor fetch failed:', e.message);
@@ -446,15 +504,17 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                 },
                 plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
                 arrivalDelaySec: (() => {
+                    // s.arrivalDelay: Sekunden (kann negativ = Verfrühung)
                     if (s.arrivalDelay   !== undefined && s.arrivalDelay   !== null) return s.arrivalDelay;
                     if (a && pA) return Math.round((new Date(a) - new Date(pA)) / 1000);
-                    if (s.delay !== undefined && s.delay !== null)                   return s.delay;
+                    // s.delay: trip-level delay in Sekunden (Fallback)
+                    if (s.delay !== undefined && s.delay !== null) return s.delay;
                     return null;
                 })(),
                 departureDelaySec: (() => {
                     if (s.departureDelay !== undefined && s.departureDelay !== null) return s.departureDelay;
                     if (d && pD) return Math.round((new Date(d) - new Date(pD)) / 1000);
-                    if (s.delay !== undefined && s.delay !== null)                   return s.delay;
+                    if (s.delay !== undefined && s.delay !== null) return s.delay;
                     return null;
                 })(),
                 platform: s.platform || null,
