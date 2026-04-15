@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
@@ -623,7 +623,6 @@
                 $('trip-position-bar').classList.add('hidden');
                 if (mapRefreshTimer) { clearInterval(mapRefreshTimer); mapRefreshTimer = null; }
                 currentDetailStopovers = null;
-                currentVehiclePosition = null;
                 switchDetailTab('itinerary');
             });
             $('push-subscribe-btn').addEventListener('click', async () => {
@@ -995,8 +994,7 @@
                     : delaySec >= 60    ? `+${Math.floor(delaySec/60)}'`
                     :                    '';   // Verspätung <60s: kein Label
 
-                // Delay anzeigen: Verfrühung immer (auch <60s), pünktlich (+0), Verspätung ab 60s
-                const showDelay  = !isCancelled && delaySec !== null && (delaySec < 0 || delaySec === 0 || Math.abs(delaySec) >= 60);
+                const showDelay  = !isCancelled && delaySec !== null && (delaySec <= 0 || Math.abs(delaySec) >= 60);
                 
                 // Zeit-Anzeige: HH:mm:ss für Züge (DB) oder wenn Sekunden vorhanden sind
                 const isTrainSource = dep._source && dep._source.includes('Bahn.expert');
@@ -1066,7 +1064,7 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 state.isRateLimited = false;
-                state.departures = (data?.departures || []).map(d => ({ ...d, sourceApi: state.source === 'DB' ? 'Deutsche Bahn' : 'VRR OpenService' }));
+                state.departures = (data?.departures || []).map(d => ({ ...d, sourceApi: state.source === 'DB' ? 'Transitous (MOTIS)' : 'VRR OpenService' }));
                 state.departureCache.set(cacheKey, state.departures);
                 setTimeout(() => state.departureCache.delete(cacheKey), 60000);
                 buildLineFilter();
@@ -1607,10 +1605,6 @@
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
                 currentDetailStopovers = stops; // Für Karte cachen
-                // GPS-Fahrzeugposition cachen (aus Marudor wenn vorhanden)
-                if (data.vehiclePosition) {
-                    currentVehiclePosition = data.vehiclePosition;
-                }
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
                 renderItinerary(stops, remarks, sourceName);
                 
@@ -2438,50 +2432,34 @@
                 trainStopMarkers.push(sm);
             });
 
-            // Zug-Marker — GPS-Position bevorzugen wenn vorhanden
+            // Zug-Marker
             if (trainMarker) trainMap.removeLayer(trainMarker);
-
-            // GPS: echte Fahrzeugposition (Marudor) > Fahrplan-Interpolation
-            const gps = currentVehiclePosition;
-            const markerLat = (gps?.lat != null) ? gps.lat : pos.lat;
-            const markerLng = (gps?.lng != null) ? gps.lng : pos.lng;
-            const isRealGps = gps?.lat != null;
-            const speedKmh  = gps?.speed ?? pos.speed;
-
             const trainIcon = L.divIcon({
-                html: `<div class="train-marker-icon${isRealGps ? ' gps-live' : ''}"><i class="fas fa-train"></i></div>`,
+                html: `<div class="train-marker-icon"><i class="fas fa-train"></i></div>`,
                 className: '', iconSize: [30, 30], iconAnchor: [15, 15]
             });
-
+            
             const lastUpdate = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const speedInfo  = speedKmh > 0
-                ? `<br><span style="color:#f97316;font-weight:700">${speedKmh} km/h</span>`
-                : '';
-            const gpsTag = isRealGps
-                ? `<br><span style="color:#4ade80;font-size:9px">⊕ GPS-Echtzeit</span>`
-                : `<br><span style="color:#9ca3af;font-size:9px">↻ Fahrplan-Interpolation</span>`;
-
-            trainMarker = L.marker([markerLat, markerLng], { icon: trainIcon, zIndexOffset: 1000 })
-                .bindPopup(
-                    '<div style="min-width:160px">'
-                    + '<b style="color:#ef4444;font-style:italic">' + (dep.line?.name || '') + '</b><br>'
-                    + '<span style="font-size:11px">' + (dep.direction || '') + '</span><br>'
-                    + '<span style="font-size:10px;color:#6b7280">' + pos.label + speedInfo + gpsTag + '<br>'
-                    + 'Aktualisiert: ' + lastUpdate + '</span>'
-                    + '</div>',
-                    { closeButton: false, autoClose: false, closeOnClick: false, maxWidth: 220 }
-                )
+            const speedInfo = pos.speed > 0 ? `<br><span class="text-blue-400 font-bold">${pos.speed} km/h</span>` : '';
+            
+            trainMarker = L.marker([pos.lat, pos.lng], { icon: trainIcon, zIndexOffset: 1000 })
+                .bindPopup(`
+                    <div class="text-zinc-900 p-1">
+                        <div class="font-black text-red-600 italic">${dep.line?.name || ''}</div>
+                        <div class="font-bold text-xs mb-1">${dep.direction || ''}</div>
+                        <div class="text-[10px] text-zinc-500 border-t pt-1">
+                            ${pos.label}${speedInfo}<br>
+                            Aktualisiert: ${lastUpdate}
+                        </div>
+                    </div>
+                `, { closeButton: false, autoClose: false, closeOnClick: false })
                 .addTo(trainMap)
                 .openPopup();
 
-            trainMap.setView([markerLat, markerLng], trainMap.getZoom() < 10 ? 12 : trainMap.getZoom());
-
-            const rtLabel = isRealGps ? '⊕ GPS' : '↻ Interpoliert';
-            statusEl.innerHTML = '<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>'
-                + pos.label
-                + (speedKmh > 0 ? ' · <span style="color:#f97316">' + speedKmh + ' km/h</span>' : '')
-                + ' · ' + rtLabel
-                + ' (' + lastUpdate + ')';
+            // Fokus setzen (nur wenn nicht manuell verschoben)
+            trainMap.setView([pos.lat, pos.lng], trainMap.getZoom() < 10 ? 12 : trainMap.getZoom());
+            
+            statusEl.innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${pos.label} (${lastUpdate})`;
             setTimeout(() => trainMap.invalidateSize(), 200);
         }
 
@@ -2556,8 +2534,7 @@
         }
 
         // Stopovers der aktuellen Fahrt cachen für Karten-Wiederverwendung
-        let currentDetailStopovers   = null;
-        let currentVehiclePosition   = null;  // Echtzeit-GPS vom Fahrzeug (Marudor)
+        let currentDetailStopovers = null;
 
         // ─── Historische Pünktlichkeit (IndexedDB) ───────────────────────────────────
         const IDB_NAME    = 'dilaeit_rt';
@@ -2844,4 +2821,4 @@
         init();
     </script>
 </body>
-</html>
+    </html
