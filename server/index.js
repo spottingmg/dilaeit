@@ -47,6 +47,37 @@ const gtfsRtEnabled = false;
 const gtfsRtRawBuffer = null;
 const gtfsRtLastFetch = 0;
 
+// ─── Transitous / MOTIS2 ─────────────────────────────────────────────────────
+const MOTIS   = 'https://api.transitous.org/api/v1';
+const MOTIS_H = {
+    'User-Agent': 'dilaeit/1.0 (https://dilaeit.onrender.com)',
+    'Referer':    'https://dilaeit.onrender.com'
+};
+const motisProduct = m => {
+    switch ((m || '').toUpperCase()) {
+        case 'HIGHSPEED_RAIL': case 'LONG_DISTANCE': return 'nationalExpress';
+        case 'INTER_REGIONAL_RAIL': case 'REGIONAL_FAST_RAIL': case 'REGIONAL_RAIL': return 'regional';
+        case 'SUBURBAN': return 'suburban'; case 'METRO': return 'subway';
+        case 'TRAM': return 'tram'; case 'BUS': case 'COACH': return 'bus';
+        case 'FERRY': return 'ferry'; default: return 'train';
+    }
+};
+function motisParentId(id) {
+    if (!id) return id;
+    const us = id.indexOf('_');
+    if (us === -1) { const p = id.split(':'); return p.length > 3 ? p.slice(0,3).join(':') : id; }
+    const feed = id.slice(0, us);
+    const gtfs = id.slice(us + 1).split(':');
+    return gtfs.length > 3 ? `${feed}_${gtfs.slice(0,3).join(':')}` : id;
+}
+async function motisGet(path, timeout = 8000) {
+    const url = MOTIS + path;
+    const r   = await fetch(url, { headers: MOTIS_H, signal: AbortSignal.timeout(timeout) });
+    const txt = await r.text();
+    if (!r.ok) throw Object.assign(new Error(`MOTIS ${r.status}: ${txt.slice(0,200)}`), { status: r.status, body: txt });
+    try { return JSON.parse(txt); } catch(e) { throw new Error(`MOTIS JSON: ${txt.slice(0,100)}`); }
+}
+
 // ─── EFA-Konfiguration ───────────────────────────────────────────────────────
 const app               = express();
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
@@ -127,62 +158,6 @@ app.get('/', (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));
 app.get('/api/health', (_req, res) => res.json({
   ok: true, hafas: !!hafas, openServiceBase: OPEN_SERVICE_BASE
 }));
-
-// ─── MOTIS Debug ─────────────────────────────────────────────────────────────
-// ?q=Mönchengladbach → zeigt geocode Ergebnis mit echten IDs
-// ?stopId=<id>       → testet stoptimes mit dieser ID
-app.get('/api/motis-debug', async (req, res) => {
-    const { stopId, q } = req.query;
-    try {
-        if (q) {
-            const data = await motisGet(`/geocode?text=${encodeURIComponent(q)}&lang=de`);
-            // Zeige erste 5 Ergebnisse mit allen Feldern
-            const preview = (Array.isArray(data) ? data : []).slice(0, 5).map(l => ({
-                id: l.id, name: l.name, type: l.type, lat: l.lat, lon: l.lon,
-                // Alle anderen Felder die vorhanden sind
-                _allKeys: Object.keys(l).join(',')
-            }));
-            return res.json({ type: 'geocode', q, count: (Array.isArray(data)?data:[]).length, preview });
-        }
-        if (stopId) {
-            const sid  = motisParentId(stopId);
-            // Extrahiere GTFS-Teil ohne feed-Prefix: "de-DELFI_de:05116:23022" → "de:05116:23022"
-            const gtfsOnly = sid.includes('_') ? sid.split('_')[1] : sid;
-            const unix = Math.floor(Date.now() / 1000);
-            // Teste ALLE möglichen Formate
-            const variants = [
-                `/stoptimes?stopId=${encodeURIComponent(sid)}&startTime=${unix}&duration=3600&n=3`,
-                `/stoptimes?stopId=${encodeURIComponent(gtfsOnly)}&startTime=${unix}&duration=3600&n=3`,
-                `/stoptimes?stopId=${encodeURIComponent(stopId)}&startTime=${unix}&duration=3600&n=3`,
-            ];
-            // Auch lat/lon aus Geocode holen und testen
-            try {
-                const geo = await motisGet(`/geocode?text=${encodeURIComponent(stopId.split('_').pop().replace(/:/g,' '))}&lang=de`);
-                const first = (Array.isArray(geo) ? geo : [])[0];
-                if (first?.lat) {
-                    variants.push(`/stoptimes?lat=${first.lat}&lon=${first.lon}&radius=500&startTime=${unix}&duration=3600&n=3`);
-                    variants.push(`/stoptimes?lat=${first.lat}&lng=${first.lon}&radius=500&startTime=${unix}&duration=3600&n=3`);
-                }
-            } catch(e) {}
-            const results = [];
-            for (const path of variants) {
-                try {
-                    const d = await motisGet(path);
-                    results.push({ path, ok: true, count: (d.stopTimes||[]).length, first: (d.stopTimes||[])[0] });
-                } catch(e) {
-                    results.push({ path, ok: false, error: e.message });
-                }
-            }
-            return res.json({ stopId, sid, gtfsOnly, unix, results });
-        }
-        // Standard: zeige geocode für "Mönchengladbach Hbf"
-        const data = await motisGet('/geocode?text=M%C3%B6nchengladbach+Hbf&lang=de');
-        const preview = (Array.isArray(data) ? data : []).slice(0, 3).map(l => ({
-            id: l.id, name: l.name, type: l.type, _keys: Object.keys(l).join(',')
-        }));
-        return res.json({ type: 'geocode_default', preview });
-    } catch(e) { res.status(502).json({ error: e.message, body: e.body?.slice(0,500) }); }
-});
 
 // ─── Stationssuche (VRR) ─────────────────────────────────────────────────────
 app.get('/api/locations', async (req, res) => {
@@ -609,46 +584,95 @@ app.get('/api/db/trips-by-name', async (req, res) => {
     const { query, date } = req.query;
     if (!query) return res.status(400).json({ error: 'Missing query' });
     try {
-        const when = date ? `${date}T08:00:00` : new Date().toISOString();
-        const q    = query.trim().toUpperCase().replace(/\s+/g, '');
-        const seen = new Set();
-        let trips  = [];
+        const when    = date ? `${date}T08:00:00` : new Date().toISOString();
+        const startTs = Math.floor(new Date(when).getTime() / 1000);
+        const q       = query.trim().toUpperCase().replace(/\s+/g, '');
+        const isNum   = /^\d+$/.test(q);
+        const seen    = new Set();
+        const trips   = [];
 
-        // Suche über mehrere NRW-Knotenpunkte parallel (schnell, kein Frankfurt-Umweg)
-        // Auch fahrtNr-Suche: RB 10612 → fahrtNr=10612
-        const fahrtNr = q.replace(/^[A-Z]+\s*/, ''); // "RB10612" → "10612"
-        const hubs = [
-            'https://v6.db.transport.rest/stops/8000207/departures', // Köln Hbf
-            'https://v6.db.transport.rest/stops/8000244/departures', // Düsseldorf Hbf
-            'https://v6.db.transport.rest/stops/8000105/departures', // Essen Hbf
-        ];
-
-        const params = `?when=${encodeURIComponent(when)}&duration=120&results=100&remarks=false`;
-        const results = await Promise.allSettled(
-            hubs.map(hub => fetch(hub + params, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null))
+        // Schritt 1: NRW-Hub-Stationen via MOTIS geocode finden (korrekte IDs)
+        const hubNames = ['Köln Hbf', 'Düsseldorf Hbf', 'Essen Hbf', 'Mönchengladbach Hbf'];
+        const hubIdResults = await Promise.allSettled(
+            hubNames.map(name =>
+                motisGet(`/geocode?text=${encodeURIComponent(name)}&lang=de`)
+                    .then(data => motisParentId((Array.isArray(data) ? data : []).find(l => l.id)?.id || ''))
+                    .catch(() => null)
+            )
         );
+        const hubIds = hubIdResults
+            .filter(r => r.status === 'fulfilled' && r.value)
+            .map(r => r.value);
 
-        for (const r of results) {
-            if (r.status !== 'fulfilled' || !r.value) continue;
-            for (const d of (r.value.departures || [])) {
-                if (!d.tripId || seen.has(d.tripId)) continue;
-                const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
-                const fn   = (d.line?.fahrtNr || '').toString();
-                // Match by line name (e.g. "RB27") OR fahrtNr (e.g. "10612")
-                if (name === q || name.includes(q) || fn === fahrtNr || fn === q) {
-                    seen.add(d.tripId);
-                    trips.push({
-                        id: d.tripId,
-                        name: d.line?.name || query,
-                        direction: d.direction || 'Unbekannt',
-                        line: d.line,
-                        plannedDeparture: d.plannedWhen || null
-                    });
+        if (hubIds.length > 0) {
+            // Schritt 2: MOTIS stoptimes an diesen Hubs
+            const stResults = await Promise.allSettled(
+                hubIds.map(sid =>
+                    motisGet(`/stoptimes?stopId=${encodeURIComponent(sid)}&startTime=${startTs}&duration=86400&n=200`)
+                        .then(d => d.stopTimes || [])
+                        .catch(() => [])
+                )
+            );
+            for (const r of stResults) {
+                if (r.status !== 'fulfilled') continue;
+                for (const st of r.value) {
+                    const tid = st.tripId || '';
+                    if (!tid || seen.has(tid)) continue;
+                    const disp  = (st.displayName   || '').toUpperCase().replace(/\s+/g, '');
+                    const short = (st.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                    const fnMatch = disp.match(/\((\d+)\)/);
+                    const fn = fnMatch ? fnMatch[1] : '';
+                    const match = isNum
+                        ? (fn === q || tid.toUpperCase().includes(q))
+                        : (short === q || short.startsWith(q) || disp.startsWith(q));
+                    if (match) {
+                        seen.add(tid);
+                        const schMs = st.scheduledTime ? st.scheduledTime * 1000 : null;
+                        trips.push({
+                            id:   tid,
+                            name: st.routeShortName || st.displayName || query,
+                            direction: st.headsign || 'Unbekannt',
+                            line: {
+                                name:    st.routeShortName || st.displayName || query,
+                                product: motisProduct((st.route||{}).mode || ''),
+                                fahrtNr: fn || null
+                            },
+                            plannedDeparture: schMs ? new Date(schMs).toISOString() : null
+                        });
+                    }
                 }
             }
         }
-        trips = trips.slice(0, 15);
-        res.json({ trips });
+
+        // Fallback: DB REST Hubs wenn MOTIS nichts findet
+        if (trips.length === 0) {
+            const fahrtNr = q.replace(/^[A-Z]+/, '');
+            const dbHubs  = [
+                'https://v6.db.transport.rest/stops/8000207/departures',
+                'https://v6.db.transport.rest/stops/8000244/departures',
+                'https://v6.db.transport.rest/stops/8000105/departures',
+            ];
+            const params  = `?when=${encodeURIComponent(when)}&duration=120&results=100&remarks=false`;
+            const dbRes   = await Promise.allSettled(
+                dbHubs.map(h => fetch(h + params, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null))
+            );
+            for (const r of dbRes) {
+                if (r.status !== 'fulfilled' || !r.value) continue;
+                for (const d of (r.value.departures || [])) {
+                    if (!d.tripId || seen.has(d.tripId)) continue;
+                    const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
+                    const fn   = (d.line?.fahrtNr || '').toString();
+                    if (name === q || name.includes(q) || fn === fahrtNr || fn === q) {
+                        seen.add(d.tripId);
+                        trips.push({ id: d.tripId, name: d.line?.name || query,
+                            direction: d.direction || 'Unbekannt', line: d.line,
+                            plannedDeparture: d.plannedWhen || null });
+                    }
+                }
+            }
+        }
+
+        res.json({ trips: trips.slice(0, 20) });
     } catch (e) {
         console.error('trips-by-name error:', e.message);
         res.json({ trips: [], error: e.message });
@@ -661,103 +685,147 @@ app.get('/api/db/trip-details', async (req, res) => {
     const { number, date, tripId, direction } = req.query;
     if (!number && !tripId) return res.status(400).json({ error: 'Missing number or tripId' });
     try {
+        // ── 1. Wenn MOTIS tripId direkt vorhanden ─────────────────────────────
+        if (tripId && !tripId.includes('|')) {
+            try {
+                const data  = await motisGet(`/trip/${encodeURIComponent(tripId)}`);
+                const stops = data.stopTimes || data.stops || [];
+                if (stops.length > 0) {
+                    const stopovers = stops.map(s => {
+                        const sA = s.scheduledArrivalTime   ?? s.scheduledTime ?? null;
+                        const rA = s.realtimeArrivalTime    ?? null;
+                        const sD = s.scheduledDepartureTime ?? s.scheduledTime ?? null;
+                        const rD = s.realtimeDepartureTime  ?? null;
+                        return {
+                            stop: { name: s.stop?.name || s.name || '', id: s.stop?.id || s.stopId || null,
+                                location: s.stop?.lat != null ? { latitude: s.stop.lat, longitude: s.stop.lon }
+                                        : s.lat != null        ? { latitude: s.lat,      longitude: s.lon } : null },
+                            plannedArrival:    sA ? new Date(sA*1000).toISOString() : null,
+                            arrival:           rA ? new Date(rA*1000).toISOString() : null,
+                            plannedDeparture:  sD ? new Date(sD*1000).toISOString() : null,
+                            departure:         rD ? new Date(rD*1000).toISOString() : null,
+                            arrivalDelaySec:   s.arrivalDelay   ?? s.realtimeDelay ?? (sA&&rA ? rA-sA : null),
+                            departureDelaySec: s.departureDelay ?? s.realtimeDelay ?? (sD&&rD ? rD-sD : null),
+                            platform:        s.realtimePlatform  || s.track || s.platform || null,
+                            plannedPlatform: s.scheduledPlatform || s.track || s.platform || null,
+                            cancelled: s.cancelled||false, additional: s.additional||false,
+                            remarks: (s.alerts||[]).map(a=>({text:a.headerText||a.text||'',type:'info'}))
+                        };
+                    });
+                    const route = data.route || {};
+                    let polyline = null;
+                    if (data.shape?.length) polyline = { type:'FeatureCollection', features:[{ type:'Feature',
+                        geometry:{ type:'LineString', coordinates: data.shape.map(p=>[p.lon??p.lng,p.lat]) }, properties:{} }] };
+                    else if (data.polyline) polyline = data.polyline;
+                    return res.json({ tripId, stopovers, polyline,
+                        line: { name: route.shortName||data.routeShortName||number||'', product: motisProduct(route.mode||'') },
+                        source: 'Transitous (MOTIS)', remarks: [] });
+                }
+            } catch(e) { console.warn('MOTIS trip failed:', e.message); }
+        }
+
+        // ── 2. tripId = HAFAS-Format oder Suche nach Nummer ──────────────────
         let finalTripId = tripId;
-        if (!finalTripId) {
+        if (!finalTripId && number) {
             const when    = date ? `${date}T08:00:00` : new Date().toISOString();
-            const q       = number.trim().toUpperCase().replace(/\s+/g, '');
-            const dir     = direction ? direction.trim().toLowerCase() : null;
-            const fahrtNr = q.replace(/^[A-Z]+\s*/, '');
-            // Parallel an 3 NRW-Knotenpunkten suchen
-            const hubs  = [
-                'https://v6.db.transport.rest/stops/8000207/departures', // Köln Hbf
-                'https://v6.db.transport.rest/stops/8000244/departures', // Düsseldorf Hbf
-                'https://v6.db.transport.rest/stops/8000105/departures', // Essen Hbf
-            ];
-            const params = `?when=${encodeURIComponent(when)}&duration=120&results=100&remarks=false`;
-            const settled = await Promise.allSettled(
-                hubs.map(h => fetch(h + params, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null))
+            const startTs = Math.floor(new Date(when).getTime() / 1000);
+            const q       = number.trim().toUpperCase().replace(/\s+/g,'');
+            const isNum   = /^\d+$/.test(q);
+
+            // MOTIS stoptimes Suche
+            const hubs = ['de-DELFI_de:05315:8000207','de-DELFI_de:05111:8000244','de-DELFI_de:05113:8000105'];
+            const results = await Promise.allSettled(
+                hubs.map(sid => motisGet(`/stoptimes?stopId=${encodeURIComponent(sid)}&startTime=${startTs}&duration=86400&n=200`,6000)
+                    .then(d=>d.stopTimes||[]).catch(()=>[]))
             );
-            
-            let candidates = [];
-            for (const r of settled) {
-                if (r.status !== 'fulfilled' || !r.value) continue;
-                for (const d of (r.value.departures || [])) {
-                    const name = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
-                    const fn   = (d.line?.fahrtNr || '').toString();
-                    if ((name === q || fn === fahrtNr || fn === q) && d.tripId) {
-                        candidates.push(d);
+            for (const r of results) {
+                if (finalTripId) break;
+                if (r.status !== 'fulfilled') continue;
+                for (const st of r.value) {
+                    const disp  = (st.displayName||'').toUpperCase().replace(/\s+/g,'');
+                    const short = (st.routeShortName||'').toUpperCase().replace(/\s+/g,'');
+                    const fn    = (disp.match(/\((\d+)\)/)||[])[1]||'';
+                    const match = isNum ? fn===q||st.tripId?.includes(q) : short===q||short.startsWith(q)||disp.startsWith(q);
+                    if (match && st.tripId) { finalTripId = st.tripId; break; }
+                }
+            }
+
+            // DB REST Fallback
+            if (!finalTripId) {
+                const fahrtNr = q.replace(/^[A-Z]+/,'');
+                const params  = `?when=${encodeURIComponent(when)}&duration=120&results=100&remarks=false`;
+                const dbHubs  = ['https://v6.db.transport.rest/stops/8000207/departures','https://v6.db.transport.rest/stops/8000244/departures','https://v6.db.transport.rest/stops/8000105/departures'];
+                const settled = await Promise.allSettled(dbHubs.map(h=>fetch(h+params,{signal:AbortSignal.timeout(6000)}).then(r=>r.ok?r.json():null)));
+                for (const r of settled) {
+                    if (finalTripId) break;
+                    if (r.status!=='fulfilled'||!r.value) continue;
+                    for (const d of (r.value.departures||[])) {
+                        const name=(d.line?.name||'').toUpperCase().replace(/\s+/g,'');
+                        const fn2=(d.line?.fahrtNr||'').toString();
+                        if ((name===q||fn2===fahrtNr||fn2===q)&&d.tripId) { finalTripId=d.tripId; break; }
                     }
                 }
             }
-            
-            // Besten Treffer auswählen (nach Richtung filtern falls vorhanden)
-            if (candidates.length > 0) {
-                if (dir) {
-                    const exactMatch = candidates.find(c => (c.direction || '').toLowerCase().includes(dir));
-                    finalTripId = exactMatch ? exactMatch.tripId : candidates[0].tripId;
-                } else {
-                    finalTripId = candidates[0].tripId;
-                }
-            }
-            
             if (!finalTripId) return res.status(404).json({ error: 'Fahrt nicht gefunden' });
         }
 
-        // 1. Versuch: Marudor (für Sekunden und echte Verfrühung)
+        // ── 3. Mit gefundener ID: MOTIS oder Marudor oder DB REST ────────────
+        if (finalTripId && !finalTripId.includes('|')) {
+            try {
+                const data = await motisGet(`/trip/${encodeURIComponent(finalTripId)}`);
+                const stops = data.stopTimes || data.stops || [];
+                if (stops.length > 0) {
+                    const stopovers = stops.map(s => {
+                        const sA=s.scheduledArrivalTime??s.scheduledTime??null,rA=s.realtimeArrivalTime??null;
+                        const sD=s.scheduledDepartureTime??s.scheduledTime??null,rD=s.realtimeDepartureTime??null;
+                        return { stop:{ name:s.stop?.name||s.name||'', id:s.stop?.id||s.stopId||null,
+                            location:s.stop?.lat!=null?{latitude:s.stop.lat,longitude:s.stop.lon}:s.lat!=null?{latitude:s.lat,longitude:s.lon}:null },
+                            plannedArrival:sA?new Date(sA*1000).toISOString():null, arrival:rA?new Date(rA*1000).toISOString():null,
+                            plannedDeparture:sD?new Date(sD*1000).toISOString():null, departure:rD?new Date(rD*1000).toISOString():null,
+                            arrivalDelaySec:s.arrivalDelay??s.realtimeDelay??(sA&&rA?rA-sA:null),
+                            departureDelaySec:s.departureDelay??s.realtimeDelay??(sD&&rD?rD-sD:null),
+                            platform:s.realtimePlatform||s.track||s.platform||null,
+                            plannedPlatform:s.scheduledPlatform||s.track||s.platform||null,
+                            cancelled:s.cancelled||false, additional:s.additional||false,
+                            remarks:(s.alerts||[]).map(a=>({text:a.headerText||a.text||'',type:'info'})) };
+                    });
+                    const route = data.route||{};
+                    return res.json({ tripId:finalTripId, stopovers, source:'Transitous (MOTIS)',
+                        line:{ name:route.shortName||data.routeShortName||number||'', product:motisProduct(route.mode||'') }, remarks:[] });
+                }
+            } catch(e) { console.warn('MOTIS trip (2nd attempt) failed:', e.message); }
+        }
+
+        // Marudor Fallback
         const marudorData = await fetchMarudorTrip(finalTripId);
         if (marudorData) return res.json(marudorData);
 
-        // 2. Fallback: DB REST API
-        const tripUrl = `https://v6.db.transport.rest/trips/${encodeURIComponent(finalTripId)}?stopovers=true&remarks=true&polyline=true`;
-        const tr = await fetch(tripUrl, { signal: AbortSignal.timeout(10000) });
+        // DB REST letzter Fallback
+        const tr = await fetch(`https://v6.db.transport.rest/trips/${encodeURIComponent(finalTripId)}?stopovers=true&remarks=true&polyline=true`,
+            { signal: AbortSignal.timeout(10000) });
         if (!tr.ok) throw new Error(`DB trip API ${tr.status}`);
-        const tData = await tr.json();
-        const trip  = tData.trip ?? tData;
+        const tData = await tr.json(); const trip = tData.trip ?? tData;
         if (!trip?.stopovers) throw new Error('Keine Stopovers');
-
         const stopovers = trip.stopovers.map(s => {
-            const pA = s.plannedArrival   ? new Date(s.plannedArrival).toISOString()   : null;
-            const a  = s.arrival          ? new Date(s.arrival).toISOString()          : null;
-            const pD = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
-            const d  = s.departure        ? new Date(s.departure).toISOString()        : null;
-            return {
-                stop: {
-                    name: s.stop?.name || '',
-                    id:   s.stop?.id,
-                    location: s.stop?.location
-                        ? { latitude: s.stop.location.latitude || s.stop.location.lat, longitude: s.stop.location.longitude || s.stop.location.lng }
-                        : null
-                },
-                plannedArrival: pA, arrival: a, plannedDeparture: pD, departure: d,
-                arrivalDelaySec: (() => {
-                    if (s.arrivalDelay   !== undefined && s.arrivalDelay   !== null) return s.arrivalDelay;
-                    if (a && pA) return Math.round((new Date(a) - new Date(pA)) / 1000);
-                    if (s.delay !== undefined && s.delay !== null) return s.delay;
-                    return null;
-                })(),
-                departureDelaySec: (() => {
-                    if (s.departureDelay !== undefined && s.departureDelay !== null) return s.departureDelay;
-                    if (d && pD) return Math.round((new Date(d) - new Date(pD)) / 1000);
-                    if (s.delay !== undefined && s.delay !== null) return s.delay;
-                    return null;
-                })(),
-                platform: s.platform || null, plannedPlatform: s.plannedPlatform || null,
-                cancelled: s.cancelled || false, additional: s.additional || false,
-                remarks: s.remarks || []
-            };
+            const pA=s.plannedArrival?new Date(s.plannedArrival).toISOString():null,a=s.arrival?new Date(s.arrival).toISOString():null;
+            const pD=s.plannedDeparture?new Date(s.plannedDeparture).toISOString():null,d=s.departure?new Date(s.departure).toISOString():null;
+            return { stop:{ name:s.stop?.name||'',id:s.stop?.id,location:s.stop?.location?{latitude:s.stop.location.latitude,longitude:s.stop.location.longitude}:null },
+                plannedArrival:pA,arrival:a,plannedDeparture:pD,departure:d,
+                arrivalDelaySec:s.arrivalDelay??(a&&pA?Math.round((new Date(a)-new Date(pA))/1000):null),
+                departureDelaySec:s.departureDelay??(d&&pD?Math.round((new Date(d)-new Date(pD))/1000):null),
+                platform:s.platform||null,plannedPlatform:s.plannedPlatform||null,
+                cancelled:s.cancelled||false,additional:s.additional||false,remarks:s.remarks||[] };
         });
-
-        res.json({
-            tripId: trip.id, line: trip.line, stopovers,
-            remarks: (trip.remarks || []).map(r => ({ text: r.text || r.summary || '', type: r.category || 'info' })),
-            source: 'Deutsche Bahn', operator: trip.line?.operator, mode: trip.line?.product,
-            polyline: trip.polyline || null
-        });
-    } catch (e) {
+        let pl=null; if(trip.polyline?.features||trip.polyline?.type) pl=trip.polyline;
+        res.json({ tripId:finalTripId, line:trip.line, stopovers, polyline:pl,
+            remarks:(trip.remarks||[]).map(r=>({text:r.text||r.summary||'',type:r.category||'info'})),
+            source:'Deutsche Bahn', polyline:pl||null });
+    } catch(e) {
         console.error('DB trip-details error:', e.message);
         res.status(500).json({ error: e.message });
     }
 });
+
 
 // ─── Server starten ───────────────────────────────────────────────────────────
 const port = Number(process.env.PORT || 8787);
