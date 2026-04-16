@@ -314,11 +314,12 @@
             try {
                 // Wenn wir eine explizite ID haben, nutzen wir diese direkt
                 if (explicitTripId) {
-                    const dbResult = await fetch(`${API_BASE}/api/db/trip-details?tripId=${encodeURIComponent(explicitTripId)}&date=${encodeURIComponent(date)}`, {
+                    // Direkt /api/train-details nutzen — funktioniert mit MOTIS und HAFAS tripIds
+                    const result = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(explicitTripId)}`, {
                         signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
                     }).then(r => r.ok ? r.json() : null);
-                    if (dbResult) {
-                        showTripResults(dbResult, 'Deutsche Bahn');
+                    if (result?.stopovers?.length) {
+                        showTripResults(result, result.source || 'Transitous');
                         return;
                     }
                 }
@@ -331,7 +332,7 @@
 
                 // Priorität: DB-Hafas zuerst, dann VRR
                 if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
-                    showTripResults(dbResult, 'Deutsche Bahn');
+                    showTripResults(dbResult, dbResult.source || 'Transitous');
                     return;
                 } else if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
                     showTripResults(vrrResult, 'VRR OpenService');
@@ -380,13 +381,30 @@
         // ─── DB Suche ────────────────────────────────────────────────────────────────
         async function searchDbTrip(number, date) {
             try {
-                // DB-Hafas Suche nach Trip-Nummer
-                const res = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, {
-                    signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
-                });
-                if (!res.ok) return null;
-                const data = await res.json();
-                return data || null;
+                // 1. trips-by-name: findet tripId via MOTIS (displayName "RB27 (10632)")
+                const searchRes = await fetch(
+                    `${API_BASE}/api/db/trips-by-name?query=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`,
+                    { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
+                );
+                if (!searchRes.ok) return null;
+                const searchData = await searchRes.json();
+                const trips = searchData.trips || [];
+                if (trips.length === 0) return null;
+
+                // 2. Ersten Treffer → /api/train-details
+                const tripId = trips[0].id;
+                const detailRes = await fetch(
+                    `${API_BASE}/api/train-details/${encodeURIComponent(tripId)}`,
+                    { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
+                );
+                if (!detailRes.ok) return null;
+                const data = await detailRes.json();
+                // Liniennamen aus Suchergebnis ergänzen falls nötig
+                if (data && !data.line?.name && trips[0].name) {
+                    data.line = data.line || {};
+                    data.line.name = trips[0].name;
+                }
+                return data;
             } catch (e) {
                 console.warn('DB trip search failed:', e);
                 return null;
@@ -445,12 +463,12 @@
                 const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
                 const actualDep = stop.departure ? new Date(stop.departure) : null;
                 
-                const arrTime = schedArr ? schedArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
-                const depTime = schedDep ? schedDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+                const arrTime = schedArr ? schedArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                const depTime = schedDep ? schedDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
                 
                 // IMMER Sekundenanzeige (2-digit) für actual times
-                const arrActual = actualArr ? actualArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
-                const depActual = actualDep ? actualDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
+                const arrActual = actualArr ? actualArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                const depActual = actualDep ? actualDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
                 
                 // delaySec kommt vom Server (oder berechnen wenn fehlt)
                 let arrDelaySec = stop.arrivalDelaySec;
@@ -459,24 +477,16 @@
                 if (depDelaySec === undefined && actualDep && schedDep) depDelaySec = Math.round((actualDep - schedDep) / 1000);
 
                 const formatDelay = (secs) => {
-                    if (secs === null || secs === undefined) return null;
-                    if (secs === 0) return '+0';
+                    if (secs === null || secs === undefined || secs === 0) return null;
                     const sign = secs > 0 ? '+' : '-';
-                    const abs = Math.abs(secs);
-                    if (secs < 0) {
-                        return abs >= 60 ? `-${Math.floor(abs/60)}'` : `-${abs}s`;
-                    } else if (secs >= 60) {
-                        return `+${Math.floor(secs/60)}'`;
-                    }
-                    return null; // Verspätung < 60s nicht anzeigen
+                    const absSecs = Math.abs(secs);
+                    // IMMER Sekunden anzeigen
+                    return `${sign}${absSecs}s`;
                 };
 
                 const getDelayClass = (secs) => {
                     if (secs === null || secs === undefined) return '';
-                    if (secs >= 60) return 'delay-positive'; // Rot
-                    if (secs > 0) return 'text-orange-400';  // Orange (muss in CSS/Tailwind definiert sein)
-                    if (secs < 0) return 'text-blue-400';    // Blau
-                    return 'delay-zero';                     // Grün
+                    return secs > 0 ? 'delay-positive' : 'delay-zero'; // zero/negative covers early/green
                 };
                 
                 const arrDelayStr = formatDelay(arrDelaySec);
@@ -497,15 +507,15 @@
                             <div class="text-right mono text-xs leading-tight shrink-0">
                                 <div class="flex items-center justify-end gap-1">
                                     <span class="text-gray-600 text-[10px]">AN</span>
-                                    <span class="font-mono text-gray-400 line-through text-[10px]">${arrTime}</span>
+                                    <span class="font-mono">${arrTime}</span>
                                     ${arrActual ? `<span class="precision-time ${arrDelayClass}">${arrActual}</span>` : ''}
-                                    ${arrDelayStr ? `<span class="text-[9px] font-bold ${arrDelayClass}">${arrDelayStr}</span>` : ''}
+                                    ${arrDelayStr ? `<span class="text-[9px] ${arrDelayClass}">${arrDelayStr}</span>` : ''}
                                 </div>
                                 <div class="flex items-center justify-end gap-1">
                                     <span class="text-gray-600 text-[10px]">AB</span>
-                                    <span class="font-mono text-gray-400 line-through text-[10px]">${depTime}</span>
+                                    <span class="font-mono">${depTime}</span>
                                     ${depActual ? `<span class="precision-time ${depDelayClass}">${depActual}</span>` : ''}
-                                    ${depDelayStr ? `<span class="text-[9px] font-bold ${depDelayClass}">${depDelayStr}</span>` : ''}
+                                    ${depDelayStr ? `<span class="text-[9px] ${depDelayClass}">${depDelayStr}</span>` : ''}
                                 </div>
                             </div>
                         </div>
