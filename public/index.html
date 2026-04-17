@@ -504,7 +504,7 @@
 
         <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen flex flex-col">
 
-            <header class="flex items-center gap-3 mb-10">
+            <header class="flex items-center gap-3 mb-4">
 
                 <button id="close-detail" class="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-zinc-900 flex items-center justify-center hover:scale-105 transition-transform">
 
@@ -532,11 +532,9 @@
 
 
 
-            <div class="flex-1 relative">
+            <div class="flex-1 relative overflow-hidden">
 
-                <div class="itinerary-line"></div>
-
-                <div id="trip-itinerary" class="space-y-10 relative z-10"></div>
+                <div id="trip-itinerary" class="relative z-10 overflow-y-auto" style="max-height:62vh"></div>
 
             </div>
 
@@ -3262,65 +3260,105 @@
 
                 const stopItem = document.createElement('div');
 
-                stopItem.className = `relative itinerary-item ${isCancelled ? 'opacity-40' : ''}`;
+                stopItem.className = `relative flex items-stretch gap-0 ${isCancelled ? 'opacity-40' : ''} py-1 min-h-[2.5rem]`;
+
+
+
+                // Zeitblock links
+
+                const timeBlock = (() => {
+
+                    const arrHtml = schedArr ? `
+
+                        <div class="flex items-center gap-1 leading-tight">
+
+                            <span class="text-gray-600 text-[8px] w-3">AN</span>
+
+                            <span class="mono text-[11px]">${formatTime(schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec)}</span>
+
+                        </div>` : '';
+
+                    const depHtml = schedDep ? `
+
+                        <div class="flex items-center gap-1 leading-tight">
+
+                            <span class="text-gray-600 text-[8px] w-3">AB</span>
+
+                            <span class="mono text-[11px]">${formatTime(schedDep, actualDep, hasLiveDep, stop.departureDelaySec)}</span>
+
+                        </div>` : '';
+
+                    return arrHtml + depHtml || `<div class="mono text-[11px] text-gray-500">--:--</div>`;
+
+                })();
+
+
+
+                // Gleis
+
+                const platformHtml = (() => {
+
+                    const planned = stop.plannedPlatform || null;
+
+                    const actual  = stop.platform || null;
+
+                    const changed = planned && actual && actual !== planned;
+
+                    if (!planned && !actual) return '';
+
+                    if (changed) return `<span class="platform-changed text-[10px]">Bussteig <span class="line-through opacity-50">${planned}</span>→${actual}</span>`;
+
+                    return `<span class="text-gray-500 text-[10px]">Bussteig ${actual || planned}</span>`;
+
+                })();
+
+
+
+                // Dot-Farbe
+
+                const dotColor = isCancelled ? 'bg-gray-600' : isAdditional ? 'bg-blue-500' : 'bg-red-600';
+
+
 
                 stopItem.innerHTML = `
 
-                    <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 ${isCancelled ? 'bg-gray-500' : (isAdditional ? 'bg-blue-500' : 'bg-red-600')}"></div>
+                    <!-- Zeiten links -->
 
-                    <div class="itinerary-item-content">
+                    <div class="w-28 shrink-0 flex flex-col justify-center pr-2 text-right">
 
-                        <div class="flex justify-between items-start gap-2">
+                        ${timeBlock}
 
-                            <div class="min-w-0">
+                    </div>
 
-                                <h4 class="font-semibold ${isCancelled ? 'line-through' : ''} ${isAdditional ? 'text-blue-500' : ''} text-sm">
+                    <!-- Trennlinie mit Punkt -->
 
-                                    ${stop.stop.name} ${isAdditional ? '<span class="text-[10px] ml-1 uppercase">[Zusatzhalt]</span>' : ''}
+                    <div class="relative flex flex-col items-center w-5 shrink-0">
 
-                                </h4>
+                        <div class="w-[2px] flex-1 bg-gray-700"></div>
 
-                                <div class="itinerary-info mt-1 text-gray-600 dark:text-gray-300">
+                        <div class="w-2.5 h-2.5 rounded-full ${dotColor} border border-zinc-950 z-10 shrink-0 my-0.5"></div>
 
-                                    ${(() => {
+                        <div class="w-[2px] flex-1 bg-gray-700"></div>
 
-                                        const planned  = stop.plannedPlatform || stop.stop?.station?.entrances?.[0] || null;
+                    </div>
 
-                                        const actual   = stop.platform || stop.arrivalPlatform || stop.departurePlatform || null;
+                    <!-- Name + Info rechts -->
 
-                                        const changed  = planned && actual && actual !== planned;
+                    <div class="flex-1 min-w-0 flex flex-col justify-center pl-2">
 
-                                        if (!planned && !actual) return '';
+                        <span class="text-sm font-semibold ${isCancelled ? 'line-through text-gray-500' : ''} ${isAdditional ? 'text-blue-400' : ''}">
 
-                                        const display  = actual || planned;
+                            ${stop.stop.name}${isAdditional ? ' <span class="text-[9px]">[+]</span>' : ''}
 
-                                        const cls      = changed ? 'platform-changed' : 'text-gray-500 dark:text-gray-400';
+                        </span>
 
-                                        const label    = changed
+                        <div class="flex flex-wrap gap-x-2 items-center mt-0.5">
 
-                                            ? `Gleis <span class="line-through opacity-50">${planned}</span> → <span>${actual}</span>`
+                            ${platformHtml}
 
-                                            : `Gleis ${display}`;
+                            ${isCancelled ? '<span class="text-red-500 text-[10px] font-bold">ENTFÄLLT</span>' : ''}
 
-                                        return `<span class="${cls} font-semibold">${label}</span>`;
-
-                                    })()}
-
-                                    ${isCancelled ? '<span class="text-red-500 font-semibold block mt-1">Halt entfällt</span>' : ''}
-
-                                    ${stop.remarks?.length > 0 ? `<span class="text-red-400 block truncate max-w-full mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>${translate(stop.remarks[0].text)}</span>` : ''}
-
-                                </div>
-
-                            </div>
-
-                            <div class="text-right mono text-[11px] leading-tight shrink-0">
-
-                                ${schedArr ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AN</span> ${formatTime(schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec)}</div>` : ''}
-
-                                ${schedDep ? `<div class="flex items-center justify-end gap-1"><span class="text-gray-600 text-[8px]">AB</span> ${formatTime(schedDep, actualDep, hasLiveDep, stop.departureDelaySec)}</div>` : ''}
-
-                            </div>
+                            ${stop.remarks?.length > 0 ? `<span class="text-red-400 text-[10px]"><i class="fas fa-exclamation-triangle mr-0.5"></i>${translate(stop.remarks[0].text)}</span>` : ''}
 
                         </div>
 
@@ -3364,4 +3402,4 @@
 
 </body>
 
-</html>
+    </html>
