@@ -914,54 +914,6 @@
 
             });
 
-            // Zeitänderung → sofort neuladen (force=true überspringt Cache + Cooldown)
-
-            $('query-date').addEventListener('change', () => state.currentStation && refreshDepartures(true));
-
-            $('query-time').addEventListener('change', () => state.currentStation && refreshDepartures(true));
-
-            // Auch bei direkter Eingabe reagieren (nicht nur blur)
-
-            $('query-time').addEventListener('input', () => {
-
-                // Nur wenn Zeit vollständig eingegeben (HH:MM)
-
-                if (($('query-time').value || '').length === 5 && state.currentStation) {
-
-                    clearTimeout(state.searchTimer);
-
-                    state.searchTimer = setTimeout(() => refreshDepartures(true), 600);
-
-                }
-
-            });
-
-            // −1d / +1d Buttons
-
-            $('prev-day').addEventListener('click', () => {
-
-                const d = new Date($('query-date').value);
-
-                d.setDate(d.getDate() - 1);
-
-                $('query-date').value = d.toISOString().slice(0,10);
-
-                if (state.currentStation) refreshDepartures(true);
-
-            });
-
-            $('next-day').addEventListener('click', () => {
-
-                const d = new Date($('query-date').value);
-
-                d.setDate(d.getDate() + 1);
-
-                $('query-date').value = d.toISOString().slice(0,10);
-
-                if (state.currentStation) refreshDepartures(true);
-
-            });
-
             $('theme-toggle').addEventListener('click', () => document.body.classList.toggle('dark'));
 
             const apiBtn = document.getElementById('api-base-btn');
@@ -973,6 +925,46 @@
             document.addEventListener('click', e => {
 
                 if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
+
+            });
+
+            $('query-date').addEventListener('change', () => state.currentStation && refreshDepartures(true));
+
+            $('query-time').addEventListener('change', () => state.currentStation && refreshDepartures(true));
+
+            $('query-time').addEventListener('input', () => {
+
+                if (($('query-time').value || '').length === 5 && state.currentStation) {
+
+                    clearTimeout(state.searchTimer);
+
+                    state.searchTimer = setTimeout(() => refreshDepartures(true), 600);
+
+                }
+
+            });
+
+            $('prev-day').addEventListener('click', () => {
+
+                const d = new Date($('query-date').value);
+
+                d.setDate(d.getDate() - 1);
+
+                $('query-date').value = d.toISOString().slice(0, 10);
+
+                if (state.currentStation) refreshDepartures(true);
+
+            });
+
+            $('next-day').addEventListener('click', () => {
+
+                const d = new Date($('query-date').value);
+
+                d.setDate(d.getDate() + 1);
+
+                $('query-date').value = d.toISOString().slice(0, 10);
+
+                if (state.currentStation) refreshDepartures(true);
 
             });
 
@@ -1746,8 +1738,6 @@
 
             const now = Date.now();
 
-            // Cooldown nur für Auto-Refresh, nicht für manuelle Zeitänderungen
-
             if (!force && now - state.lastRequestTime < REQUEST_COOLDOWN_MS) return;
 
             state.lastRequestTime = now;
@@ -1758,35 +1748,13 @@
 
             const timeVal = $('query-time').value;
 
+            if (!dateVal || !timeVal) return;
 
 
-            // Validierung: beide Felder müssen gefüllt sein
-
-            if (!dateVal || !timeVal) {
-
-                console.warn('refreshDepartures: Datum oder Zeit fehlt', { dateVal, timeVal });
-
-                return;
-
-            }
-
-
-
-            // Sauberer ISO-String ohne Timezone-Offset (wird im Server zeichenweise geparst)
 
             const timestamp = `${dateVal}T${timeVal}:00`;
 
-
-
-            // Prüfen ob das Datum valide ist
-
-            if (isNaN(new Date(timestamp).getTime())) {
-
-                console.warn('refreshDepartures: ungültiger Timestamp', timestamp);
-
-                return;
-
-            }
+            if (isNaN(new Date(timestamp).getTime())) return;
 
 
 
@@ -3396,4 +3364,4 @@
 
 </body>
 
-    </html>
+</html>
