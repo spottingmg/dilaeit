@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
         
@@ -72,6 +74,17 @@
         .platform-changed {
             color: #f97316;
             font-weight: bold;
+        }
+
+        /* Live-Karte */
+        #live-map { height: 380px; border-radius: 16px; overflow: hidden; }
+        .leaflet-container { background: #1a1a2e !important; }
+        .vehicle-marker {
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%; border: 2px solid rgba(255,255,255,0.8);
+            font-size: 10px; font-weight: 900; font-family: 'JetBrains Mono', monospace;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.7);
+            cursor: pointer; white-space: nowrap;
         }
 
         .detail-view {
@@ -224,15 +237,39 @@
             <div id="archive-list" class="hidden px-4 pb-4 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
         </div>
 
+        <!-- Live-Karte -->
+        <div id="map-section" class="mt-6 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden hidden">
+            <div class="flex items-center justify-between px-4 py-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                    <span class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Live-Karte</span>
+                    <span id="map-vehicle-count" class="text-[10px] text-gray-500 mono"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="map-last-update" class="text-[10px] text-gray-500 mono"></span>
+                    <button onclick="toggleMap()" class="text-[10px] text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-gray-200 dark:hover:bg-zinc-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="live-map" class="mx-3 mb-3"></div>
+        </div>
+
         <div id="board-container" class="mt-8 space-y-6">
             <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
                 <div>
                     <h2 id="station-display-name" class="text-2xl font-bold tracking-tight"></h2>
                     <p id="board-type" class="text-xs text-gray-500 uppercase tracking-widest mt-1">Abfahrtstafel</p>
                 </div>
-                <div id="refresh-indicator" class="text-[10px] text-gray-500 mono flex items-center gap-2">
-                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                    LIVE REFRESH
+                <div class="flex items-center gap-3">
+                    <button onclick="toggleMap()" id="map-toggle-btn"
+                        class="text-[10px] text-gray-500 mono flex items-center gap-1.5 hover:text-orange-400 transition-colors px-2 py-1 rounded-lg hover:bg-zinc-800">
+                        <i class="fas fa-map"></i> Karte
+                    </button>
+                    <div id="refresh-indicator" class="text-[10px] text-gray-500 mono flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                        LIVE REFRESH
+                    </div>
                 </div>
             </div>
             <!-- Linienfilter – wird nach erstem Laden befüllt -->
@@ -1726,6 +1763,171 @@
                 });
                 container.appendChild(remarksContainer);
             }
+        }
+
+        // ─── Live-Karte (Transitous/MOTIS) ───────────────────────────────────────────
+        const MOTIS_BASE   = 'https://api.transitous.org/api/v1';
+        const MOTIS_AGENT  = 'dilaeit/1.0 (https://dilaeit.onrender.com)';
+
+        let liveMap         = null;
+        let vehicleMarkers  = new Map(); // tripId → marker
+        let mapRefreshTimer = null;
+        let mapVisible      = false;
+
+        function toggleMap() {
+            mapVisible = !mapVisible;
+            const section = $('map-section');
+            const btn     = $('map-toggle-btn');
+            section.classList.toggle('hidden', !mapVisible);
+            if (btn) btn.classList.toggle('text-orange-400', mapVisible);
+
+            if (mapVisible) {
+                if (!liveMap) initLiveMap();
+                else setTimeout(() => liveMap.invalidateSize(), 100);
+                loadVehicles();
+                mapRefreshTimer = setInterval(loadVehicles, 15000);
+            } else {
+                if (mapRefreshTimer) { clearInterval(mapRefreshTimer); mapRefreshTimer = null; }
+            }
+        }
+
+        function initLiveMap() {
+            liveMap = L.map('live-map', { zoomControl: true, attributionControl: true });
+
+            // OSM Dark-Tiles (CartoDB Dark Matter)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> · <a href="https://carto.com">CARTO</a> · <a href="https://transitous.org">Transitous</a>',
+                maxZoom: 18, subdomains: 'abcd'
+            }).addTo(liveMap);
+
+            // Auf aktuelle Station zentrieren, falls vorhanden
+            if (state.currentStation?.lat && state.currentStation?.lon) {
+                liveMap.setView([state.currentStation.lat, state.currentStation.lon], 13);
+            } else {
+                // Standard: NRW-Mitte
+                liveMap.setView([51.4, 6.9], 11);
+            }
+
+            setTimeout(() => liveMap.invalidateSize(), 200);
+        }
+
+        async function loadVehicles() {
+            if (!liveMap) return;
+            const bounds = liveMap.getBounds();
+            const bbox   = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+
+            try {
+                // MOTIS /map/trips – liefert alle aktuell fahrenden Trips im Bounding Box
+                const url = `${MOTIS_BASE}/map/trips?bbox=${bbox}`;
+                const res = await fetch(url, {
+                    headers: { 'Referer': 'https://dilaeit.onrender.com' }
+                });
+                if (!res.ok) throw new Error(`MOTIS ${res.status}`);
+                const data = await res.json();
+
+                const trips = data.trips || data.features || data || [];
+                renderVehicles(trips);
+
+                $('map-vehicle-count').textContent = `${trips.length} Fahrzeuge`;
+                $('map-last-update').textContent   = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            } catch (e) {
+                console.warn('MOTIS map/trips failed:', e.message);
+                $('map-vehicle-count').textContent = 'Fehler beim Laden';
+            }
+        }
+
+        function renderVehicles(trips) {
+            if (!liveMap) return;
+
+            const seen = new Set();
+
+            trips.forEach(trip => {
+                // MOTIS GeoJSON-Format oder direktes Trip-Objekt
+                const props  = trip.properties || trip;
+                const geom   = trip.geometry;
+                const tripId = props.id || props.tripId || props.trip_id;
+                if (!tripId) return;
+
+                seen.add(tripId);
+
+                // Position aus GeoJSON oder direkt
+                let lat, lng;
+                if (geom?.type === 'Point') {
+                    [lng, lat] = geom.coordinates;
+                } else if (props.lat && props.lon) {
+                    lat = props.lat; lng = props.lon;
+                } else if (props.position) {
+                    lat = props.position.lat; lng = props.position.lon ?? props.position.lng;
+                } else return; // keine Koordinaten
+
+                // Linie/Route-Info
+                const lineName  = props.routeShortName || props.line || props.route_short_name || props.name || '?';
+                const direction = props.headsign || props.direction || props.displayName || '';
+                const delay     = props.delay ?? props.delaySeconds ?? null;
+                const mode      = (props.mode || props.routeType || '').toString().toLowerCase();
+
+                // Farbe nach Verkehrsmittel
+                const color = mode.includes('bus')    ? '#f97316'  // Orange = Bus
+                            : mode.includes('tram')   ? '#a855f7'  // Lila = Tram
+                            : mode.includes('subway') ? '#3b82f6'  // Blau = U-Bahn
+                            : mode.includes('rail') || mode.includes('train') ? '#ef4444' // Rot = Zug
+                            : '#f97316'; // Fallback Orange
+
+                // Verspätungs-Badge
+                const delayLabel = delay !== null && Math.abs(delay) >= 60
+                    ? (delay > 0 ? `+${Math.round(delay/60)}'` : `${Math.round(delay/60)}'`)
+                    : '';
+
+                const iconHtml = `<div class="vehicle-marker" style="background:${color};color:white;width:32px;height:32px;font-size:9px;">
+                    ${lineName}
+                </div>`;
+
+                const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
+
+                if (vehicleMarkers.has(tripId)) {
+                    // Marker updaten
+                    vehicleMarkers.get(tripId).setLatLng([lat, lng]);
+                } else {
+                    // Neuer Marker
+                    const marker = L.marker([lat, lng], { icon })
+                        .bindPopup(`
+                            <div style="font-family:monospace;min-width:140px">
+                                <b style="font-size:14px;color:${color}">${lineName}</b><br>
+                                <span style="font-size:11px">${direction}</span><br>
+                                ${delayLabel ? `<span style="color:${delay>0?'#ef4444':'#22c55e'};font-weight:bold">${delayLabel}</span>` : '<span style="color:#22c55e">pünktlich</span>'}
+                            </div>`)
+                        .addTo(liveMap);
+                    vehicleMarkers.set(tripId, marker);
+                }
+            });
+
+            // Marker entfernen die nicht mehr im Bereich sind
+            vehicleMarkers.forEach((marker, id) => {
+                if (!seen.has(id)) {
+                    liveMap.removeLayer(marker);
+                    vehicleMarkers.delete(id);
+                }
+            });
+        }
+
+        // Karte auf aktuelle Station zentrieren wenn Station gewechselt wird
+        function centerMapOnStation(station) {
+            if (!liveMap || !mapVisible) return;
+            // Transitous Stationssuche für Koordinaten
+            fetch(`${MOTIS_BASE}/geocode?text=${encodeURIComponent(station.name)}&language=de`, {
+                headers: { 'Referer': 'https://dilaeit.onrender.com' }
+            })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                const stop = data?.features?.[0];
+                if (stop?.geometry?.coordinates) {
+                    const [lng, lat] = stop.geometry.coordinates;
+                    liveMap.setView([lat, lng], 14);
+                    loadVehicles();
+                }
+            })
+            .catch(() => {});
         }
 
         init();
