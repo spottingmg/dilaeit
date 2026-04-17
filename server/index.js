@@ -213,8 +213,45 @@ app.get('/api/health', (_req, res) => res.json({
 }));
 
 app.get('/api/motis-debug', async (req, res) => {
-    const q = req.query.q || 'Berlin Hbf';
+    const q      = req.query.q || 'Berlin Hbf';
+    const tripId = req.query.tripId || null;
     try {
+        if (tripId) {
+            const variants = [
+                `/trip/${encodeURIComponent(tripId)}`,
+                `/trip?tripId=${encodeURIComponent(tripId)}`,
+                `/trips/${encodeURIComponent(tripId)}`,
+            ];
+            const results = [];
+            for (const path of variants) {
+                try {
+                    const d = await motisGet(path);
+                    results.push({ path, ok:true, keys:Object.keys(d).join(','), stopTimesCount:(d.stopTimes||[]).length, first:(d.stopTimes||[])[0] });
+                    break;
+                } catch(e) { results.push({ path, ok:false, error:e.message }); }
+            }
+            return res.json({ tripId, results });
+        }
+        const geo   = await motisGet(`/geocode?text=${encodeURIComponent(q)}&lang=de`);
+        const items = (Array.isArray(geo) ? geo : []).filter(l => l.type === 'STOP');
+        const best  = items[0];
+        const unix  = Math.floor(Date.now() / 1000);
+        let stResult = null;
+        if (best) {
+            const sid = motisRawId(best.id);
+            try {
+                const d = await motisGet(`/stoptimes?stopId=${encodeURIComponent(sid)}&radius=500&startTime=${unix}&duration=3600&n=3`);
+                const parsed = (d.stopTimes||[]).map(parseStopTime);
+                stResult = { ok:true, count:(d.stopTimes||[]).length, rawFirst: d.stopTimes?.[0], parsedFirst: parsed[0] };
+            } catch(e) { stResult = { ok:false, error:e.message }; }
+        }
+        res.json({ q, best, stoptimes: stResult });
+    } catch(e) { res.status(502).json({ error: e.message }); }
+});
+            } catch(e) {
+                return res.json({ tripId, ok:false, error:e.message });
+            }
+        }
         const geo   = await motisGet(`/geocode?text=${encodeURIComponent(q)}&lang=de`);
         const items = (Array.isArray(geo) ? geo : []).filter(l => l.type === 'STOP');
         const best  = items[0];
@@ -431,7 +468,8 @@ async function fetchMarudorTrip(tripId) {
 app.get('/api/train-details/:tripId', async (req, res) => {
   try {
     const tripId  = decodeURIComponent(req.params.tripId);
-    const isHafas = tripId.includes('|');
+    const isHafas   = tripId.includes('|');
+    const isMotisId = tripId.match(/^\d{8}_/); // Format: "20260417_..."
     if (!isHafas) {
       try {
         const data  = await motisGet(`/trip/${encodeURIComponent(tripId)}`);
@@ -471,12 +509,17 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             line: { name: lineName, display: fahrtNr?`${lineName} (${fahrtNr})`:lineName,
                     product: motisProduct(data.mode||''), fahrtNr } });
         }
-      } catch(e) { console.warn('MOTIS /trip failed:', e.message); }
+      } catch(e) { console.warn('MOTIS /trip failed for', tripId, ':', e.message);
+        if (isMotisId) return res.status(502).json({ error: `MOTIS /trip fehlgeschlagen: ${e.message}` });
+      }
     }
-    // Fallback Marudor
-    const marudorData = await fetchMarudorTrip(tripId);
-    if (marudorData) return res.json(marudorData);
-    // Fallback DB REST
+    // Fallback Marudor (nur für HAFAS-IDs)
+    if (!isMotisId) {
+        const marudorData = await fetchMarudorTrip(tripId);
+        if (marudorData) return res.json(marudorData);
+    }
+    // Fallback DB REST (nur für HAFAS-IDs)
+    if (isMotisId) return res.status(404).json({ error: 'MOTIS trip nicht gefunden' });
     const r2 = await fetch(`https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true&polyline=true`, { signal: AbortSignal.timeout(8000) });
     if (!r2.ok) throw new Error(`DB REST ${r2.status}`);
     const d2 = await r2.json(), trip = d2.trip ?? d2;
