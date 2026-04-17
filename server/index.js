@@ -62,12 +62,8 @@ const motisProduct = m => {
 };
 
 function motisRawId(id) {
-    if (!id) return id;
-    const us = id.indexOf('_');
-    if (us === -1) return id;
-    const parts = id.slice(us + 1).split(':');
-    if (parts.length > 3) return id.slice(0, us + 1) + parts.slice(0, 3).join(':');
-    return id;
+    // MOTIS braucht die volle ID so wie geocode sie zurückgibt (inkl. Plattform-Suffix)
+    return id || '';
 }
 
 async function motisGet(path) {
