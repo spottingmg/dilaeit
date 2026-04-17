@@ -435,49 +435,70 @@ async function fetchMarudorTrip(tripId) {
 // ─── DB-Zugdetails – via Marudor (Primary) oder v6.db.transport.rest (Fallback) 
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
-        const tripId  = decodeURIComponent(req.params.tripId);
+        const tripId    = decodeURIComponent(req.params.tripId);
         const isHafas   = tripId.includes('|');
         const isMotisId = /^\d{8}_/.test(tripId);
 
         if (!isHafas) {
             try {
-                const data  = await motisGet('/trip/' + encodeURIComponent(tripId));
-                const stops = data.stopTimes || [];
-                if (stops.length > 0) {
-                    const stopovers = stops.map(function(s) {
-                        const p = s.place || {};
+                const data = await motisGet('/trip?tripId=' + encodeURIComponent(tripId));
+                const legs = data.legs || [];
+                if (legs.length > 0) {
+                    const leg = legs[0]; // Transit-Trip hat genau 1 Leg
+                    const allStops = [];
+
+                    // Hilfsfunktion: place → stopover
+                    function placeToStopover(p, isFrom, isTo) {
                         return {
                             stop: {
                                 name:     p.name || '',
-                                id:       p.stopId || p.parentId || null,
+                                id:       p.parentId || p.stopId || null,
                                 location: p.lat != null ? { latitude: p.lat, longitude: p.lon } : null
                             },
-                            plannedArrival:    p.scheduledArrival   || null,
-                            arrival:           p.arrival            || p.scheduledArrival || null,
-                            plannedDeparture:  p.scheduledDeparture || null,
-                            departure:         p.departure          || p.scheduledDeparture || null,
-                            arrivalDelaySec:   (p.scheduledArrival && p.arrival && p.scheduledArrival !== p.arrival) ? Math.round((new Date(p.arrival) - new Date(p.scheduledArrival)) / 1000) : null,
-                            departureDelaySec: (p.scheduledDeparture && p.departure && p.scheduledDeparture !== p.departure) ? Math.round((new Date(p.departure) - new Date(p.scheduledDeparture)) / 1000) : null,
+                            plannedArrival:    isFrom ? null : (p.scheduledArrival || null),
+                            arrival:           isFrom ? null : (p.arrival || p.scheduledArrival || null),
+                            plannedDeparture:  isTo   ? null : (p.scheduledDeparture || null),
+                            departure:         isTo   ? null : (p.departure || p.scheduledDeparture || null),
+                            arrivalDelaySec:   (!isFrom && p.scheduledArrival && p.arrival && p.scheduledArrival !== p.arrival) ? Math.round((new Date(p.arrival) - new Date(p.scheduledArrival)) / 1000) : null,
+                            departureDelaySec: (!isTo && p.scheduledDeparture && p.departure && p.scheduledDeparture !== p.departure) ? Math.round((new Date(p.departure) - new Date(p.scheduledDeparture)) / 1000) : null,
                             platform:        p.track          || p.scheduledTrack || null,
                             plannedPlatform: p.scheduledTrack || p.track          || null,
-                            cancelled:  s.cancelled || s.tripCancelled || false,
+                            cancelled:  p.cancelled || false,
                             additional: false,
                             remarks:    []
                         };
-                    });
+                    }
+
+                    // from + intermediateStops + to zusammenbauen
+                    if (leg.from) allStops.push(placeToStopover(leg.from, true, false));
+                    for (const s of (leg.intermediateStops || [])) {
+                        allStops.push(placeToStopover(s, false, false));
+                    }
+                    if (leg.to) allStops.push(placeToStopover(leg.to, false, true));
+
+                    // Polyline aus leg.legGeometry falls vorhanden
                     let pl = null;
-                    if (data.shape && data.shape.length) {
+                    if (leg.legGeometry && leg.legGeometry.points) {
+                        // Google encoded polyline → übernehmen als-is für Leaflet
+                        pl = { type: 'encoded', points: leg.legGeometry.points };
+                    } else if (leg.shape && leg.shape.length) {
                         pl = { type: 'FeatureCollection', features: [{ type: 'Feature',
-                            geometry: { type: 'LineString', coordinates: data.shape.map(function(p) { return [p.lon || p.lng, p.lat]; }) },
+                            geometry: { type: 'LineString', coordinates: leg.shape.map(function(p) { return [p.lon || p.lng, p.lat]; }) },
                             properties: {} }] };
                     }
-                    const rawName = data.routeShortName || '';
-                    const fahrtNr = (rawName.match(/(\d+)/) || [])[1] || data.tripShortName || null;
+
+                    const rawName = leg.routeShortName || leg.route || '';
+                    const fahrtNr = (rawName.match(/(\d+)/) || [])[1] || leg.tripShortName || null;
                     const lineName = rawName.replace(/\s*\(\d+\)/, '').trim() || rawName;
-                    return res.json({ stopovers: stopovers, polyline: pl,
-                        remarks: [], source: 'Transitous (MOTIS)',
-                        tripId: data.tripId || tripId,
-                        line: { name: lineName, product: motisProduct(data.mode || ''), fahrtNr: fahrtNr } });
+
+                    return res.json({
+                        stopovers: allStops,
+                        polyline:  pl,
+                        remarks:   (leg.alerts || []).map(function(a) { return { text: a.alertHeaderText || a.text || '', type: 'info' }; }),
+                        source:    'Transitous (MOTIS)',
+                        tripId:    leg.tripId || tripId,
+                        line: { name: lineName, product: motisProduct(leg.mode || ''), fahrtNr: fahrtNr }
+                    });
                 }
             } catch(e) {
                 console.warn('MOTIS /trip failed:', e.message);
