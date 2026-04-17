@@ -274,7 +274,7 @@ app.get('/api/db/locations', async (req, res) => {
     }
     res.json({ locations: locs });
   } catch(e) { res.status(502).json({ error: e.message }); }
-});;
+});
 
 // ─── Abfahrten via Transitous/MOTIS ─────────────────────────────────────────
 app.get('/api/db/stops/:stopId/departures', async (req, res) => {
