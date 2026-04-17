@@ -206,7 +206,10 @@ app.get('/api/motis-debug', async (req, res) => {
             for (const path of paths) {
                 try {
                     const d = await motisGet(path);
-                    results.push({ path, ok: true, keys: Object.keys(d).join(','), count: (d.stopTimes||[]).length, first: (d.stopTimes||[])[0] });
+                    const legs = d.legs || [];
+                    const stops = legs.flatMap(function(l) { return l.intermediateStops || []; });
+                    results.push({ path, ok: true, keys: Object.keys(d).join(','),
+                        legCount: legs.length, firstLeg: legs[0] ? { mode: legs[0].mode, from: legs[0].from, to: legs[0].to, intermediateStopsCount: (legs[0].intermediateStops||[]).length, firstStop: (legs[0].intermediateStops||[])[0] } : null });
                 } catch(e) {
                     results.push({ path, ok: false, error: e.message });
                 }
