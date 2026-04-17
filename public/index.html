@@ -965,7 +965,7 @@
             filtered.forEach(dep => {
                 const item = document.createElement('div');
                 item.className = 'trip-item py-4 hover:bg-gray-50 dark:hover:bg-zinc-900/50 cursor-pointer transition-colors px-1 group';
-                const lineName    = (dep.line?.display || dep.line?.name) || dep.line?.id || '???';
+                const lineName    = dep.line?.display || dep.line?.name || dep.line?.id || '???';
                 const isCancelled = dep.cancelled;
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
                 const actualTime  = dep.when ? new Date(dep.when) : null;
@@ -1059,10 +1059,8 @@
                     ? `/api/db/stops/${encodeURIComponent(state.currentStation.id)}/departures`
                     : `/api/stops/${encodeURIComponent(state.currentStation.id)}/departures`;
 
-                const lat = state.currentStation.lat;
-                const lon = state.currentStation.lon;
-                const latLon = (lat && lon) ? `&lat=${lat}&lon=${lon}` : '';
-                const url = `${API_BASE}${apiPath}?when=${encodeURIComponent(timestamp)}&duration=120&results=40${latLon}`;
+                const url = `${API_BASE}${apiPath}?when=${encodeURIComponent(timestamp)}&results=50`;
+                console.log('[dep] url:', url);
                 const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
@@ -1076,7 +1074,7 @@
                 autoSaveDepartures(state.departures);
             } catch (err) {
                 console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
-                $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
+                $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler: ${err?.message||"Unbekannter Fehler"}</div>`;
             }
         }
 
