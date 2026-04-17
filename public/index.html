@@ -1378,6 +1378,9 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
+            // Sekunden + fett nur für DB-Echtzeitdaten, nie für VRR (liefert immer :00)
+            const isDbSource = sourceName.includes('Deutsche Bahn');
+
             // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
             const translationMap = {
                 // ── Betrieb & Verspätungsgründe (Typ R) ─────────────────────────────
@@ -1621,32 +1624,56 @@
 
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
 
-                    // Nur fett+Sekunden wenn delaySec EXPLIZIT vom Server kommt (= bestätigtes RT-Signal)
-                    // Prognosen (actual vorhanden, aber delaySec null) bleiben dünn+kursiv+keine Sekunden
-                    const isConfirmedRT = delaySec !== null && delaySec !== undefined;
+                    // Fett + Sekunden: Halt liegt in der Vergangenheit UND hat RT-Signal
+                    // = Bus ist wirklich abgefahren/angekommen, bestätigt
+                    // Prognosen (Halt in Zukunft) immer dünn+kursiv, auch wenn delaySec gesetzt
+                    const isConfirmedPast = isPast && actual && (delaySec !== null && delaySec !== undefined);
 
-                    if (isConfirmedRT) {
-                        return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>${delayStr}`;
+                    if (isConfirmedPast && isDbSource) {
+                        // DB: fett + echte Sekunden
+                        return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
+                    } else if (isConfirmedPast) {
+                        // VRR: fett aber keine Sekunden (VRR hat keine echten Sekunden)
+                        return `${planStr}<span class="font-bold font-mono text-[11px] ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     } else {
-                        return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>${delayStr}`;
+                        // Zukunft/Prognose: immer dünn + kursiv
+                        return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
                 };
 
                 const stopItem = document.createElement('div');
                 stopItem.className = `relative flex items-stretch gap-0 ${isCancelled ? 'opacity-40' : ''} py-1 min-h-[2.5rem]`;
 
-                // Zeitblock links
+                // Zeitblock links – mit sichtbarer Verspätungs-Badge
                 const timeBlock = (() => {
-                    const arrHtml = schedArr ? `
-                        <div class="flex items-center gap-1 leading-tight">
-                            <span class="text-gray-600 text-[8px] w-3">AN</span>
-                            <span class="mono text-[11px]">${formatTime(schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec)}</span>
-                        </div>` : '';
-                    const depHtml = schedDep ? `
-                        <div class="flex items-center gap-1 leading-tight">
-                            <span class="text-gray-600 text-[8px] w-3">AB</span>
-                            <span class="mono text-[11px]">${formatTime(schedDep, actualDep, hasLiveDep, stop.departureDelaySec)}</span>
-                        </div>` : '';
+                    const fmtRow = (label, sched, actual, hasLive, delaySec) => {
+                        if (!sched) return '';
+                        const timeHtml = formatTime(sched, actual, hasLive, delaySec);
+
+                        // Verspätungs-Badge separat und größer darstellen
+                        let delayBadge = '';
+                        if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
+                            const absMin = Math.abs(delaySec) >= 60
+                                ? (delaySec > 0 ? Math.floor(delaySec/60) : Math.ceil(delaySec/60))
+                                : null;
+                            const absSec = Math.abs(delaySec) < 60 ? Math.abs(delaySec) : null;
+                            const sign   = delaySec > 0 ? '+' : '−';
+                            const color  = delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-gray-400';
+                            const val    = absMin !== null ? `${sign}${Math.abs(absMin)}'` : `${sign}${absSec}s`;
+                            // Nur ab 1 Min anzeigen (unter 60s = pünktlich genug)
+                            if (absMin !== null && Math.abs(absMin) >= 1) {
+                                delayBadge = `<span class="text-[10px] font-bold ${color} ml-1">${val}</span>`;
+                            }
+                        }
+
+                        return `<div class="flex items-center justify-end gap-0.5 leading-tight">
+                            <span class="text-gray-600 text-[8px] w-3">${label}</span>
+                            <span class="mono text-[11px]">${timeHtml}</span>${delayBadge}
+                        </div>`;
+                    };
+
+                    const arrHtml = fmtRow('AN', schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec);
+                    const depHtml = fmtRow('AB', schedDep, actualDep, hasLiveDep, stop.departureDelaySec);
                     return arrHtml + depHtml || `<div class="mono text-[11px] text-gray-500">--:--</div>`;
                 })();
 
