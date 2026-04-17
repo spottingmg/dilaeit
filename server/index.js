@@ -197,8 +197,10 @@ app.get('/api/motis-debug', async (req, res) => {
         const tripId = req.query.tripId;
         if (tripId) {
             const paths = [
-                '/trip/' + encodeURIComponent(tripId),
-                '/trips/' + encodeURIComponent(tripId),
+                '/trip?tripId=' + encodeURIComponent(tripId),
+                '/trip?id=' + encodeURIComponent(tripId),
+                '/trips?tripId=' + encodeURIComponent(tripId),
+                '/stoptimes?tripId=' + encodeURIComponent(tripId) + '&n=3',
             ];
             const results = [];
             for (const path of paths) {
