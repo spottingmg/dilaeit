@@ -231,24 +231,25 @@
             clearTimeout(tripSearchTimer);
             tripSearchTimer = setTimeout(async () => {
                 try {
-                    // DB direkt via v6.db.transport.rest (CORS-offen, kein Proxy nötig)
+                    // DB via IRIS-Backend
                     const dbRes = await fetch(
-                        `https://v6.db.transport.rest/trips?lineName=${encodeURIComponent(query)}&currentlyRunning=false&stopovers=false&remarks=false`,
-                        { signal: AbortSignal.timeout(5000) }
+                        `${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`,
+                        { signal: AbortSignal.timeout(15000) }
                     ).then(r => r.ok ? r.json() : null).catch(() => null);
 
                     const q = query.trim().toUpperCase().replace(/\s+/g, '');
                     const seen = new Set();
                     const trips = [];
 
-                    // DB-Ergebnisse
-                    (dbRes?.trips || []).slice(0, 8).forEach(t => {
-                        const name = t.line?.name || '';
-                        if (name && !seen.has(name)) {
-                            seen.add(name);
-                            trips.push({ id: t.id, name, direction: t.direction || '', plannedDeparture: null });
-                        }
-                    });
+                    if (dbRes?.line?.name && !seen.has(dbRes.line.name)) {
+                        seen.add(dbRes.line.name);
+                        trips.push({
+                            id: dbRes.dbTripId || dbRes.tripId,
+                            name: dbRes.line.name,
+                            direction: dbRes.stopovers?.[dbRes.stopovers.length-1]?.stop?.name || '',
+                            plannedDeparture: dbRes.stopovers?.[0]?.plannedDeparture || null
+                        });
+                    }
 
                     // Transitous: mehrere Hubs parallel
                     const tResults = await Promise.all(
@@ -544,61 +545,20 @@
             }
         }
 
-        // ─── DB Suche – direkt via v6.db.transport.rest vom Browser (CORS-offen) ──────
+        // ─── DB IRIS Suche (Fahrtnummer → Fahrtverlauf) ──────────────────────────────
         async function searchDbTrip(number, date) {
             try {
-                const when = date ? `${date}T08:00:00` : new Date().toISOString();
-                const q    = number.trim().toUpperCase().replace(/\s+/g, '');
-
-                // v6.db.transport.rest hat einen /trips Endpunkt der nach Linienname/Fahrnummer sucht
-                const url = `https://v6.db.transport.rest/trips?lineName=${encodeURIComponent(number)}&currentlyRunning=false&stopovers=true&remarks=false`;
-                const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-                if (!res.ok) throw new Error(`DB ${res.status}`);
+                const d = date || new Date().toISOString().slice(0, 10);
+                const res = await fetch(
+                    `${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(d)}`,
+                    { signal: AbortSignal.timeout(30000) } // IRIS braucht etwas länger
+                );
+                if (!res.ok) return null;
                 const data = await res.json();
-
-                const trips = data.trips || (Array.isArray(data) ? data : []);
-                if (!trips.length) return null;
-
-                // Besten Treffer finden: Fahrtnummer (tripShortName) hat Vorrang
-                const match = trips.find(t => {
-                    const name = (t.line?.name || '').toUpperCase().replace(/\s+/g, '');
-                    const short = (t.line?.fahrtNr || t.fahrtNr || '').toString().toUpperCase();
-                    return short === q || name === q || name.endsWith(q);
-                }) || trips[0];
-
-                if (!match) return null;
-
-                // Stopovers mappen
-                const stopovers = (match.stopovers || []).map(s => ({
-                    stop: { name: s.stop?.name || '' },
-                    plannedArrival:    s.plannedArrival   || null,
-                    arrival:           s.arrival          || null,
-                    plannedDeparture:  s.plannedDeparture || null,
-                    departure:         s.departure        || null,
-                    arrivalDelaySec:   s.arrivalDelay   ?? null,
-                    departureDelaySec: s.departureDelay ?? null,
-                    platform:        s.platform          || null,
-                    plannedPlatform: s.plannedPlatform   || null,
-                    cancelled:  s.cancelled  || false,
-                    additional: s.additional || false,
-                    remarks: (s.remarks || []).map(r => ({ text: r.text || '', type: r.type || 'info' }))
-                }));
-
-                return {
-                    stopovers,
-                    line: match.line,
-                    source: 'Deutsche Bahn',
-                    remarks: (match.remarks || []).map(r => ({ text: r.text || '', type: r.type || 'info' }))
-                };
+                return data?.stopovers?.length ? data : null;
             } catch (e) {
-                console.warn('DB trip search failed:', e.message);
-                // Fallback: über Backend-Proxy
-                try {
-                    const res = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date || new Date().toISOString().slice(0,10))}`,
-                        { signal: AbortSignal.timeout(8000) });
-                    if (!res.ok) return null;
-                    return await res.json();
-                } catch { return null; }
+                console.warn('IRIS trip search failed:', e.message);
+                return null;
             }
         }
 
