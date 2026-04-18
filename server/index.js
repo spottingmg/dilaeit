@@ -143,41 +143,8 @@ app.get('/api/db/locations', async (req, res) => {
     const query = (req.query.query || '').toString().trim();
     if (query.length < 2) return res.json({ locations: [] });
 
-    // Primär: app.services-bahn.de (Vendo, schnell, kein Key)
-    try {
-        const r = await fetch('https://app.services-bahn.de/mob/location/search', {
-            method: 'POST',
-            signal: AbortSignal.timeout(5000),
-            headers: {
-                'Accept':           'application/x.db.vendo.mob.location.v3+json',
-                'Content-Type':     'application/x.db.vendo.mob.location.v3+json',
-                'X-Correlation-ID': vendoCorrelationId(),
-            },
-            body: JSON.stringify({
-                locationTypes: ['ALL'],
-                searchTerm:    query,
-                maxResults:    12
-            })
-        });
-        if (!r.ok) throw new Error(`vendo locations ${r.status}`);
-        const data = await r.json();
-        // Vendo gibt locations[] oder locationList[] zurück
-        const list = data.locations || data.locationList || (Array.isArray(data) ? data : []);
-        const locs = list
-            .slice(0, 12)
-            .map(l => {
-                const id = String(l.evaNumber || l.evaNr || l.extId || l.id || '').replace(/^0+/, '') || null;
-                return { id, name: l.name || l.haltName || l.title || '', type: 'station', source: 'DB' };
-            })
-            .filter(l => l.id && l.name);
-
-        if (locs.length > 0) return res.json({ locations: locs });
-        throw new Error('no results');
-    } catch (e) {
-        console.warn('vendo locations failed, fallback v6:', e.message);
-    }
-
-    // Fallback: v6.db.transport.rest
+    // v6.db.transport.rest gibt korrekte 7-stellige EVA-Nummern (8xxxxxx)
+    // die bahnhof.de und andere APIs erwarten
     const url = `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=12&fuzzy=true`;
     const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!r.ok) throw new Error(`v6 locations ${r.status}`);
@@ -201,88 +168,71 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
     console.log('[DB departures] stopId:', stopId);
 
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
+    const diffMin = whenRaw ? Math.round((new Date(whenRaw) - Date.now()) / 60000) : 0;
 
-    // bahnhof.de liefert immer ab jetzt, timeOffset in Minuten
-    // Wenn when in der Vergangenheit oder weit in der Zukunft → v6 als Fallback
-    let useBahnhof = true;
-    let timeOffset = 0;
-    if (whenRaw) {
-        const diff = Math.round((new Date(whenRaw) - Date.now()) / 60000);
-        if (diff < -5 || diff > 360) useBahnhof = false; // bahnhof.de nur ±6h ab jetzt
-        else timeOffset = Math.max(0, diff);
-    }
-
-    if (useBahnhof) {
+    // bahnhof.de: nur ab jetzt bis 6h – für Zeitreisen direkt zu v6
+    if (diffMin >= -5 && diffMin <= 360) {
         try {
-            const url = `https://www.bahnhof.de/api/boards/departures` +
-                        `?evaNumbers=${encodeURIComponent(stopId)}&duration=120&locale=de` +
-                        (timeOffset > 0 ? `&timeOffset=${timeOffset}` : '');
+            const url = `https://www.bahnhof.de/api/boards/departures?evaNumbers=${encodeURIComponent(stopId)}&duration=120&locale=de`;
+            console.log('[bahnhof.de] →', url);
             const r = await fetch(url, {
                 signal: AbortSignal.timeout(8000),
-                headers: { 'User-Agent': 'dilaeit/1.0 (https://dilaeit.onrender.com)' }
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 dilaeit/1.0',
+                    'Accept': 'application/json'
+                }
             });
-            if (!r.ok) throw new Error(`bahnhof.de ${r.status}`);
-            const data = await r.json();
-            console.log('[bahnhof.de] status ok, entries:', (data.entries||data.departures||(Array.isArray(data)?data:[])).length);
+            const text = await r.text();
+            console.log('[bahnhof.de] status:', r.status, 'body[:200]:', text.slice(0, 200));
+            if (!r.ok) throw new Error(`bahnhof.de ${r.status}: ${text.slice(0,100)}`);
+            const data = JSON.parse(text);
 
-            // bahnhof.de Felder (aus db-vendo-client parser):
-            // timeSchedule, timePredicted/timeDelayed, timeType='SCHEDULE' wenn kein RT
-            // journeyID/journeyId, platformSchedule, platformPredicted
-            // transport.direction.stopPlaces[0].name, transport.line, transport.number
             const entries = data.entries || data.departures || (Array.isArray(data) ? data : []);
+            console.log('[bahnhof.de] entries:', entries.length);
+
             const departures = entries.map(e => {
                 const planned = e.timeSchedule ? new Date(e.timeSchedule).toISOString() : null;
                 const rtTime  = e.timeType !== 'SCHEDULE' ? (e.timePredicted || e.timeDelayed) : null;
                 const actual  = rtTime ? new Date(rtTime).toISOString() : planned;
-                const delaySec = planned && actual
-                    ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
-
+                const delaySec = planned && actual ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
                 const transport = e.transport || {};
                 const direction = transport.direction?.stopPlaces?.[0]?.name
                                || transport.destination?.name
                                || e.destination?.name || 'Unbekannt';
-                const lineName  = transport.category && (transport.line || transport.number)
+                const lineName = transport.category && (transport.line || transport.number)
                     ? `${transport.category} ${transport.line || transport.number}`.trim()
-                    : transport.line || transport.number || e.train?.category || '???';
-
+                    : transport.line || transport.number || '???';
                 return {
-                    plannedWhen:     planned,
-                    when:            actual,
-                    delay:           delaySec,
+                    plannedWhen: planned, when: actual, delay: delaySec,
                     platform:        e.platformPredicted || e.platformSchedule || null,
                     plannedPlatform: e.platformSchedule  || null,
-                    cancelled:       e.cancelled || e.isCancelled || false,
+                    cancelled:  e.cancelled || e.isCancelled || false,
                     direction,
                     tripId:   e.journeyID || e.journeyId || transport.journeyId || null,
                     dbTripId: e.journeyID || e.journeyId || transport.journeyId || null,
                     occupancy: e.occupancy ?? null,
-                    line: {
-                        name:    lineName,
-                        product: transport.type?.toLowerCase() || 'train'
-                    },
+                    line: { name: lineName, product: transport.type?.toLowerCase() || 'train' },
                     _source: 'Deutsche Bahn (RIS)'
                 };
             }).filter(d => d.plannedWhen);
 
             return res.json({ departures });
         } catch (e) {
-            console.warn('bahnhof.de departures failed, fallback to v6:', e.message);
+            console.warn('[bahnhof.de] failed:', e.message, '→ fallback v6');
         }
     }
 
     // Fallback: v6.db.transport.rest
     const when = whenRaw || new Date().toISOString();
-    const url  = `https://v6.db.transport.rest/stops/${encodeURIComponent(stopId)}/departures` +
-                 `?when=${encodeURIComponent(when)}&duration=120&results=60&remarks=true`;
-    const r    = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) throw new Error(`DB API ${r.status}`);
+    const url  = `https://v6.db.transport.rest/stops/${encodeURIComponent(stopId)}/departures?when=${encodeURIComponent(when)}&duration=120&results=60&remarks=true`;
+    console.log('[v6 fallback] →', url);
+    const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) throw new Error(`v6 ${r.status}`);
     const data = await r.json();
-
     const departures = (data.departures || []).map(d => {
       const planned  = d.plannedWhen ? new Date(d.plannedWhen).toISOString() : null;
       const actual   = d.when        ? new Date(d.when).toISOString()        : planned;
-      const delaySec = d.delay !== undefined ? d.delay
-                     : (d.when && d.plannedWhen ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000) : null);
+      const delaySec = d.delay !== undefined ? d.delay : (d.when && d.plannedWhen ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000) : null);
       return {
         plannedWhen: planned, when: actual, delay: delaySec,
         platform: d.platform || d.plannedPlatform || null,
@@ -295,9 +245,11 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
         _source: 'Deutsche Bahn'
       };
     });
-
     res.json({ departures });
-  } catch (e) { res.status(502).json({ error: e.message }); }
+  } catch (e) {
+    console.error('[DB departures] error:', e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // ─── Abfahrten ───────────────────────────────────────────────────────────────
