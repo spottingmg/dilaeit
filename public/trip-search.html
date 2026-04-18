@@ -231,45 +231,58 @@
             clearTimeout(tripSearchTimer);
             tripSearchTimer = setTimeout(async () => {
                 try {
-                    // DB und Transitous parallel für Autocomplete
-                    const [dbRes, transitousRes] = await Promise.all([
-                        fetch(`${API_BASE}/api/db/trips-by-name?query=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`).then(r => r.ok ? r.json() : null).catch(() => null),
-                        (async () => {
-                            const when = date ? `${date}T08:00:00` : new Date().toISOString();
-                            const r = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${TRANSITOUS_HUB}&time=${encodeURIComponent(when)}&n=200`, { headers: { 'Referer': 'https://dilaeit.onrender.com' } });
-                            if (!r.ok) return null;
-                            return r.json();
-                        })().catch(() => null)
-                    ]);
+                    // DB direkt via v6.db.transport.rest (CORS-offen, kein Proxy nötig)
+                    const dbRes = await fetch(
+                        `https://v6.db.transport.rest/trips?lineName=${encodeURIComponent(query)}&currentlyRunning=false&stopovers=false&remarks=false`,
+                        { signal: AbortSignal.timeout(5000) }
+                    ).then(r => r.ok ? r.json() : null).catch(() => null);
 
                     const q = query.trim().toUpperCase().replace(/\s+/g, '');
                     const seen = new Set();
                     const trips = [];
 
                     // DB-Ergebnisse
-                    (dbRes?.trips || []).forEach(t => {
-                        if (!seen.has(t.name)) { seen.add(t.name); trips.push(t); }
+                    (dbRes?.trips || []).slice(0, 8).forEach(t => {
+                        const name = t.line?.name || '';
+                        if (name && !seen.has(name)) {
+                            seen.add(name);
+                            trips.push({ id: t.id, name, direction: t.direction || '', plannedDeparture: null });
+                        }
                     });
 
-                    // Transitous-Ergebnisse
-                    const tDeps = transitousRes?.departures || transitousRes?.stopTimes || (Array.isArray(transitousRes) ? transitousRes : []);
+                    // Transitous: mehrere Hubs parallel
+                    const tResults = await Promise.all(
+                        TRANSITOUS_HUBS.slice(0, 5).map(async stopId => { // nur 5 für Autocomplete
+                            try {
+                                const r = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${stopId}&time=${encodeURIComponent(when)}&n=200`,
+                                    { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(5000) });
+                                if (!r.ok) return [];
+                                const d = await r.json();
+                                return d.departures || d.stopTimes || (Array.isArray(d) ? d : []);
+                            } catch { return []; }
+                        })
+                    );
+                    const tDeps = tResults.flat();
+                    const isNumericQ = /^\d+$/.test(q);
                     tDeps.forEach(d => {
-                        const display   = d.displayName   || d.trip?.displayName   || '';
-                        const tripShort = d.tripShortName || d.trip?.tripShortName || '';
-                        const routeShort = d.routeShortName || d.trip?.routeShortName || '';
-                        // Zeige displayName wenn vorhanden, sonst routeShortName
-                        const showName = display || routeShort;
+                        const display    = d.displayName    || '';
+                        const tripShort  = d.tripShortName  || '';
+                        const routeShort = d.routeShortName || '';
+                        const showName   = display || routeShort;
                         if (!showName) return;
                         const nameUp = showName.toUpperCase().replace(/\s+/g, '');
                         const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
-                        const matches = nameUp === q || nameUp.endsWith(q) || nameUp.includes(q)
-                                     || tripUp === q || tripUp.endsWith(q);
+                        // Für reine Zahlen: nur exakt oder endsWith auf tripShortName
+                        // Für Text: auch includes auf displayName erlaubt
+                        const matches = tripUp === q || tripUp.endsWith(q)
+                                     || nameUp === q || nameUp.endsWith(q)
+                                     || (!isNumericQ && nameUp.includes(q));
                         if (matches && !seen.has(showName)) {
                             seen.add(showName);
                             trips.push({
                                 id: d.tripId || d.trip?.tripId,
                                 name: showName,
-                                direction: d.headsign || d.trip?.headsign || '',
+                                direction: d.headsign || '',
                                 plannedDeparture: d.scheduledDeparture || d.departure || null
                             });
                         }
@@ -410,34 +423,79 @@
         }
 
         // ─── Transitous Suche ─────────────────────────────────────────────────────────
-        // Düsseldorf Hbf in Transitous: de:05111:21225 (GTFS ID)
-        const TRANSITOUS_HUB = 'de:05111:21225';
+        // Mehrere große Bahnhöfe parallel durchsuchen für maximale Trefferquote
+        const TRANSITOUS_HUBS = [
+            'de:05111:21225',  // Düsseldorf Hbf
+            'de:05513:6130',   // Dortmund Hbf
+            'de:05113:9289',   // Essen Hbf
+            'de:05515:13450',  // Münster Hbf
+            'de:08111:6',      // Stuttgart Hbf
+            'de:09162:1',      // München Hbf
+            'de:11000:900003201', // Berlin Hbf
+            'de:06412:10',     // Frankfurt(Main) Hbf
+            'de:02000:8600282',// Hamburg Hbf
+            'de:05315:13',     // Köln Hbf
+        ];
 
         async function searchTransitousTrip(number, date) {
             try {
                 const when = date ? `${date}T08:00:00` : new Date().toISOString();
-                const url  = `https://api.transitous.org/api/v1/stoptimes` +
-                             `?stopId=${TRANSITOUS_HUB}&time=${encodeURIComponent(when)}&n=200`;
-                const res  = await fetch(url, { headers: { 'Referer': 'https://dilaeit.onrender.com' } });
-                if (!res.ok) return null;
-                const data = await res.json();
+                const q    = number.trim().toUpperCase().replace(/\s+/g, '');
+                const isNumeric = /^\d+$/.test(q); // reine Zahl = Fahrtnummer
 
-                const q = number.trim().toUpperCase().replace(/\s+/g, '');
+                // Alle Hubs parallel anfragen
+                const results = await Promise.all(TRANSITOUS_HUBS.map(async stopId => {
+                    try {
+                        const url = `https://api.transitous.org/api/v1/stoptimes?stopId=${stopId}&time=${encodeURIComponent(when)}&n=200`;
+                        const res = await fetch(url, { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(8000) });
+                        if (!res.ok) return [];
+                        const data = await res.json();
+                        return data.departures || data.stopTimes || (Array.isArray(data) ? data : []);
+                    } catch { return []; }
+                }));
 
-                // StopTime hat tripShortName (Fahrtnummer z.B. "10613"),
-                // routeShortName (Linienname z.B. "RB27") und displayName direkt auf oberster Ebene
-                const departures = data.departures || data.stopTimes || (Array.isArray(data) ? data : []);
-                const match = departures.find(d => {
-                    const tripShort = (d.tripShortName || d.trip?.tripShortName || '').toUpperCase().replace(/\s+/g, '');
-                    const routeShort = (d.routeShortName || d.trip?.routeShortName || '').toUpperCase().replace(/\s+/g, '');
-                    const display   = (d.displayName   || d.trip?.displayName   || '').toUpperCase().replace(/\s+/g, '');
-                    // Fahrtnummer direkt (10613) oder im Liniennamen (RB27, IC2202)
-                    return tripShort === q || tripShort.endsWith(q)
-                        || routeShort === q || routeShort.endsWith(q)
-                        || display === q    || display.endsWith(q) || display.includes(q);
-                });
+                const allDeps = results.flat();
 
-                // tripId ebenfalls direkt auf StopTime oder unter trip
+                // Matching mit Priorität:
+                // 1. Exakter tripShortName (Fahrtnummer "10613" == "10613")
+                // 2. Exakter routeShortName ("RB27" == "RB27")
+                // 3. displayName endet mit Zahl ("IC1549" endsWith "1549")
+                // 4. displayName enthält ("IC2202" includes "2202")
+                // Busse/Trams bei reiner Zahlsuche ausschließen
+                const findMatch = (deps) => {
+                    // Priorität 1: exakte Fahrtnummer
+                    let m = deps.find(d => {
+                        const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
+                        return ts === q;
+                    });
+                    if (m) return m;
+
+                    // Priorität 2: exakter Linienname
+                    m = deps.find(d => {
+                        const rs = (d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                        return rs === q;
+                    });
+                    if (m) return m;
+
+                    // Priorität 3: displayName endet mit Eingabe (z.B. "IC 1549" → "1549")
+                    m = deps.find(d => {
+                        const dn = (d.displayName || '').toUpperCase().replace(/\s+/g, '');
+                        const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
+                        return dn.endsWith(q) || ts.endsWith(q);
+                    });
+                    if (m) return m;
+
+                    // Priorität 4: nur wenn KEIN reiner Zahleingabe → Linien wie "106" würden sonst "10613" matchen
+                    if (!isNumeric) {
+                        m = deps.find(d => {
+                            const dn = (d.displayName || d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                            return dn.includes(q);
+                        });
+                    }
+                    return m || null;
+                };
+
+                const match = findMatch(allDeps);
                 const tripId = match?.tripId || match?.trip?.tripId;
                 if (!tripId) return null;
 
@@ -486,19 +544,61 @@
             }
         }
 
-        // ─── DB Suche ────────────────────────────────────────────────────────────────
+        // ─── DB Suche – direkt via v6.db.transport.rest vom Browser (CORS-offen) ──────
         async function searchDbTrip(number, date) {
             try {
-                // DB-Hafas Suche nach Trip-Nummer
-                const res = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, {
-                    signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
-                });
-                if (!res.ok) return null;
+                const when = date ? `${date}T08:00:00` : new Date().toISOString();
+                const q    = number.trim().toUpperCase().replace(/\s+/g, '');
+
+                // v6.db.transport.rest hat einen /trips Endpunkt der nach Linienname/Fahrnummer sucht
+                const url = `https://v6.db.transport.rest/trips?lineName=${encodeURIComponent(number)}&currentlyRunning=false&stopovers=true&remarks=false`;
+                const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                if (!res.ok) throw new Error(`DB ${res.status}`);
                 const data = await res.json();
-                return data || null;
+
+                const trips = data.trips || (Array.isArray(data) ? data : []);
+                if (!trips.length) return null;
+
+                // Besten Treffer finden: Fahrtnummer (tripShortName) hat Vorrang
+                const match = trips.find(t => {
+                    const name = (t.line?.name || '').toUpperCase().replace(/\s+/g, '');
+                    const short = (t.line?.fahrtNr || t.fahrtNr || '').toString().toUpperCase();
+                    return short === q || name === q || name.endsWith(q);
+                }) || trips[0];
+
+                if (!match) return null;
+
+                // Stopovers mappen
+                const stopovers = (match.stopovers || []).map(s => ({
+                    stop: { name: s.stop?.name || '' },
+                    plannedArrival:    s.plannedArrival   || null,
+                    arrival:           s.arrival          || null,
+                    plannedDeparture:  s.plannedDeparture || null,
+                    departure:         s.departure        || null,
+                    arrivalDelaySec:   s.arrivalDelay   ?? null,
+                    departureDelaySec: s.departureDelay ?? null,
+                    platform:        s.platform          || null,
+                    plannedPlatform: s.plannedPlatform   || null,
+                    cancelled:  s.cancelled  || false,
+                    additional: s.additional || false,
+                    remarks: (s.remarks || []).map(r => ({ text: r.text || '', type: r.type || 'info' }))
+                }));
+
+                return {
+                    stopovers,
+                    line: match.line,
+                    source: 'Deutsche Bahn',
+                    remarks: (match.remarks || []).map(r => ({ text: r.text || '', type: r.type || 'info' }))
+                };
             } catch (e) {
-                console.warn('DB trip search failed:', e);
-                return null;
+                console.warn('DB trip search failed:', e.message);
+                // Fallback: über Backend-Proxy
+                try {
+                    const res = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date || new Date().toISOString().slice(0,10))}`,
+                        { signal: AbortSignal.timeout(8000) });
+                    if (!res.ok) return null;
+                    return await res.json();
+                } catch { return null; }
             }
         }
 
