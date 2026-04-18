@@ -190,27 +190,40 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
             if (!r.ok) throw new Error(`bahnhof.de ${r.status}`);
             const data = await r.json();
 
+            // bahnhof.de Felder (aus db-vendo-client parser):
+            // timeSchedule, timePredicted/timeDelayed, timeType='SCHEDULE' wenn kein RT
+            // journeyID/journeyId, platformSchedule, platformPredicted
+            // transport.direction.stopPlaces[0].name, transport.line, transport.number
             const entries = data.entries || data.departures || (Array.isArray(data) ? data : []);
             const departures = entries.map(e => {
+                const planned = e.timeSchedule ? new Date(e.timeSchedule).toISOString() : null;
+                const rtTime  = e.timeType !== 'SCHEDULE' ? (e.timePredicted || e.timeDelayed) : null;
+                const actual  = rtTime ? new Date(rtTime).toISOString() : planned;
+                const delaySec = planned && actual
+                    ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
+
                 const transport = e.transport || {};
-                const time      = e.time?.departure || e.departure || {};
-                const planned   = time.scheduled ? new Date(time.scheduled).toISOString() : null;
-                const actual    = time.actual     ? new Date(time.actual).toISOString()   : planned;
-                const delaySec  = (time.delay !== undefined && time.delay !== null)
-                    ? time.delay * 60  // bahnhof.de gibt Minuten
-                    : (planned && actual ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null);
+                const direction = transport.direction?.stopPlaces?.[0]?.name
+                               || transport.destination?.name
+                               || e.destination?.name || 'Unbekannt';
+                const lineName  = transport.category && (transport.line || transport.number)
+                    ? `${transport.category} ${transport.line || transport.number}`.trim()
+                    : transport.line || transport.number || e.train?.category || '???';
+
                 return {
-                    plannedWhen: planned, when: actual, delay: delaySec,
-                    platform:        e.platform?.actual    || e.platform?.scheduled    || null,
-                    plannedPlatform: e.platform?.scheduled || null,
-                    cancelled:  e.cancelled  || e.isCancelled  || false,
-                    direction:  transport.destination?.name || e.destination || 'Unbekannt',
-                    tripId:     transport.tripId || e.tripId || null,
-                    dbTripId:   transport.tripId || e.tripId || null,
-                    occupancy:  e.occupancy ?? null,
+                    plannedWhen:     planned,
+                    when:            actual,
+                    delay:           delaySec,
+                    platform:        e.platformPredicted || e.platformSchedule || null,
+                    plannedPlatform: e.platformSchedule  || null,
+                    cancelled:       e.cancelled || e.isCancelled || false,
+                    direction,
+                    tripId:   e.journeyID || e.journeyId || transport.journeyId || null,
+                    dbTripId: e.journeyID || e.journeyId || transport.journeyId || null,
+                    occupancy: e.occupancy ?? null,
                     line: {
-                        name:    transport.line || transport.number || e.line?.name || '???',
-                        product: transport.type?.toLowerCase() || e.line?.product || 'train'
+                        name:    lineName,
+                        product: transport.type?.toLowerCase() || 'train'
                     },
                     _source: 'Deutsche Bahn (RIS)'
                 };
