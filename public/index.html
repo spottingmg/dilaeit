@@ -304,15 +304,58 @@
             </header>
 
             <div class="flex-1 relative overflow-hidden">
-                <div id="trip-itinerary" class="relative z-10 overflow-y-auto" style="max-height:62vh"></div>
+                <div id="panel-itinerary">
+                    <div id="trip-itinerary" class="relative z-10 overflow-y-auto" style="max-height:62vh"></div>
+                </div>
+
+                <!-- Karte -->
+                <div id="panel-map" class="hidden">
+                    <div id="trip-map" style="height:320px;border-radius:12px;overflow:hidden;"></div>
+                    <div id="trip-map-status" class="text-[10px] text-gray-500 text-center mt-1"></div>
+                </div>
+
+                <!-- Pünktlichkeit -->
+                <div id="panel-punctuality" class="hidden px-1 pt-2">
+                    <div id="punctuality-content" class="text-xs text-gray-400">
+                        <i class="fas fa-spinner fa-spin mr-1"></i>Lade Statistiken...
+                    </div>
+                </div>
+
+                <!-- Zuglauf -->
+                <div id="panel-zuglauf" class="hidden px-1 pt-2">
+                    <div id="zuglauf-content" class="text-xs text-gray-400">
+                        <i class="fas fa-spinner fa-spin mr-1"></i>Lade Zuglauf...
+                    </div>
+                </div>
             </div>
 
-            <footer class="mt-12 py-6 border-t border-gray-100 dark:border-zinc-900 flex justify-between items-center text-[10px] text-gray-500 mono">
-                <span id="detail-trip-id">TRIP: --</span>
-                <span class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                    ECHTZEIT AKTIV
-                </span>
+            <footer class="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900">
+                <!-- Tabs -->
+                <div class="flex gap-1 mb-3 flex-wrap">
+                    <button onclick="switchDetailTab('itinerary')" id="tab-itinerary"
+                        class="detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors bg-red-600 text-white">
+                        Fahrtverlauf
+                    </button>
+                    <button onclick="switchDetailTab('map')" id="tab-map"
+                        class="detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors bg-zinc-800 text-gray-400 hover:text-white">
+                        <i class="fas fa-map mr-1"></i>Karte
+                    </button>
+                    <button onclick="switchDetailTab('punctuality')" id="tab-punctuality"
+                        class="detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors bg-zinc-800 text-gray-400 hover:text-white">
+                        Pünktlichkeit
+                    </button>
+                    <button onclick="switchDetailTab('zuglauf')" id="tab-zuglauf"
+                        class="detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors bg-zinc-800 text-gray-400 hover:text-white">
+                        Zuglauf
+                    </button>
+                </div>
+                <div class="flex justify-between items-center text-[10px] text-gray-500 mono">
+                    <span id="detail-trip-id">TRIP: --</span>
+                    <span class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                        ECHTZEIT AKTIV
+                    </span>
+                </div>
             </footer>
         </div>
     </div>
@@ -496,7 +539,12 @@
             $('theme-toggle').addEventListener('click', () => document.body.classList.toggle('dark'));
             const apiBtn = document.getElementById('api-base-btn');
             if (apiBtn) apiBtn.addEventListener('click', setApiBaseFromPrompt);
-            $('close-detail').addEventListener('click', () => $('detail-view').classList.remove('active'));
+            $('close-detail').addEventListener('click', () => {
+                $('detail-view').classList.remove('active');
+                if (tripMapTimer) { clearInterval(tripMapTimer); tripMapTimer = null; }
+                currentDetailStopovers = null;
+                switchDetailTab('itinerary');
+            });
             document.addEventListener('click', e => {
                 if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
             });
@@ -936,6 +984,7 @@
                 setTimeout(() => state.departureCache.delete(cacheKey), 60000);
                 buildLineFilter();
                 renderDepartures();
+                autoSaveDepartures(state.departures);
             } catch (err) {
                 console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
                 $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
@@ -1344,6 +1393,7 @@
             const modal    = $('detail-view');
             const itinerary = $('trip-itinerary');
             modal.classList.add('active');
+            switchDetailTab('itinerary');
             
             // Auto-Erkennung: Zug → DB-Hafas, sonst VRR
             const isTrainLine = isTrain(dep.line);
@@ -1403,6 +1453,7 @@
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
                 addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
+                currentDetailStopovers = stops; // für Karten-Tab cachen
                 renderItinerary(stops, remarks, sourceName);
             } catch (e) {
                 console.error('Trip details failed', e);
@@ -1667,8 +1718,12 @@
                     const isConfirmedPast = isPast && actual && (delaySec !== null && delaySec !== undefined);
 
                     if (isConfirmedPast && isDbSource) {
-                        // DB: fett + echte Sekunden
-                        return `${planStr}<span class="precision-time ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
+                        // DB: fett + Sekunden NUR wenn nicht :00 (echte Sekundengenauigkeit)
+                        const hasRealSeconds = actual.getSeconds() !== 0;
+                        const timeStr = hasRealSeconds
+                            ? actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                            : actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+                        return `${planStr}<span class="precision-time ${rtColor}">${timeStr}</span>`;
                     } else if (isConfirmedPast) {
                         // VRR: fett aber keine Sekunden (VRR hat keine echten Sekunden)
                         return `${planStr}<span class="font-bold font-mono text-[11px] ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
@@ -1814,33 +1869,32 @@
         async function loadVehicles() {
             if (!liveMap) return;
             const b    = liveMap.getBounds();
-            const zoom = liveMap.getZoom();
-
-            // MOTIS /api/v1/map/trips – korrekte Parameter laut OpenAPI-Spec:
-            //   min  = "lat,lon" (untere rechte Ecke = SüdWest)
-            //   max  = "lat,lon" (obere linke Ecke  = NordOst)
-            //   startTime = ISO-String
-            //   zoom = aktueller Zoom-Level (integer)
-            //   precision = empfohlen: zoom>=11 ? 5 : zoom>=8 ? 4 : zoom>=5 ? 3 : 2
-            const min       = `${b.getSouth()},${b.getWest()}`;
-            const max       = `${b.getNorth()},${b.getEast()}`;
-            const startTime = new Date().toISOString();
+            const zoom = Math.round(liveMap.getZoom());
             const precision = zoom >= 11 ? 5 : zoom >= 8 ? 4 : zoom >= 5 ? 3 : 2;
 
-            const params = new URLSearchParams({
-                min, max, startTime, zoom, precision
-            });
+            // MOTIS v5 API – min/max als "lat,lon" String, zoom als integer
+            const min       = `${b.getSouth().toFixed(6)},${b.getWest().toFixed(6)}`;
+            const max       = `${b.getNorth().toFixed(6)},${b.getEast().toFixed(6)}`;
+            const startTime = new Date().toISOString();
+
+            // v5 statt v1 – neuere API-Version mit displayName
+            const url = `https://api.transitous.org/api/v5/map/trips` +
+                        `?min=${encodeURIComponent(min)}` +
+                        `&max=${encodeURIComponent(max)}` +
+                        `&startTime=${encodeURIComponent(startTime)}` +
+                        `&zoom=${zoom}` +
+                        `&precision=${precision}`;
+
+            console.log('[MOTIS] →', url);
 
             try {
-                const url = `https://api.transitous.org/api/v1/map/trips?${params}`;
-                console.log('[MOTIS] Requesting:', url.toString());
                 const res = await fetch(url, {
                     headers: { 'Referer': 'https://dilaeit.onrender.com' }
                 });
-                if (!res.ok) throw new Error(`MOTIS ${res.status}: ${await res.text()}`);
-                const data = await res.json();
+                const text = await res.text();
+                if (!res.ok) throw new Error(`MOTIS ${res.status}: ${text}`);
+                const data = JSON.parse(text);
 
-                // Antwort ist ein Array von TripSegment-Objekten
                 const trips = Array.isArray(data) ? data : (data.trips || data.features || []);
                 renderVehicles(trips, zoom);
 
@@ -1850,7 +1904,7 @@
                 });
 
             } catch (e) {
-                console.warn('MOTIS map/trips error:', e.message);
+                console.warn('[MOTIS] Fehler:', e.message);
                 $('map-vehicle-count').textContent = `Fehler: ${e.message}`;
             }
         }
@@ -1975,6 +2029,287 @@
                 }
             })
             .catch(() => {});
+        }
+
+        // ─── Detail-Tabs ─────────────────────────────────────────────────────────────
+        let tripMap = null, tripMapMarker = null, tripMapPolyline = null, tripMapTimer = null;
+        let currentDetailStopovers = null;
+
+        function switchDetailTab(tab) {
+            ['itinerary','map','punctuality','zuglauf'].forEach(t => {
+                const panel = $(`panel-${t}`);
+                const btn   = $(`tab-${t}`);
+                if (!panel || !btn) return;
+                const active = t === tab;
+                panel.classList.toggle('hidden', !active);
+                btn.className = `detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'
+                }`;
+            });
+            if (tab === 'map'         && currentTripDetail) initTripMap(currentTripDetail);
+            if (tab === 'punctuality' && currentTripDetail) renderPunctualityHistory(currentTripDetail);
+            if (tab === 'zuglauf'     && currentTripDetail) renderZuglauf(currentTripDetail);
+            if (tab !== 'map' && tripMapTimer) { clearInterval(tripMapTimer); tripMapTimer = null; }
+        }
+
+        // ─── Fahrtkarte (Leaflet, Transitous-Interpolation) ──────────────────────────
+        async function initTripMap(dep) {
+            const mapEl = $('trip-map');
+            if (!mapEl) return;
+            $('trip-map-status').textContent = 'Lade Karte...';
+
+            if (!tripMap) {
+                tripMap = L.map('trip-map', { zoomControl: true, attributionControl: false });
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 18, subdomains: 'abcd'
+                }).addTo(tripMap);
+            }
+            if (tripMapPolyline) { tripMap.removeLayer(tripMapPolyline); tripMapPolyline = null; }
+            if (tripMapMarker)   { tripMap.removeLayer(tripMapMarker);   tripMapMarker   = null; }
+
+            await updateTripMapPosition(dep);
+            if (tripMapTimer) clearInterval(tripMapTimer);
+            tripMapTimer = setInterval(() => {
+                if (!$('panel-map').classList.contains('hidden')) updateTripMapPosition(dep);
+            }, 60000);
+        }
+
+        async function updateTripMapPosition(dep) {
+            let stops = currentDetailStopovers;
+
+            // Fallback: DB REST für Koordinaten
+            if ((!stops?.length || !stops[0]?.stop?.location) && (dep.dbTripId || dep.tripId)) {
+                try {
+                    const id = dep.dbTripId || dep.tripId;
+                    const r  = await fetch(`https://v6.db.transport.rest/trips/${encodeURIComponent(id)}?stopovers=true&remarks=false`,
+                        { signal: AbortSignal.timeout(8000) });
+                    if (r.ok) {
+                        const d = await r.json();
+                        stops = (d.trip ?? d).stopovers || [];
+                    }
+                } catch {}
+            }
+
+            if (!stops?.length) {
+                $('trip-map-status').textContent = 'Keine Koordinaten verfügbar.';
+                return;
+            }
+
+            const pts = stops.filter(s => s.stop?.location?.latitude).map(s => ({
+                lat:    s.stop.location.latitude,
+                lng:    s.stop.location.longitude,
+                name:   s.stop.name,
+                planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
+                actual:  s.departure || s.arrival ? new Date(s.departure || s.arrival).getTime() : null
+            }));
+
+            if (!pts.length) { $('trip-map-status').textContent = 'Keine Koordinaten in Streckendaten.'; return; }
+
+            const now = Date.now();
+            if (tripMapPolyline) tripMap.removeLayer(tripMapPolyline);
+            tripMapPolyline = L.polyline(pts.map(p => [p.lat, p.lng]), {
+                color: '#ef4444', weight: 3, opacity: 0.7, dashArray: '6,4'
+            }).addTo(tripMap);
+
+            pts.forEach((p, i) => {
+                const t     = p.actual || p.planned;
+                const isPast = t < now;
+                const isNext = !isPast && (i === 0 || (pts[i-1].actual || pts[i-1].planned) < now);
+                L.circleMarker([p.lat, p.lng], {
+                    radius: isNext ? 7 : 5,
+                    color:  isPast ? '#374151' : isNext ? '#f97316' : '#6b7280',
+                    fillColor: isPast ? '#374151' : isNext ? '#f97316' : '#6b7280',
+                    fillOpacity: 1, weight: isNext ? 2 : 1
+                }).bindTooltip(p.name, { direction: 'top', offset: [0,-6] }).addTo(tripMap);
+            });
+
+            // Position interpolieren
+            const past   = pts.filter(p => (p.actual || p.planned) <= now);
+            const future = pts.filter(p => (p.actual || p.planned) >  now);
+            let posLat, posLng, label;
+            if (!past.length)   { posLat = pts[0].lat; posLng = pts[0].lng; label = `Vor ${pts[0].name}`; }
+            else if (!future.length) { posLat = pts[pts.length-1].lat; posLng = pts[pts.length-1].lng; label = `Nach ${pts[pts.length-1].name}`; }
+            else {
+                const from = past[past.length-1], to = future[0];
+                const t = Math.min(1, Math.max(0, (now - (from.actual||from.planned)) / ((to.actual||to.planned) - (from.actual||from.planned))));
+                posLat = from.lat + (to.lat - from.lat) * t;
+                posLng = from.lng + (to.lng - from.lng) * t;
+                const min = Math.round(((to.actual||to.planned) - now) / 60000);
+                label = min <= 0 ? `Ankunft in ${to.name}` : `→ ${to.name} in ~${min} Min`;
+            }
+
+            if (tripMapMarker) tripMap.removeLayer(tripMapMarker);
+            const icon = L.divIcon({
+                html: '<div style="background:#ef4444;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.5)"><i class="fas fa-train" style="font-size:12px"></i></div>',
+                className: '', iconSize: [28,28], iconAnchor: [14,14]
+            });
+            tripMapMarker = L.marker([posLat, posLng], { icon })
+                .bindPopup(`<b>${dep.line?.name||''}</b><br>${dep.direction||''}<br><span style="font-size:11px;color:#9ca3af">${label}</span>`)
+                .addTo(tripMap);
+
+            tripMap.setView([posLat, posLng], tripMap.getZoom() < 8 ? 11 : tripMap.getZoom());
+            setTimeout(() => tripMap.invalidateSize(), 100);
+            $('trip-map-status').innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${label} · ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+        }
+
+        // ─── Historische Pünktlichkeit (IndexedDB) ───────────────────────────────────
+        function openIDB() {
+            return new Promise((res, rej) => {
+                const req = indexedDB.open('dilaeit_rt', 1);
+                req.onupgradeneeded = e => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains('departures')) {
+                        const s = db.createObjectStore('departures', { keyPath: 'key' });
+                        s.createIndex('ts', 'ts', { unique: false });
+                    }
+                };
+                req.onsuccess = e => res(e.target.result);
+                req.onerror   = e => rej(e.target.error);
+            });
+        }
+
+        async function saveRtDeparture(dep) {
+            if (dep.delay === null || dep.delay === undefined) return;
+            try {
+                const db  = await openIDB();
+                const key = `${dep.line?.name}|${dep.plannedWhen}|${dep.direction}`;
+                const tx  = db.transaction('departures', 'readwrite');
+                tx.objectStore('departures').put({
+                    key, lineName: dep.line?.name || '?', direction: dep.direction || '',
+                    dateStr: new Date().toISOString().slice(0,10),
+                    delaySec: dep.delay, cancelled: dep.cancelled || false, ts: Date.now()
+                });
+                const cutoff = Date.now() - 60*86400000;
+                tx.objectStore('departures').index('ts').openCursor(IDBKeyRange.upperBound(cutoff)).onsuccess = e => {
+                    const c = e.target.result; if (c) { c.delete(); c.continue(); }
+                };
+            } catch {}
+        }
+
+        async function autoSaveDepartures(departures) {
+            for (const dep of departures) {
+                if (dep.delay !== null && dep.delay !== undefined) await saveRtDeparture(dep);
+            }
+        }
+
+        async function renderPunctualityHistory(dep) {
+            const el = $('punctuality-content');
+            if (!el) return;
+            el.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade...';
+            try {
+                const db       = await openIDB();
+                const lineName = dep.line?.name || '?';
+                const records  = await new Promise((res, rej) => {
+                    const results = [];
+                    const req = db.transaction('departures','readonly').objectStore('departures').openCursor();
+                    req.onsuccess = e => {
+                        const c = e.target.result;
+                        if (c) { if (c.value.lineName === lineName) results.push(c.value); c.continue(); }
+                        else res(results);
+                    };
+                    req.onerror = rej;
+                });
+
+                if (!records.length) {
+                    el.innerHTML = `<div class="text-center py-6 text-gray-500">
+                        <i class="fas fa-chart-bar text-2xl block opacity-30 mb-2"></i>
+                        Noch keine Daten für <b class="text-white">${lineName}</b>.<br>
+                        <span class="text-[10px]">Werden automatisch gesammelt.</span>
+                    </div>`;
+                    return;
+                }
+
+                const total     = records.length;
+                const cancelled = records.filter(r => r.cancelled).length;
+                const withDelay = records.filter(r => !r.cancelled && r.delaySec !== null);
+                const onTime    = withDelay.filter(r => r.delaySec < 60).length;
+                const avgDelay  = withDelay.length ? Math.round(withDelay.reduce((s,r) => s + Math.max(0,r.delaySec),0) / withDelay.length) : 0;
+                const maxDelay  = withDelay.length ? Math.max(...withDelay.map(r => r.delaySec)) : 0;
+                const pct       = total > 0 ? Math.round((onTime/total)*100) : 0;
+                const pctColor  = pct >= 80 ? 'text-green-400' : pct >= 60 ? 'text-yellow-400' : 'text-red-400';
+
+                const byDay = {};
+                withDelay.forEach(r => { const d = new Date(r.ts).getDay(); if (!byDay[d]) byDay[d]=[]; byDay[d].push(r.delaySec); });
+                const dayNames = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+                const dayBars  = [1,2,3,4,5,6,0].map(d => {
+                    const vals = byDay[d] || [];
+                    return { name: dayNames[d], avg: vals.length ? Math.round(vals.reduce((s,v)=>s+Math.max(0,v),0)/vals.length/60) : 0, count: vals.length };
+                });
+                const maxBar = Math.max(...dayBars.map(b=>b.avg), 1);
+
+                el.innerHTML = `<div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div><div class="text-3xl font-black ${pctColor}">${pct}%</div><div class="text-[10px] text-gray-500">pünktlich (&lt;1 Min)</div></div>
+                        <div class="text-right text-[10px] text-gray-400 space-y-0.5">
+                            <div><span class="text-white font-bold">${total}</span> Fahrten</div>
+                            <div><span class="text-red-400 font-bold">${cancelled}</span> ausgefallen</div>
+                            <div>Ø <span class="text-red-400 font-bold">${Math.round(avgDelay/60)}'</span></div>
+                            <div>Max <span class="text-red-500 font-bold">+${Math.round(maxDelay/60)}'</span></div>
+                        </div>
+                    </div>
+                    <div class="h-2 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full rounded-full bg-green-500" style="width:${pct}%"></div></div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Ø Verspätung nach Wochentag</div>
+                    <div class="flex items-end gap-1 h-14">
+                        ${dayBars.map(b => {
+                            const h = Math.max(4, Math.round((b.avg/maxBar)*100));
+                            const c = b.avg===0?'bg-green-600':b.avg<=2?'bg-yellow-500':'bg-red-500';
+                            return `<div class="flex-1 flex flex-col items-center gap-0.5">
+                                <div class="text-[8px] text-gray-500">${b.avg>0?'+'+b.avg+"'":''}  </div>
+                                <div class="w-full ${c} rounded-t" style="height:${h}%"></div>
+                                <div class="text-[9px] text-gray-500">${b.name}</div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+            } catch (e) {
+                el.innerHTML = `<span class="text-red-500">Fehler: ${e.message}</span>`;
+            }
+        }
+
+        // ─── Zuglauf-Übersicht ────────────────────────────────────────────────────────
+        async function renderZuglauf(dep) {
+            const el = $('zuglauf-content');
+            if (!el) return;
+            el.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Zuglauf...';
+
+            const dbTripId = dep.dbTripId || dep.tripId;
+            if (!dbTripId) { el.innerHTML = '<div class="text-gray-500 text-xs text-center py-4">Nur für DB-Züge verfügbar.</div>'; return; }
+
+            try {
+                const r = await fetch(`https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false`,
+                    { signal: AbortSignal.timeout(10000) });
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const data  = await r.json();
+                const trip  = data.trip ?? data;
+                const stops = trip.stopovers || [];
+                if (!stops.length) throw new Error('Keine Halte');
+
+                const now = Date.now();
+                let curIdx = -1;
+                stops.forEach((s,i) => { if (new Date(s.departure||s.arrival||s.plannedDeparture||s.plannedArrival||0).getTime() <= now) curIdx = i; });
+
+                el.innerHTML = `<div class="space-y-2">
+                    <div class="text-xs text-gray-400">${stops[0].stop?.name||'?'} → ${stops[stops.length-1].stop?.name||'?'} · ${stops.length} Halte</div>
+                    <div class="max-h-64 overflow-y-auto rounded-xl border border-zinc-800">
+                        ${stops.map((s,i) => {
+                            const isCur  = i === curIdx;
+                            const isPast = i < curIdx;
+                            const t      = s.plannedDeparture || s.plannedArrival;
+                            const time   = t ? new Date(t).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+                            const d      = (() => { const a=s.departure||s.arrival,p=s.plannedDeparture||s.plannedArrival; if(!a||!p) return ''; const m=Math.round((new Date(a)-new Date(p))/60000); return m>0?`<span class="text-red-400 text-[9px] ml-1">+${m}'</span>`:''; })();
+                            const bg     = isCur ? 'bg-red-600/20 border-l-2 border-red-500' : isPast ? 'opacity-40' : '';
+                            const dot    = isCur ? '🔴' : isPast ? '·' : '○';
+                            return `<div class="flex items-center gap-2 px-3 py-1.5 text-xs ${bg} ${i===0||i===stops.length-1?'font-bold':''}">
+                                <span class="text-[10px] w-3">${dot}</span>
+                                <span class="flex-1 truncate ${s.cancelled?'line-through text-gray-500':''}">${s.stop?.name||''}</span>
+                                <span class="font-mono text-gray-400 shrink-0">${time}${d}</span>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+            } catch (e) {
+                el.innerHTML = `<div class="text-red-500 text-xs">Fehler: ${e.message}</div>`;
+            }
         }
 
         init();
