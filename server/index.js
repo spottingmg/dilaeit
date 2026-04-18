@@ -31,15 +31,6 @@ for (const p of potentialPaths) {
 }
 console.log('📂 Frontend:', publicPath);
 
-// ─── db-hafas (optional) ─────────────────────────────────────────────────────
-let hafas = null;
-try {
-  hafas = createHafas('dilaeit-app');
-  console.log('✅ db-hafas initialisiert');
-} catch (e) {
-  console.warn('⚠️  db-hafas konnte nicht initialisiert werden:', e.message);
-}
-
 // ─── EFA-Konfiguration ───────────────────────────────────────────────────────
 const app               = express();
 const OPEN_SERVICE_BASE = process.env.OPEN_SERVICE_BASE || 'https://openservice-test.vrr.de/openservice';
