@@ -1833,7 +1833,10 @@
 
             try {
                 const url = `https://api.transitous.org/api/v1/map/trips?${params}`;
-                const res = await fetch(url);
+                console.log('[MOTIS] Requesting:', url.toString());
+                const res = await fetch(url, {
+                    headers: { 'Referer': 'https://dilaeit.onrender.com' }
+                });
                 if (!res.ok) throw new Error(`MOTIS ${res.status}: ${await res.text()}`);
                 const data = await res.json();
 
