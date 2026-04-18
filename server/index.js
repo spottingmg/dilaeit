@@ -382,92 +382,88 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
   } catch (e) { console.error('departures error', e); res.status(502).json({ error: e.message }); }
 });
 
-// ─── DB-Zugdetails – regio-guide.de (RIS, Sekunden, Verfrühungen) ─────────────
-const REGIO_BASE = 'https://regio-guide.de/@prd/zupo-travel-information/api/public/ri';
+// ─── DB-Zugdetails – app.services-bahn.de (Vendo/Movas, RIS-Qualität) ─────────
+const VENDO_BASE = 'https://app.services-bahn.de/mob';
+
+function vendoCorrelationId() {
+    // Einfache UUID v4-ähnliche ID ohne externe Deps
+    const s = () => Math.random().toString(36).slice(2, 10);
+    return `${s()}${s()}_${s()}${s()}`;
+}
 
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
         const tripId = decodeURIComponent(req.params.tripId);
 
-        // regio-guide /journey/:tripId – RIS-Qualität mit Sekunden
-        const url = `${REGIO_BASE}/journey/${encodeURIComponent(tripId)}`;
+        // Vendo zuglauf – kein API-Key, HAFAS-kompatible trip IDs
+        const url = `${VENDO_BASE}/zuglauf/${encodeURIComponent(tripId)}`;
         const r   = await fetch(url, {
             signal: AbortSignal.timeout(10000),
-            headers: { 'User-Agent': 'dilaeit/1.0 (https://dilaeit.onrender.com)' }
+            headers: {
+                'Accept':            'application/x.db.vendo.mob.zuglauf.v2+json',
+                'Content-Type':      'application/x.db.vendo.mob.zuglauf.v2+json',
+                'X-Correlation-ID':  vendoCorrelationId(),
+                'User-Agent':        'dilaeit/1.0 (https://dilaeit.onrender.com)'
+            }
         });
 
-        if (!r.ok) {
-            // Fallback auf v6.db.transport.rest
-            console.warn(`regio-guide journey ${r.status}, fallback to v6`);
-            throw new Error(`regio-guide ${r.status}`);
-        }
-
+        if (!r.ok) throw new Error(`vendo ${r.status}: ${await r.text().catch(()=>'')}`);
         const data = await r.json();
 
-        // RIS-Felder: stops[].arrivalTime.target / .predicted / .timeType
-        //             stops[].departureTime.target / .predicted / .timeType
-        const stops = data.stops || data.stopList || data.events || [];
+        // Vendo zuglauf Format: data.zuglaufAbschnitte[] oder data.halte[]
+        const halte = data.halte || data.zuglaufAbschnitte || data.stops || [];
 
-        const stopovers = stops.map(s => {
-            const arr  = s.arrivalTime   || s.arrival   || {};
-            const dep  = s.departureTime || s.departure || {};
-            const stop = s.station       || s.stop      || s.place || {};
+        const stopovers = halte.map(h => {
+            // Vendo Felder: ankunftsDatum, ezAnkunftsDatum, abfahrtsDatum, ezAbfahrtsDatum
+            const pA = h.ankunftsDatum     ? new Date(h.ankunftsDatum).toISOString()   : null;
+            const aA = h.ezAnkunftsDatum   ? new Date(h.ezAnkunftsDatum).toISOString() : null;
+            const pD = h.abfahrtsDatum     ? new Date(h.abfahrtsDatum).toISOString()   : null;
+            const aD = h.ezAbfahrtsDatum   ? new Date(h.ezAbfahrtsDatum).toISOString(): null;
 
-            const pA = arr.target    ? new Date(arr.target).toISOString()    : null;
-            const aA = (arr.predicted && arr.timeType !== 'SCHEDULE')
-                       ? new Date(arr.predicted).toISOString() : null;
-            const pD = dep.target    ? new Date(dep.target).toISOString()    : null;
-            const aD = (dep.predicted && dep.timeType !== 'SCHEDULE')
-                       ? new Date(dep.predicted).toISOString() : null;
-
-            // Sekunden-präzise Verspätung/Verfrühung
-            const arrDelaySec  = aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null;
-            const depDelaySec  = aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null;
+            // Koordinaten
+            const loc = h.station?.koordinaten || h.koordinaten || null;
 
             return {
                 stop: {
-                    name:     stop.name || stop.title || s.name || '',
-                    id:       stop.evaNumber || stop.id || stop.extId || null,
-                    location: stop.position ? {
-                        latitude:  stop.position.latitude,
-                        longitude: stop.position.longitude
-                    } : null
+                    name:     h.station?.name || h.name || '',
+                    id:       h.station?.evaNumber || h.evaNumber || h.id || null,
+                    location: loc ? { latitude: loc.breite || loc.lat, longitude: loc.laenge || loc.lon } : null
                 },
                 plannedArrival:    pA,
                 arrival:           aA || pA,
                 plannedDeparture:  pD,
                 departure:         aD || pD,
-                arrivalDelaySec:   arrDelaySec,
-                departureDelaySec: depDelaySec,
-                platform:        s.platform?.actual    || s.track?.actual    || s.platform || null,
-                plannedPlatform: s.platform?.scheduled || s.track?.scheduled || null,
-                cancelled:  s.cancelled  || s.isCancelled  || arr.cancelled || dep.cancelled || false,
-                additional: s.additional || s.isAdditional || false,
-                remarks: (s.messages || s.remarks || []).map(m => ({
+                arrivalDelaySec:   aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                platform:        h.gleis?.aktuell     || h.gleis     || h.platform || null,
+                plannedPlatform: h.gleis?.geplant     || h.gleis     || null,
+                cancelled:  h.haltAusfall   || h.cancelled  || false,
+                additional: h.haltZusatz    || h.additional || false,
+                remarks: (h.hinweise || h.remarks || []).map(m => ({
                     text: m.text || m.message || '',
-                    type: m.type || 'info'
+                    type: m.typ  || m.type    || 'info'
                 }))
             };
         });
 
-        const line = data.transport || data.line || data.train || {};
+        const transport = data.transport || data.zuglauf || data.line || {};
         res.json({
             stopovers,
-            remarks: (data.messages || data.remarks || []).map(m => ({
-                text: m.text || m.message || '', type: m.type || 'info'
+            remarks: (data.hinweise || data.remarks || []).map(m => ({
+                text: m.text || '', type: m.typ || 'info'
             })),
             source:  'Deutsche Bahn (RIS)',
-            tripId:  data.journeyId || data.tripId || tripId,
+            tripId:  data.tripId || tripId,
             line: {
-                name:     line.line || line.name || line.number || '',
-                product:  line.type?.toLowerCase() || line.product || 'train',
-                operator: line.operator?.name || null
+                name:    transport.kurzText || transport.name || transport.nummer || '',
+                product: transport.typ?.toLowerCase() || 'train',
+                operator: transport.betreiber?.name || null
             }
         });
 
     } catch (e) {
         // Fallback: v6.db.transport.rest
-        console.warn('regio-guide failed, fallback v6:', e.message);
+        console.warn('vendo zuglauf failed, fallback v6:', e.message);
         try {
             const tripId = decodeURIComponent(req.params.tripId);
             const url = `https://v6.db.transport.rest/trips/${encodeURIComponent(tripId)}?stopovers=true&remarks=true`;
@@ -492,7 +488,8 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                     cancelled: s.cancelled || false, additional: s.additional || false, remarks: s.remarks || []
                 };
             });
-            res.json({ stopovers, remarks: (trip.remarks||[]).map(r=>({text:r.text||'',type:r.type||'info'})),
+            res.json({ stopovers,
+                remarks: (trip.remarks||[]).map(r=>({text:r.text||'',type:r.type||'info'})),
                 source: 'Deutsche Bahn', tripId: trip.id,
                 line: trip.line ? { name: trip.line.name, product: trip.line.product } : null });
         } catch (e2) {
