@@ -143,17 +143,53 @@ app.get('/api/db/locations', async (req, res) => {
     const query = (req.query.query || '').toString().trim();
     if (query.length < 2) return res.json({ locations: [] });
 
-    // Primär: v6.db.transport.rest (CORS-offen, schnell für Stationssuche)
-    const url = `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=12&fuzzy=true`;
-    const r   = await fetch(url, { signal: AbortSignal.timeout(6000) });
-    if (!r.ok) throw new Error(`DB API ${r.status}`);
-    const data = await r.json();
+    // Primär: app.services-bahn.de (Vendo, schnell, kein Key)
+    try {
+        const r = await fetch('https://app.services-bahn.de/mob/location/search', {
+            method: 'POST',
+            signal: AbortSignal.timeout(5000),
+            headers: {
+                'Accept':           'application/x.db.vendo.mob.location.v3+json',
+                'Content-Type':     'application/x.db.vendo.mob.location.v3+json',
+                'X-Correlation-ID': vendoCorrelationId(),
+            },
+            body: JSON.stringify({
+                locationTypes: ['ALL'],
+                searchTerm:    query,
+                maxResults:    12
+            })
+        });
+        if (!r.ok) throw new Error(`vendo locations ${r.status}`);
+        const data = await r.json();
+        // Vendo gibt locations[] oder locationList[] zurück
+        const list = data.locations || data.locationList || (Array.isArray(data) ? data : []);
+        const locs = list
+            .filter(l => l.type === 'ST' || l.type === 'stop' || l.type === 'station' || l.evaNumber)
+            .slice(0, 12)
+            .map(l => ({
+                id:   String(l.evaNumber || l.id || l.extId || ''),
+                name: l.name || l.title || '',
+                type: 'station',
+                source: 'DB'
+            }))
+            .filter(l => l.id && l.name);
 
+        if (locs.length > 0) return res.json({ locations: locs });
+        throw new Error('no results');
+    } catch (e) {
+        console.warn('vendo locations failed, fallback v6:', e.message);
+    }
+
+    // Fallback: v6.db.transport.rest
+    const url = `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=12&fuzzy=true`;
+    const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`v6 locations ${r.status}`);
+    const data = await r.json();
     const locs = (Array.isArray(data) ? data : [])
       .filter(l => l.type === 'stop' || l.type === 'station')
       .map(l => ({ id: String(l.id), name: l.name, type: l.type, source: 'DB' }));
-
     res.json({ locations: locs });
+
   } catch (e) {
     console.error('DB locations error:', e.message);
     res.status(502).json({ error: e.message });
