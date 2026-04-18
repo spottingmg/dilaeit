@@ -254,15 +254,21 @@
                     // Transitous-Ergebnisse
                     const tDeps = transitousRes?.departures || transitousRes?.stopTimes || (Array.isArray(transitousRes) ? transitousRes : []);
                     tDeps.forEach(d => {
-                        const name = d.trip?.displayName || d.trip?.routeShortName || '';
-                        if (!name) return;
-                        const nameUp = name.toUpperCase().replace(/\s+/g, '');
-                        // "2202" → trifft "IC2202", "ICE2202" etc.
-                        if ((nameUp === q || nameUp.endsWith(q) || nameUp.includes(q)) && !seen.has(name)) {
-                            seen.add(name);
+                        const display   = d.displayName   || d.trip?.displayName   || '';
+                        const tripShort = d.tripShortName || d.trip?.tripShortName || '';
+                        const routeShort = d.routeShortName || d.trip?.routeShortName || '';
+                        // Zeige displayName wenn vorhanden, sonst routeShortName
+                        const showName = display || routeShort;
+                        if (!showName) return;
+                        const nameUp = showName.toUpperCase().replace(/\s+/g, '');
+                        const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
+                        const matches = nameUp === q || nameUp.endsWith(q) || nameUp.includes(q)
+                                     || tripUp === q || tripUp.endsWith(q);
+                        if (matches && !seen.has(showName)) {
+                            seen.add(showName);
                             trips.push({
-                                id: d.trip?.tripId,
-                                name,
+                                id: d.tripId || d.trip?.tripId,
+                                name: showName,
                                 direction: d.headsign || d.trip?.headsign || '',
                                 plannedDeparture: d.scheduledDeparture || d.departure || null
                             });
@@ -418,18 +424,25 @@
 
                 const q = number.trim().toUpperCase().replace(/\s+/g, '');
 
-                // Transitous stoptimes: Array von StopTime, jedes mit trip.displayName
+                // StopTime hat tripShortName (Fahrtnummer z.B. "10613"),
+                // routeShortName (Linienname z.B. "RB27") und displayName direkt auf oberster Ebene
                 const departures = data.departures || data.stopTimes || (Array.isArray(data) ? data : []);
                 const match = departures.find(d => {
-                    const name = (d.trip?.displayName || d.trip?.routeShortName || d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
-                    // "2202" → trifft "IC2202", "ICE2202" etc.
-                    return name === q || name.endsWith(q) || name.includes(q);
+                    const tripShort = (d.tripShortName || d.trip?.tripShortName || '').toUpperCase().replace(/\s+/g, '');
+                    const routeShort = (d.routeShortName || d.trip?.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                    const display   = (d.displayName   || d.trip?.displayName   || '').toUpperCase().replace(/\s+/g, '');
+                    // Fahrtnummer direkt (10613) oder im Liniennamen (RB27, IC2202)
+                    return tripShort === q || tripShort.endsWith(q)
+                        || routeShort === q || routeShort.endsWith(q)
+                        || display === q    || display.endsWith(q) || display.includes(q);
                 });
 
-                if (!match?.trip?.tripId) return null;
+                // tripId ebenfalls direkt auf StopTime oder unter trip
+                const tripId = match?.tripId || match?.trip?.tripId;
+                if (!tripId) return null;
 
                 // Fahrtverlauf über Transitous /trip holen
-                const tripUrl = `https://api.transitous.org/api/v1/trip?tripId=${encodeURIComponent(match.trip.tripId)}`;
+                const tripUrl = `https://api.transitous.org/api/v1/trip?tripId=${encodeURIComponent(tripId)}`;
                 const tripRes = await fetch(tripUrl, { headers: { 'Referer': 'https://dilaeit.onrender.com' } });
                 if (!tripRes.ok) return null;
                 const tripData = await tripRes.json();
@@ -463,7 +476,7 @@
 
                 return {
                     stopovers,
-                    line: { name: match.trip.displayName || match.trip.routeShortName || number },
+                    line: { name: match.displayName || match.tripShortName || match.routeShortName || match.trip?.displayName || number },
                     source: 'Transitous',
                     remarks: []
                 };
