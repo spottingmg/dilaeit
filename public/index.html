@@ -1816,34 +1816,35 @@
             const b    = liveMap.getBounds();
             const zoom = liveMap.getZoom();
 
-            // MOTIS /api/v1/map/trips Parameter: minLat,minLon,maxLat,maxLon + Zeitfenster
-            const now    = new Date();
-            const tStart = new Date(now.getTime() - 5  * 60000).toISOString();
-            const tEnd   = new Date(now.getTime() + 60 * 60000).toISOString();
+            // MOTIS /api/v1/map/trips – korrekte Parameter laut OpenAPI-Spec:
+            //   min  = "lat,lon" (untere rechte Ecke = SüdWest)
+            //   max  = "lat,lon" (obere linke Ecke  = NordOst)
+            //   startTime = ISO-String
+            //   zoom = aktueller Zoom-Level (integer)
+            //   precision = empfohlen: zoom>=11 ? 5 : zoom>=8 ? 4 : zoom>=5 ? 3 : 2
+            const min       = `${b.getSouth()},${b.getWest()}`;
+            const max       = `${b.getNorth()},${b.getEast()}`;
+            const startTime = new Date().toISOString();
+            const precision = zoom >= 11 ? 5 : zoom >= 8 ? 4 : zoom >= 5 ? 3 : 2;
 
             const params = new URLSearchParams({
-                minLat:    b.getSouth(),
-                minLon:    b.getWest(),
-                maxLat:    b.getNorth(),
-                maxLon:    b.getEast(),
-                startTime: tStart,
-                endTime:   tEnd,
+                min, max, startTime, zoom, precision
             });
 
             try {
-                const url = `${MOTIS_BASE}/map/trips?${params}`;
-                const res = await fetch(url, {
-                    headers: { 'User-Agent': MOTIS_AGENT }
-                });
+                const url = `https://api.transitous.org/api/v1/map/trips?${params}`;
+                const res = await fetch(url);
                 if (!res.ok) throw new Error(`MOTIS ${res.status}: ${await res.text()}`);
                 const data = await res.json();
 
-                // MOTIS liefert GeoJSON FeatureCollection
-                const features = data.features || data.trips || (Array.isArray(data) ? data : []);
-                renderVehicles(features, zoom);
+                // Antwort ist ein Array von TripSegment-Objekten
+                const trips = Array.isArray(data) ? data : (data.trips || data.features || []);
+                renderVehicles(trips, zoom);
 
-                $('map-vehicle-count').textContent = `${features.length} Fahrzeuge`;
-                $('map-last-update').textContent   = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                $('map-vehicle-count').textContent = `${trips.length} Fahrzeuge`;
+                $('map-last-update').textContent   = new Date().toLocaleTimeString('de-DE', {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit'
+                });
 
             } catch (e) {
                 console.warn('MOTIS map/trips error:', e.message);
@@ -1851,52 +1852,94 @@
             }
         }
 
-        function renderVehicles(features, zoom) {
+        // Google Polyline Decoder (precision 5)
+        function decodePolyline(encoded) {
+            const points = [];
+            let idx = 0, lat = 0, lng = 0;
+            while (idx < encoded.length) {
+                let b, shift = 0, result = 0;
+                do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+                lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+                shift = 0; result = 0;
+                do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+                lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+                points.push([lat / 1e5, lng / 1e5]);
+            }
+            return points;
+        }
+
+        function renderVehicles(segments, zoom) {
             if (!liveMap) return;
             const seen = new Set();
+            const now  = Date.now();
 
-            features.forEach(feature => {
-                const props  = feature.properties || feature;
-                const geom   = feature.geometry;
-
-                // Trip-ID
-                const tripId = props.id || props.tripId || props.fptfId;
-                if (!tripId) return;
+            segments.forEach(seg => {
+                const trip    = seg.trips?.[0];
+                if (!trip) return;
+                const tripId  = trip.tripId;
+                if (!tripId || seen.has(tripId)) return;
                 seen.add(tripId);
 
-                // Aktuelle Position aus Polyline interpolieren oder direkt aus Point
-                let lat, lng;
-                if (geom?.type === 'Point') {
-                    [lng, lat] = geom.coordinates;
-                } else if (geom?.type === 'LineString' && geom.coordinates?.length) {
-                    // Mitte der Linie als grobe Position
-                    const mid = Math.floor(geom.coordinates.length / 2);
-                    [lng, lat] = geom.coordinates[mid];
-                } else if (props.lat !== undefined) {
-                    lat = props.lat; lng = props.lon ?? props.lng;
-                } else return;
+                // Linienname: displayName (v4+) oder routeShortName
+                const lineName = trip.displayName || trip.routeShortName || '?';
+                const mode     = (seg.mode || '').toString().toUpperCase();
 
-                // Fahrzeuginfo
-                const lineName  = props.routeShortName || props.name || props.route || '?';
-                const headsign  = props.headsign || props.direction || props.displayName || '';
-                const delay     = props.delay ?? props.delaySeconds ?? null;
-                const routeType = (props.routeType ?? props.mode ?? '').toString().toLowerCase();
-
-                // Farbe nach Typ
-                const color =
-                    routeType === '3' || routeType.includes('bus')    ? '#f97316' :
-                    routeType === '0' || routeType.includes('tram')   ? '#a855f7' :
-                    routeType === '1' || routeType.includes('subway') ? '#3b82f6' :
-                    routeType === '2' || routeType.includes('rail')   ? '#ef4444' :
+                // Farbe: GTFS routeColor hat Vorrang, sonst nach Modus
+                const color = seg.routeColor ? `#${seg.routeColor.replace('#','')}` :
+                    mode === 'BUS'     ? '#f97316' :
+                    mode === 'TRAM'    ? '#a855f7' :
+                    mode === 'SUBWAY'  || mode === 'METRO' || mode === 'SUBURBAN' ? '#3b82f6' :
+                    mode === 'RAIL'    || mode === 'HIGHSPEED_RAIL' || mode === 'LONG_DISTANCE' ? '#ef4444' :
                     '#f97316';
 
-                const delayStr = delay !== null && Math.abs(delay) >= 60
-                    ? `<br><span style="color:${delay>0?'#ef4444':'#22c55e'};font-weight:bold">${delay>0?'+':''}${Math.round(delay/60)}'</span>`
-                    : '<br><span style="color:#22c55e;font-size:10px">✓</span>';
+                // Polyline dekodieren und aktuelle Position interpolieren
+                let lat, lng;
+                if (seg.polyline) {
+                    const pts = decodePolyline(seg.polyline);
+                    if (pts.length >= 2) {
+                        // Position anhand Abfahrts-/Ankunftszeit interpolieren
+                        const depMs  = new Date(seg.departure || seg.scheduledDeparture).getTime();
+                        const arrMs  = new Date(seg.arrival   || seg.scheduledArrival).getTime();
+                        const segLen = arrMs - depMs;
+                        const t      = segLen > 0 ? Math.min(1, Math.max(0, (now - depMs) / segLen)) : 0.5;
+                        const ptIdx  = Math.floor(t * (pts.length - 1));
+                        const next   = Math.min(ptIdx + 1, pts.length - 1);
+                        const frac   = (t * (pts.length - 1)) - ptIdx;
+                        lat = pts[ptIdx][0] + (pts[next][0] - pts[ptIdx][0]) * frac;
+                        lng = pts[ptIdx][1] + (pts[next][1] - pts[ptIdx][1]) * frac;
+                    } else if (pts.length === 1) {
+                        [lat, lng] = pts[0];
+                    }
+                }
 
-                const iconHtml = `<div class="vehicle-marker" style="background:${color};color:white;width:30px;height:30px;font-size:9px;font-weight:900;">${lineName}</div>`;
-                const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [30, 30], iconAnchor: [15, 15] });
-                const popup = `<div style="font-family:monospace;min-width:120px"><b style="font-size:13px;color:${color}">${lineName}</b><br><span style="font-size:11px">${headsign}</span>${delayStr}</div>`;
+                // Fallback: from/to Mitte
+                if (!lat && seg.from && seg.to) {
+                    lat = (seg.from.lat + seg.to.lat) / 2;
+                    lng = (seg.from.lon + seg.to.lon) / 2;
+                }
+                if (!lat) return;
+
+                // Verspätung berechnen
+                let delayStr = '';
+                if (seg.realTime && seg.departure && seg.scheduledDeparture) {
+                    const delayMs  = new Date(seg.departure).getTime() - new Date(seg.scheduledDeparture).getTime();
+                    const delayMin = Math.round(delayMs / 60000);
+                    if (delayMin > 0)       delayStr = `<span style="color:#ef4444;font-weight:bold">+${delayMin}'</span>`;
+                    else if (delayMin < 0)  delayStr = `<span style="color:#22c55e;font-weight:bold">${delayMin}'</span>`;
+                    else                    delayStr = `<span style="color:#22c55e">✓</span>`;
+                }
+                const rtBadge = seg.realTime ? '⚡' : '';
+
+                const iconHtml = `<div class="vehicle-marker" style="background:${color};color:white;width:28px;height:28px;font-size:9px;font-weight:900;">${lineName}</div>`;
+                const icon     = L.divIcon({ html: iconHtml, className: '', iconSize: [28,28], iconAnchor: [14,14] });
+                const from     = seg.from?.name || '';
+                const to       = seg.to?.name   || '';
+                const popup    = `<div style="font-family:monospace;min-width:130px">
+                    <b style="font-size:13px;color:${color}">${lineName}</b> ${rtBadge}<br>
+                    <span style="font-size:11px;color:#9ca3af">${from}</span><br>
+                    <span style="font-size:11px">→ ${to}</span><br>
+                    ${delayStr}
+                </div>`;
 
                 if (vehicleMarkers.has(tripId)) {
                     vehicleMarkers.get(tripId).setLatLng([lat, lng]);
@@ -1906,7 +1949,7 @@
                 }
             });
 
-            // Veraltete Marker entfernen
+            // Alte Marker entfernen
             vehicleMarkers.forEach((m, id) => {
                 if (!seen.has(id)) { liveMap.removeLayer(m); vehicleMarkers.delete(id); }
             });
