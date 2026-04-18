@@ -589,69 +589,6 @@ app.get('/api/db/trip-details', async (req, res) => {
             source:'Deutsche Bahn', dbTripId: finalTripId });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
-        const trip = result.trip;
-
-        if (!trip) throw new Error('Trip not found');
-
-        const stopovers = (trip.stopovers || []).map(s => {
-            // DB-Hafas liefert ISO-Strings mit Sekunden (z.B. "2024-01-15T14:23:45+01:00")
-            // Diese werden 1:1 weitergegeben für sekundengenaue Anzeige
-            const plannedArrival = s.plannedArrival ? new Date(s.plannedArrival).toISOString() : null;
-            const actualArrival = s.prognosedArrival || s.arrival;
-            const arrival = actualArrival ? new Date(actualArrival).toISOString() : null;
-
-            const plannedDeparture = s.plannedDeparture ? new Date(s.plannedDeparture).toISOString() : null;
-            const actualDeparture = s.prognosedDeparture || s.departure;
-            const departure = actualDeparture ? new Date(actualDeparture).toISOString() : null;
-
-            // Verspätung/Verfrühung in Sekunden berechnen
-            let arrivalDelaySec = null;
-            if (arrival && plannedArrival) {
-                arrivalDelaySec = Math.round((new Date(arrival) - new Date(plannedArrival)) / 1000);
-            }
-            let departureDelaySec = null;
-            if (departure && plannedDeparture) {
-                departureDelaySec = Math.round((new Date(departure) - new Date(plannedDeparture)) / 1000);
-            }
-
-            return {
-                stop: { name: s.stop?.name || '', id: s.stop?.id },
-                plannedArrival,
-                arrival,
-                plannedDeparture,
-                departure,
-                arrivalDelaySec,    // Neu: Verspätung in Sekunden für präzise Anzeige
-                departureDelaySec,  // Neu: Verspätung in Sekunden für präzise Anzeige
-                platform: s.platform || null,
-                plannedPlatform: s.plannedPlatform || s.platform || null,
-                cancelled: s.cancelled || false,
-                additional: s.additional || false,
-                remarks: s.remarks || []
-            };
-        });
-
-        // remarks aus dem Trip extrahieren (z.B. "Zug fällt aus", "Gleiswechsel")
-        const remarks = (trip.remarks || []).map(r => ({
-            text: r.text || r.summary || '',
-            type: r.category || 'info'
-        }));
-
-        res.json({
-            stopovers,
-            remarks,
-            source: 'Deutsche Bahn (HAFAS)',
-            tripId: trip.id,
-            line: trip.line ? {
-                name: trip.line.name,
-                product: trip.line.product,
-                operator: trip.line.operator?.name
-            } : null
-        });
-    } catch (e) {
-        console.error('train-details error:', e);
-        res.status(502).json({ error: e.message });
-    }
-});
 
 // ─── DB IRIS – Zugsuche nach Fahrtnummer ─────────────────────────────────────
 // IRIS ist öffentlich (CC BY 4.0), kein API-Key nötig
