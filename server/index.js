@@ -288,9 +288,47 @@ app.get('/api/db/locations', async (req, res) => {
 
 
 
-    // Beide parallel – nimm was zuerst antwortet
+    // Strategie: v6 gibt korrekte IDs für alle APIs.
 
-    const vendoPromise = (async () => {
+    // Vendo ist schneller aber gibt manchmal inkompatible IDs.
+
+    // Lösung: v6 mit kurzem Timeout, bei Timeout Vendo als Fallback.
+
+    try {
+
+        const r = await fetch(
+
+            `https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=12&fuzzy=true`,
+
+            { signal: AbortSignal.timeout(4000) }
+
+        );
+
+        if (!r.ok) throw new Error(`v6 ${r.status}`);
+
+        const data = await r.json();
+
+        const locs = (Array.isArray(data) ? data : [])
+
+            .filter(l => l.type === 'stop' || l.type === 'station')
+
+            .map(l => ({ id: String(l.id), name: l.name, type: l.type, source: 'DB' }));
+
+        if (locs.length > 0) return res.json({ locations: locs });
+
+    } catch (e) {
+
+        console.warn('v6 locations slow/failed:', e.message, '→ vendo fallback');
+
+    }
+
+
+
+    // Vendo-Fallback: schneller aber gibt manchmal HAFAS-interne IDs
+
+    // Wir versuchen EVA aus locationId/@L=...@ zu extrahieren
+
+    try {
 
         const r = await fetch('https://app.vendo.noncd.db.de/mob/location/search', {
 
@@ -318,51 +356,23 @@ app.get('/api/db/locations', async (req, res) => {
 
         const list = data.locations || data.locationList || (Array.isArray(data) ? data : []);
 
-        return list.map(l => {
-
-            // EVA aus locationId/@L= oder extId extrahieren
+        const locs = list.map(l => {
 
             const lidMatch = (l.locationId || l.id || '').match(/@L=(\d+)@/);
 
-            const id = String(l.extId || l.evaNr || l.evaNumber || (lidMatch && lidMatch[1]) || '').replace(/^0+/, '');
+            const id = String(l.extId || l.evaNr || l.evaNumber || (lidMatch?.[1]) || '').replace(/^0+/, '');
 
             return { id, name: l.name || l.haltName || '', type: 'station', source: 'DB' };
 
         }).filter(l => l.id && l.name);
-        // isEva markieren damit der Abfahrtsendpunkt die richtige API wählt
-        return locs.map(l => ({ ...l, isEva: l.id.startsWith('8') && l.id.length === 7 }));
 
-    })();
+        return res.json({ locations: locs });
 
+    } catch (e) {
 
+        throw new Error('Alle Stationssuchen fehlgeschlagen: ' + e.message);
 
-    const v6Promise = (async () => {
-
-        const r = await fetch(`https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=12&fuzzy=true`, {
-
-            signal: AbortSignal.timeout(8000)
-
-        });
-
-        if (!r.ok) throw new Error(`v6 ${r.status}`);
-
-        const data = await r.json();
-
-        return (Array.isArray(data) ? data : [])
-
-            .filter(l => l.type === 'stop' || l.type === 'station')
-
-            .map(l => ({ id: String(l.id), name: l.name, type: l.type, source: 'DB' }));
-
-    })();
-
-
-
-    // Wer zuerst gültige Ergebnisse liefert gewinnt
-
-    const locs = await Promise.any([vendoPromise, v6Promise]);
-
-    res.json({ locations: locs });
+    }
 
 
 
