@@ -1785,7 +1785,7 @@
                 if (!liveMap) initLiveMap();
                 else setTimeout(() => liveMap.invalidateSize(), 100);
                 loadVehicles();
-                mapRefreshTimer = setInterval(loadVehicles, 15000);
+                mapRefreshTimer = setInterval(loadVehicles, 60000);
             } else {
                 if (mapRefreshTimer) { clearInterval(mapRefreshTimer); mapRefreshTimer = null; }
             }
