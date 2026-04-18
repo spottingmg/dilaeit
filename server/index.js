@@ -884,21 +884,41 @@ app.get('/api/train-details/:tripId', async (req, res) => {
 
         const stopovers = halte.map(h => {
 
-            // Vendo Felder: ankunftsDatum, ezAnkunftsDatum, abfahrtsDatum, ezAbfahrtsDatum
+            // Vendo zuglauf Felder (aus db-vendo-client parse/stopover.js):
 
-            const pA = h.ankunftsDatum     ? new Date(h.ankunftsDatum).toISOString()   : null;
+            // stop: h.ort || h.station
 
-            const aA = h.ezAnkunftsDatum   ? new Date(h.ezAnkunftsDatum).toISOString() : null;
+            // planned: h.ankunftsZeitpunkt / h.abfahrtsZeitpunkt (auch abgangsDatum)
 
-            const pD = h.abfahrtsDatum     ? new Date(h.abfahrtsDatum).toISOString()   : null;
+            // realtime: h.ezAnkunftsZeitpunkt / h.ezAbfahrtsDatum (auch ezAbgangsDatum)
 
-            const aD = h.ezAbfahrtsDatum   ? new Date(h.ezAbfahrtsDatum).toISOString(): null;
+            // gleis: h.gleis, ezGleis: h.ezGleis
+
+            const ort   = h.ort || h.station || h;
+
+            const pA    = h.ankunftsZeitpunkt   || h.ankunftsDatum     || null;
+
+            const rtA   = h.ezAnkunftsZeitpunkt || h.ezAnkunftsDatum   || null;
+
+            const pD    = h.abfahrtsZeitpunkt   || h.abgangsDatum      || null;
+
+            const rtD   = h.ezAbfahrtsZeitpunkt || h.ezAbgangsDatum    || null;
+
+
+
+            const pAiso  = pA  ? new Date(pA).toISOString()  : null;
+
+            const aAiso  = rtA ? new Date(rtA).toISOString() : null;
+
+            const pDiso  = pD  ? new Date(pD).toISOString()  : null;
+
+            const aDiso  = rtD ? new Date(rtD).toISOString() : null;
 
 
 
             // Koordinaten
 
-            const loc = h.station?.koordinaten || h.koordinaten || null;
+            const coords = ort.koordinaten || ort.position || ort.coordinates || null;
 
 
 
@@ -906,29 +926,35 @@ app.get('/api/train-details/:tripId', async (req, res) => {
 
                 stop: {
 
-                    name:     h.station?.name || h.name || '',
+                    name:     ort.name || ort.haltName || ort.title || '',
 
-                    id:       h.station?.evaNumber || h.evaNumber || h.id || null,
+                    id:       String(ort.evaNumber || ort.evaNr || ort.extId || ort.id || '').replace(/^0+/,'') || null,
 
-                    location: loc ? { latitude: loc.breite || loc.lat, longitude: loc.laenge || loc.lon } : null
+                    location: coords ? {
+
+                        latitude:  coords.breite  || coords.lat || coords.latitude  || null,
+
+                        longitude: coords.laenge  || coords.lon || coords.longitude || null
+
+                    } : null
 
                 },
 
-                plannedArrival:    pA,
+                plannedArrival:    pAiso,
 
-                arrival:           aA || pA,
+                arrival:           aAiso || pAiso,
 
-                plannedDeparture:  pD,
+                plannedDeparture:  pDiso,
 
-                departure:         aD || pD,
+                departure:         aDiso || pDiso,
 
-                arrivalDelaySec:   aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
+                arrivalDelaySec:   aAiso && pAiso ? Math.round((new Date(aAiso) - new Date(pAiso)) / 1000) : null,
 
-                departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                departureDelaySec: aDiso && pDiso ? Math.round((new Date(aDiso) - new Date(pDiso)) / 1000) : null,
 
-                platform:        h.gleis?.aktuell     || h.gleis     || h.platform || null,
+                platform:        h.ezGleis || h.gleis || null,
 
-                plannedPlatform: h.gleis?.geplant     || h.gleis     || null,
+                plannedPlatform: h.gleis   || null,
 
                 cancelled:  h.haltAusfall   || h.cancelled  || false,
 
@@ -936,9 +962,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
 
                 remarks: (h.hinweise || h.remarks || []).map(m => ({
 
-                    text: m.text || m.message || '',
-
-                    type: m.typ  || m.type    || 'info'
+                    text: m.text || m.message || '', type: m.typ || m.type || 'info'
 
                 }))
 
@@ -948,7 +972,13 @@ app.get('/api/train-details/:tripId', async (req, res) => {
 
 
 
-        const transport = data.transport || data.zuglauf || data.line || {};
+        const transport = data.transport || data.zuglauf || data.verbindung || {};
+
+        const lineName  = transport.kurzText || transport.name
+
+                       || (transport.kategorie && transport.nummer ? `${transport.kategorie} ${transport.nummer}` : null)
+
+                       || transport.nummer || '';
 
         res.json({
 
@@ -964,15 +994,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
 
             tripId:  data.tripId || tripId,
 
-            line: {
-
-                name:    transport.kurzText || transport.name || transport.nummer || '',
-
-                product: transport.typ?.toLowerCase() || 'train',
-
-                operator: transport.betreiber?.name || null
-
-            }
+            line: { name: lineName, product: transport.typ?.toLowerCase() || transport.kategorie?.toLowerCase() || 'train' }
 
         });
 
