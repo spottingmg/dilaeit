@@ -897,7 +897,7 @@
                 if (dep.delay !== null && dep.delay !== undefined) {
                     const secs = dep.delay;
                     // Wenn die Quelle Deutsche Bahn ist, zeigen wir immer Sekunden an, falls vorhanden
-                    if (dep._source === 'Deutsche Bahn') {
+                    if (dep._source && dep._source.includes('Deutsche Bahn')) {
                         showSeconds = true;
                         roundedDelay = secs;
                     } else if (Math.abs(secs) >= 60) {
@@ -1452,9 +1452,11 @@
                 const data = await res.json();
                 const stops    = data?.stopovers || [];
                 const remarks  = data?.remarks   || [];
-                addTripToArchive(dep, { stopovers: stops, remarks }, sourceName);
-                currentDetailStopovers = stops; // für Karten-Tab cachen
-                renderItinerary(stops, remarks, sourceName);
+                // Server-Quelle nutzen falls vorhanden (z.B. 'Deutsche Bahn (RIS)')
+                const finalSourceName = data?.source || sourceName;
+                addTripToArchive(dep, { stopovers: stops, remarks }, finalSourceName);
+                currentDetailStopovers = stops;
+                renderItinerary(stops, remarks, finalSourceName);
             } catch (e) {
                 console.error('Trip details failed', e);
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
