@@ -164,14 +164,11 @@ app.get('/api/db/locations', async (req, res) => {
         // Vendo gibt locations[] oder locationList[] zurück
         const list = data.locations || data.locationList || (Array.isArray(data) ? data : []);
         const locs = list
-            .filter(l => l.type === 'ST' || l.type === 'stop' || l.type === 'station' || l.evaNumber)
             .slice(0, 12)
-            .map(l => ({
-                id:   String(l.evaNumber || l.id || l.extId || ''),
-                name: l.name || l.title || '',
-                type: 'station',
-                source: 'DB'
-            }))
+            .map(l => {
+                const id = String(l.evaNumber || l.evaNr || l.extId || l.id || '').replace(/^0+/, '') || null;
+                return { id, name: l.name || l.haltName || l.title || '', type: 'station', source: 'DB' };
+            })
             .filter(l => l.id && l.name);
 
         if (locs.length > 0) return res.json({ locations: locs });
@@ -201,6 +198,7 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
   try {
     const stopId  = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
+    console.log('[DB departures] stopId:', stopId);
 
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
 
@@ -225,6 +223,7 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
             });
             if (!r.ok) throw new Error(`bahnhof.de ${r.status}`);
             const data = await r.json();
+            console.log('[bahnhof.de] status ok, entries:', (data.entries||data.departures||(Array.isArray(data)?data:[])).length);
 
             // bahnhof.de Felder (aus db-vendo-client parser):
             // timeSchedule, timePredicted/timeDelayed, timeType='SCHEDULE' wenn kein RT
