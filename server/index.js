@@ -637,13 +637,15 @@ app.get('/api/iris/trip-search', async (req, res) => {
     try {
         // EVA von Düsseldorf Hbf (8000085) – direkt verwenden, kein Lookup nötig
         const HUBS = [
-            { eva: '8000085', name: 'Düsseldorf Hbf'  },
-            { eva: '8000105', name: 'Frankfurt(Main)Hbf' },
-            { eva: '8000261', name: 'Köln Hbf'        },
-            { eva: '8000096', name: 'Dortmund Hbf'    },
-            { eva: '8011160', name: 'Berlin Hbf'      },
-            { eva: '8000261', name: 'Hamburg Hbf'     },
-            { eva: '8000191', name: 'Essen Hbf'       },
+            { eva: '8000207', name: 'Köln Hbf'           },  // RB Mönchengladbach→Troisdorf
+            { eva: '8000248', name: 'Mönchengladbach Hbf' },
+            { eva: '8005556', name: 'Troisdorf'           },
+            { eva: '8000085', name: 'Düsseldorf Hbf'     },
+            { eva: '8000105', name: 'Frankfurt(Main)Hbf'  },
+            { eva: '8000096', name: 'Dortmund Hbf'       },
+            { eva: '8011160', name: 'Berlin Hbf'         },
+            { eva: '8002549', name: 'Hamburg Hbf'        },
+            { eva: '8000191', name: 'Essen Hbf'          },
         ];
 
         const searchDate  = date ? new Date(date) : new Date();
