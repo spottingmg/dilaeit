@@ -231,26 +231,48 @@
             clearTimeout(tripSearchTimer);
             tripSearchTimer = setTimeout(async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/api/db/trips-by-name?query=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`);
-                    
-                    if (!res.ok) {
-                        const errText = res.status === 503
-                            ? 'DB-Hafas nicht verfügbar – bitte Server prüfen.'
-                            : `Serverfehler (${res.status})`;
-                        dropdown.innerHTML = `<div class="px-4 py-4 text-sm text-red-500 font-medium">${errText}</div>`;
-                        return;
-                    }
+                    // DB und Transitous parallel für Autocomplete
+                    const [dbRes, transitousRes] = await Promise.all([
+                        fetch(`${API_BASE}/api/db/trips-by-name?query=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+                        (async () => {
+                            const when = date ? `${date}T08:00:00` : new Date().toISOString();
+                            const r = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${TRANSITOUS_HUB}&time=${encodeURIComponent(when)}&n=200`, { headers: { 'Referer': 'https://dilaeit.onrender.com' } });
+                            if (!r.ok) return null;
+                            return r.json();
+                        })().catch(() => null)
+                    ]);
 
-                    const data = await res.json();
-                    // data.error kann trotz 200 gesetzt sein (z.B. tripsByName nicht verfügbar)
-                    if (data.error && (!data.trips || data.trips.length === 0)) {
-                        dropdown.innerHTML = `<div class="px-4 py-4 text-sm text-orange-400 font-medium"><i class="fas fa-exclamation-triangle mr-2"></i>${data.error}</div>`;
-                        return;
-                    }
-                    renderTripDropdown(data.trips || []);
+                    const q = query.trim().toUpperCase().replace(/\s+/g, '');
+                    const seen = new Set();
+                    const trips = [];
+
+                    // DB-Ergebnisse
+                    (dbRes?.trips || []).forEach(t => {
+                        if (!seen.has(t.name)) { seen.add(t.name); trips.push(t); }
+                    });
+
+                    // Transitous-Ergebnisse
+                    const tDeps = transitousRes?.departures || transitousRes?.stopTimes || (Array.isArray(transitousRes) ? transitousRes : []);
+                    tDeps.forEach(d => {
+                        const name = d.trip?.displayName || d.trip?.routeShortName || '';
+                        if (!name) return;
+                        const nameUp = name.toUpperCase().replace(/\s+/g, '');
+                        // "2202" → trifft "IC2202", "ICE2202" etc.
+                        if ((nameUp === q || nameUp.endsWith(q) || nameUp.includes(q)) && !seen.has(name)) {
+                            seen.add(name);
+                            trips.push({
+                                id: d.trip?.tripId,
+                                name,
+                                direction: d.headsign || d.trip?.headsign || '',
+                                plannedDeparture: d.scheduledDeparture || d.departure || null
+                            });
+                        }
+                    });
+
+                    renderTripDropdown(trips);
                 } catch (e) {
                     console.error('Autocomplete error:', e);
-                    dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium"><i class="fas fa-wifi mr-2"></i>Netzwerkfehler – Server erreichbar?</div>';
+                    dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium">Netzwerkfehler bei der Suche.</div>';
                 }
             }, 300);
         }
@@ -302,7 +324,7 @@
             const date = document.getElementById('trip-date-input').value;
             
             if (!number && !explicitTripId) {
-                showMessage('Bitte gib eine Zug-/Busnummer ein.', 'error');
+                showMessage('Bitte gib eine Zug-/Busnummer ein (z.B. IC2201, 722)', 'error');
                 return;
             }
 
@@ -314,27 +336,30 @@
             try {
                 // Wenn wir eine explizite ID haben, nutzen wir diese direkt
                 if (explicitTripId) {
-                    // Direkt /api/train-details nutzen — funktioniert mit MOTIS und HAFAS tripIds
-                    const result = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(explicitTripId)}`, {
+                    const dbResult = await fetch(`${API_BASE}/api/db/trip-details?tripId=${encodeURIComponent(explicitTripId)}&date=${encodeURIComponent(date)}`, {
                         signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
                     }).then(r => r.ok ? r.json() : null);
-                    if (result?.stopovers?.length) {
-                        showTripResults(result, result.source || 'Transitous');
+                    if (dbResult) {
+                        showTripResults(dbResult, 'Deutsche Bahn');
                         return;
                     }
                 }
 
-                // Ansonsten normale Suche
-                const [dbResult, vrrResult] = await Promise.all([
+                // Ansonsten normale Suche – DB, VRR und Transitous parallel
+                const [dbResult, vrrResult, transitousResult] = await Promise.all([
                     searchDbTrip(number, date),
-                    searchVrrTrip(number, date)
+                    searchVrrTrip(number, date),
+                    searchTransitousTrip(number, date)
                 ]);
 
-                // Priorität: DB-Hafas zuerst, dann VRR
-                if (dbResult && dbResult.stopovers && dbResult.stopovers.length > 0) {
-                    showTripResults(dbResult, dbResult.source || 'Transitous');
+                // Priorität: DB → Transitous → VRR
+                if (dbResult?.stopovers?.length > 0) {
+                    showTripResults(dbResult, 'Deutsche Bahn');
                     return;
-                } else if (vrrResult && vrrResult.stopovers && vrrResult.stopovers.length > 0) {
+                } else if (transitousResult?.stopovers?.length > 0) {
+                    showTripResults(transitousResult, 'Transitous');
+                    return;
+                } else if (vrrResult?.stopovers?.length > 0) {
                     showTripResults(vrrResult, 'VRR OpenService');
                     return;
                 } else {
@@ -378,33 +403,86 @@
             }
         }
 
+        // ─── Transitous Suche ─────────────────────────────────────────────────────────
+        // Düsseldorf Hbf in Transitous: de:05111:21225 (GTFS ID)
+        const TRANSITOUS_HUB = 'de:05111:21225';
+
+        async function searchTransitousTrip(number, date) {
+            try {
+                const when = date ? `${date}T08:00:00` : new Date().toISOString();
+                const url  = `https://api.transitous.org/api/v1/stoptimes` +
+                             `?stopId=${TRANSITOUS_HUB}&time=${encodeURIComponent(when)}&n=200`;
+                const res  = await fetch(url, { headers: { 'Referer': 'https://dilaeit.onrender.com' } });
+                if (!res.ok) return null;
+                const data = await res.json();
+
+                const q = number.trim().toUpperCase().replace(/\s+/g, '');
+
+                // Transitous stoptimes: Array von StopTime, jedes mit trip.displayName
+                const departures = data.departures || data.stopTimes || (Array.isArray(data) ? data : []);
+                const match = departures.find(d => {
+                    const name = (d.trip?.displayName || d.trip?.routeShortName || d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                    // "2202" → trifft "IC2202", "ICE2202" etc.
+                    return name === q || name.endsWith(q) || name.includes(q);
+                });
+
+                if (!match?.trip?.tripId) return null;
+
+                // Fahrtverlauf über Transitous /trip holen
+                const tripUrl = `https://api.transitous.org/api/v1/trip?tripId=${encodeURIComponent(match.trip.tripId)}`;
+                const tripRes = await fetch(tripUrl, { headers: { 'Referer': 'https://dilaeit.onrender.com' } });
+                if (!tripRes.ok) return null;
+                const tripData = await tripRes.json();
+
+                // In unser Format umwandeln
+                const legs = tripData.legs || tripData.itinerary?.legs || [];
+                const transitLeg = legs.find(l => l.mode !== 'WALK') || legs[0];
+                if (!transitLeg) return null;
+
+                // from + intermediateStops + to zusammenführen
+                const allStops = [
+                    transitLeg.from,
+                    ...(transitLeg.intermediateStops || []),
+                    transitLeg.to
+                ].filter(Boolean);
+
+                const stopovers = allStops.map(s => ({
+                    stop: { name: s.name || '' },
+                    plannedArrival:    s.scheduledArrival   || null,
+                    arrival:           s.arrival            || null,
+                    plannedDeparture:  s.scheduledDeparture || null,
+                    departure:         s.departure          || null,
+                    arrivalDelaySec:   s.arrival   && s.scheduledArrival   ? Math.round((new Date(s.arrival)   - new Date(s.scheduledArrival))   / 1000) : null,
+                    departureDelaySec: s.departure && s.scheduledDeparture ? Math.round((new Date(s.departure) - new Date(s.scheduledDeparture)) / 1000) : null,
+                    platform:        s.track          || null,
+                    plannedPlatform: s.scheduledTrack || s.track || null,
+                    cancelled:  s.cancelled  || false,
+                    additional: false,
+                    remarks: []
+                }));
+
+                return {
+                    stopovers,
+                    line: { name: match.trip.displayName || match.trip.routeShortName || number },
+                    source: 'Transitous',
+                    remarks: []
+                };
+            } catch (e) {
+                console.warn('Transitous trip search failed:', e);
+                return null;
+            }
+        }
+
         // ─── DB Suche ────────────────────────────────────────────────────────────────
         async function searchDbTrip(number, date) {
             try {
-                // 1. trips-by-name: findet tripId via MOTIS (displayName "RB27 (10632)")
-                const searchRes = await fetch(
-                    `${API_BASE}/api/db/trips-by-name?query=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`,
-                    { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
-                );
-                if (!searchRes.ok) return null;
-                const searchData = await searchRes.json();
-                const trips = searchData.trips || [];
-                if (trips.length === 0) return null;
-
-                // 2. Ersten Treffer → /api/train-details
-                const tripId = trips[0].id;
-                const detailRes = await fetch(
-                    `${API_BASE}/api/train-details/${encodeURIComponent(tripId)}`,
-                    { signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined }
-                );
-                if (!detailRes.ok) return null;
-                const data = await detailRes.json();
-                // Liniennamen aus Suchergebnis ergänzen falls nötig
-                if (data && !data.line?.name && trips[0].name) {
-                    data.line = data.line || {};
-                    data.line.name = trips[0].name;
-                }
-                return data;
+                // DB-Hafas Suche nach Trip-Nummer
+                const res = await fetch(`${API_BASE}/api/db/trip-details?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, {
+                    signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
+                });
+                if (!res.ok) return null;
+                const data = await res.json();
+                return data || null;
             } catch (e) {
                 console.warn('DB trip search failed:', e);
                 return null;
