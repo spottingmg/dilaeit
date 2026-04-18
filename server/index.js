@@ -328,7 +328,9 @@ app.get('/api/db/locations', async (req, res) => {
 
             return { id, name: l.name || l.haltName || '', type: 'station', source: 'DB' };
 
-        }).filter(l => l.id && l.name && l.id.startsWith('8'));
+        }).filter(l => l.id && l.name);
+        // isEva markieren damit der Abfahrtsendpunkt die richtige API wählt
+        return locs.map(l => ({ ...l, isEva: l.id.startsWith('8') && l.id.length === 7 }));
 
     })();
 
@@ -392,13 +394,15 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
 
     const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
 
+    const isEva = /^8\d{6}$/.test(stopId); // 7-stellige EVA-Nummer
+
     const diffMin = whenRaw ? Math.round((new Date(whenRaw) - Date.now()) / 60000) : 0;
 
 
 
-    // bahnhof.de: nur ab jetzt bis 6h – für Zeitreisen direkt zu v6
+    // bahnhof.de: nur für EVA-Nummern und aktuelle Zeit
 
-    if (diffMin >= -5 && diffMin <= 360) {
+    if (isEva && diffMin >= -5 && diffMin <= 360) {
 
         try {
 
