@@ -1836,8 +1836,8 @@
                             ${stop.remarks?.length > 0 ? `<span class="text-red-400 text-[10px]"><i class="fas fa-exclamation-triangle mr-0.5"></i>${translate(stop.remarks[0].text)}</span>` : ''}
                         </div>
                     </div>
-                    <!-- Check-In Button (nur im Check-In Modus) -->
-                    <div class="checkin-stop-btn hidden shrink-0 flex items-center pr-1">
+                    <!-- Check-In Button (sichtbar wenn checkinDep gesetzt) -->
+                    <div class="checkin-stop-btn ${checkinDep ? '' : 'hidden'} shrink-0 flex items-center pr-1">
                         <button onclick="doCheckinAtStop(${JSON.stringify(JSON.stringify(stop))})"
                             class="bg-green-600 hover:bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg transition-colors flex items-center gap-1">
                             <i class="fas fa-sign-out-alt"></i> Hier
@@ -2380,9 +2380,8 @@
                 checkinDep = dep;
                 await showTripDetails(dep);
 
-                // Banner + Buttons anzeigen
+                // Banner anzeigen – Buttons werden direkt in renderItinerary gesetzt
                 $('checkin-mode-banner').classList.remove('hidden');
-                document.querySelectorAll('.checkin-stop-btn').forEach(b => b.classList.remove('hidden'));
 
                 if (btn) btn.innerHTML = '<i class="fas fa-check-circle text-green-400 text-xs"></i>';
                 setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-check-circle text-xs"></i>'; }, 3000);
