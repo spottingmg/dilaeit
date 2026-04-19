@@ -631,6 +631,7 @@ async function init() {
 
     buildYearFilter();
     updateAll();
+    startLiveTracking();
 }
 
 // ─── Year Filter ──────────────────────────────────────────────────────────────
@@ -794,11 +795,20 @@ function renderList() {
         const arrReal = j.arrReal ? `<span class="text-zinc-400 mono text-xs${j.arrManual ? ' cursor-help underline decoration-dotted decoration-yellow-500' : ''}" ${j.arrManual ? 'title="Zeit manuell angepasst"' : ''}>→ ${j.arrReal}</span>` : '';
         const timeStr = (depReal || arrReal) ? `<div class="flex gap-2 mt-0.5">${depReal}${arrReal}</div>` : '';
 
+        const isActive = (() => {
+            if (!j.tripId || j.arrManual) return false;
+            const planned = j.arrivePlanned ? new Date(`${j.date}T${j.arrivePlanned}`) : null;
+            if (!planned) return false;
+            const now = Date.now();
+            return now < planned.getTime() + 30 * 60000 && now > new Date(`${j.date}T${j.time}`).getTime() - 5 * 60000;
+        })();
+
         div.innerHTML = `
             <div class="text-2xl">${modeIcons[j.mode] || '🚌'}</div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                     <span class="font-bold text-white text-sm">${j.line || '?'}</span>
+                    ${isActive ? '<span class="flex items-center gap-1 text-[9px] font-bold text-green-400 bg-green-900/30 px-1.5 py-0.5 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"></span>LIVE</span>' : ''}
                     ${delayStr}
                     ${j.km ? `<span class="text-xs text-zinc-500">${j.km} km</span>` : ''}
                 </div>
@@ -808,6 +818,9 @@ function renderList() {
                 ${j.note ? `<div class="text-xs text-zinc-600 mt-0.5 italic">${j.note}</div>` : ''}
             </div>
             <div class="flex flex-col gap-1 ml-2">
+                ${j.tripId ? `<button onclick="openTripDetails('${j.id}')" class="text-zinc-600 hover:text-orange-400 transition-colors text-sm" title="Fahrtverlauf + Karte">
+                    <i class="fas fa-route"></i>
+                </button>` : ''}
                 <button onclick="openEdit('${j.id}')" class="text-zinc-600 hover:text-blue-400 transition-colors text-sm" title="Bearbeiten">
                     <i class="fas fa-pen"></i>
                 </button>
@@ -1132,7 +1145,214 @@ document.getElementById('checkin-modal').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeCheckin();
 });
 
+// ─── Live-Tracking aktiver Fahrten ───────────────────────────────────────────
+let liveTrackTimer = null;
+
+async function updateActivJourneys() {
+    const now = Date.now();
+    // Aktive Fahrten: tripId vorhanden, Ankunft noch nicht > 30min vorbei, nicht manuell angepasst
+    const active = allJourneys.filter(j => {
+        if (!j.tripId || j.arrManual) return false;
+        const planned = j.arrivePlanned ? new Date(`${j.date}T${j.arrivePlanned}`) : null;
+        if (!planned) return false;
+        return now < planned.getTime() + 30 * 60000; // bis 30 Min nach Soll-Ankunft
+    });
+
+    if (!active.length) {
+        clearInterval(liveTrackTimer);
+        liveTrackTimer = null;
+        return;
+    }
+
+    for (const j of active) {
+        try {
+            const r = await fetch(
+                `https://api.transitous.org/api/v5/trip?tripId=${encodeURIComponent(j.tripId)}`,
+                { headers: { 'Referer': location.origin }, signal: AbortSignal.timeout(6000) }
+            );
+            if (!r.ok) continue;
+            const data = await r.json();
+            const legs = data.legs || [];
+            const leg  = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
+            if (!leg) continue;
+
+            const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
+            const exitStop = allStops.find(s => s.name === j.to);
+            if (!exitStop) continue;
+
+            const pA = exitStop.scheduledArrival || null;
+            const aA = exitStop.arrival || null;
+            if (!pA) continue;
+
+            const newArrReal   = aA ? new Date(aA).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : null;
+            const newDelaySec  = aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null;
+            const newDelayMin  = newDelaySec !== null ? Math.round(newDelaySec / 60) : null;
+
+            // Nur updaten wenn sich was geändert hat
+            const changed = newArrReal !== j.arrReal || newDelayMin !== j.delay;
+            if (changed) {
+                const updated = { ...j, arrReal: newArrReal, delay: newDelayMin };
+                await saveJourney(updated);
+                const idx = allJourneys.findIndex(x => x.id === j.id);
+                if (idx >= 0) allJourneys[idx] = updated;
+                console.log(`[Live] ${j.line} → ${j.to}: arrReal=${newArrReal} delay=${newDelayMin}'`);
+            }
+
+            // Angekommen: Tracking stoppen wenn Ankunftszeit überschritten
+            if (aA && new Date(aA).getTime() <= now) {
+                const arrived = { ...allJourneys.find(x => x.id === j.id) };
+                arrived.arrManual = false; // finale Zeit, kein manuelles Update nötig
+                await saveJourney(arrived);
+            }
+
+        } catch (e) { /* ignorieren */ }
+    }
+
+    // UI neu rendern wenn aktiver Tab Liste ist
+    if (activeTab === 'list') renderList();
+    if (activeTab === 'delay') renderDelay();
+    updateSummary(filteredJourneys());
+}
+
+function startLiveTracking() {
+    if (liveTrackTimer) return;
+    updateActivJourneys();
+    liveTrackTimer = setInterval(updateActivJourneys, 30000);
+}
+
 init();
+</script>
+<!-- Trip Details Modal -->
+<div id="trip-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-4">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 shrink-0">
+            <div>
+                <div class="font-bold text-white" id="trip-modal-title">Fahrtverlauf</div>
+                <div class="text-xs text-zinc-500" id="trip-modal-sub"></div>
+            </div>
+            <button onclick="closeTripModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <!-- Karte -->
+        <div id="trip-modal-map" style="height:240px;flex-shrink:0;"></div>
+        <!-- Stops -->
+        <div class="flex-1 overflow-y-auto px-4 py-3">
+            <div id="trip-modal-loading" class="text-center py-8 text-zinc-500">
+                <i class="fas fa-circle-notch fa-spin mr-2"></i>Lade Fahrtverlauf...
+            </div>
+            <div id="trip-modal-stops" class="hidden space-y-0"></div>
+            <div id="trip-modal-error" class="hidden text-center py-8 text-zinc-600 text-sm">Kein Fahrtverlauf verfügbar.</div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─── Trip Details Modal ───────────────────────────────────────────────────────
+let tripModalMap = null;
+
+async function openTripDetails(journeyId) {
+    const j = allJourneys.find(x => x.id === journeyId);
+    if (!j?.tripId) return;
+
+    document.getElementById('trip-modal').classList.remove('hidden');
+    document.getElementById('trip-modal-title').textContent = `${j.line || '?'} → ${j.to || '?'}`;
+    document.getElementById('trip-modal-sub').textContent   = `${j.date || ''} ${j.time || ''} · ${j.from || ''} → ${j.to || ''}`;
+    document.getElementById('trip-modal-loading').classList.remove('hidden');
+    document.getElementById('trip-modal-stops').classList.add('hidden');
+    document.getElementById('trip-modal-error').classList.add('hidden');
+
+    // Karte init
+    if (!tripModalMap) {
+        tripModalMap = L.map('trip-modal-map', { zoomControl: false });
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 18, subdomains: 'abcd', attribution: '© OSM · CARTO'
+        }).addTo(tripModalMap);
+    }
+    // Alte Layer entfernen
+    tripModalMap.eachLayer(l => { if (l instanceof L.Polyline || l instanceof L.CircleMarker) tripModalMap.removeLayer(l); });
+    setTimeout(() => tripModalMap.invalidateSize(), 50);
+
+    try {
+        const r = await fetch(`https://api.transitous.org/api/v5/trip?tripId=${encodeURIComponent(j.tripId)}`,
+            { headers: { 'Referer': location.origin } });
+        if (!r.ok) throw new Error(`${r.status}`);
+        const data = await r.json();
+        const legs = data.legs || [];
+        const leg  = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
+        if (!leg) throw new Error('Kein Transit-Leg');
+
+        const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
+        const coords   = allStops.filter(s => s.lat && s.lon).map(s => [s.lat, s.lon]);
+        const modeColors = { TRAIN:'#ef4444', BUS:'#10b981', SUBWAY:'#8b5cf6', TRAM:'#f59e0b', RAIL:'#ef4444', FERRY:'#06b6d4' };
+        const lineColor  = modeColors[(leg.mode||'').toUpperCase()] || '#ef4444';
+
+        if (coords.length >= 2) {
+            L.polyline(coords, { color: lineColor, weight: 3, opacity: 0.8 }).addTo(tripModalMap);
+        }
+
+        // Einstieg + Ausstieg markieren
+        const fromIdx = allStops.findIndex(s => s.name === j.from);
+        const toIdx   = allStops.findIndex(s => s.name === j.to);
+
+        allStops.forEach((s, i) => {
+            if (!s.lat || !s.lon) return;
+            const isFrom = i === (fromIdx >= 0 ? fromIdx : 0);
+            const isTo   = i === (toIdx   >= 0 ? toIdx   : allStops.length - 1);
+            const color  = isFrom ? '#22c55e' : isTo ? '#ef4444' : '#6b7280';
+            const radius = (isFrom || isTo) ? 7 : 4;
+            L.circleMarker([s.lat, s.lon], { radius, color, fillColor: color, fillOpacity: 1, weight: 2 })
+                .bindTooltip(s.name, { direction: 'top' })
+                .addTo(tripModalMap);
+        });
+
+        if (coords.length) tripModalMap.fitBounds(coords, { padding: [20, 20] });
+
+        // Stop-Liste
+        const container = document.getElementById('trip-modal-stops');
+        const now = Date.now();
+        container.innerHTML = allStops.map((s, i) => {
+            const isFrom  = i === (fromIdx >= 0 ? fromIdx : 0);
+            const isTo    = i === (toIdx   >= 0 ? toIdx   : allStops.length - 1);
+            const pD = s.scheduledDeparture || s.scheduledArrival;
+            const aD = s.departure || s.arrival || pD;
+            const time = pD ? new Date(pD).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
+            const rtTime = aD && aD !== pD ? new Date(aD).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : null;
+            const delaySec = pD && aD && aD !== pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null;
+            const delayMin = delaySec ? Math.round(delaySec / 60) : null;
+            const delayStr = delayMin ? `<span class="text-xs ${delayMin > 0 ? 'text-red-400' : 'text-green-400'} ml-1">${delayMin > 0 ? '+' : ''}${delayMin}'</span>` : '';
+            const bg = isFrom ? 'bg-green-900/20 border-l-2 border-green-500' : isTo ? 'bg-red-900/20 border-l-2 border-red-500' : '';
+            const dotColor = isFrom ? '#22c55e' : isTo ? '#ef4444' : '#4b5563';
+            return `<div class="flex items-center gap-3 px-2 py-1.5 text-xs rounded ${bg}">
+                <div class="w-2 h-2 rounded-full shrink-0" style="background:${dotColor}"></div>
+                <div class="flex-1 truncate ${isFrom || isTo ? 'font-bold text-white' : 'text-zinc-300'}">${s.name}</div>
+                <div class="text-zinc-500 mono shrink-0">
+                    <span class="${rtTime ? 'line-through opacity-40' : ''}">${time}</span>
+                    ${rtTime ? `<span class="text-orange-400 ml-1">${rtTime}</span>` : ''}
+                    ${delayStr}
+                </div>
+            </div>`;
+        }).join('');
+
+        document.getElementById('trip-modal-loading').classList.add('hidden');
+        container.classList.remove('hidden');
+
+    } catch (e) {
+        console.warn('Trip details failed:', e.message);
+        document.getElementById('trip-modal-loading').classList.add('hidden');
+        document.getElementById('trip-modal-error').classList.remove('hidden');
+    }
+}
+
+function closeTripModal() {
+    document.getElementById('trip-modal').classList.add('hidden');
+}
+document.getElementById('trip-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeTripModal();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeTripModal();
+});
 </script>
 </body>
 </html>
