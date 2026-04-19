@@ -597,7 +597,7 @@ setInterval(async () => {
 
             const delaySec = Math.round((new Date(aA) - new Date(pA)) / 1000);
             const delayMin = Math.round(delaySec / 60);
-            const arrTime  = new Date(aA).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const arrTime  = new Date(aA).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
             const msToArr  = new Date(aA).getTime() - now;
 
             // ── 1. Start-Notification (einmalig beim ersten erfolgreichen Abruf) ──
