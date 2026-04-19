@@ -82,9 +82,9 @@ async function efaGet(endpoint, params) {
 
 function encodeTripId(dep) {
     return Buffer.from(JSON.stringify({
-        line:     dep.line?.id   || dep.transportation?.id || '',
-        stopID:   dep.stop?.id  || dep.stopPoint?.id       || '',
-        tripCode: dep.tripCode  || dep.transportation?.properties?.tripCode || '',
+        line:     dep.transportation?.id || dep.line?.id || '',
+        stopID:   dep.location?.id || dep.stopPoint?.id || dep.stop?.id || '',
+        tripCode: dep.transportation?.properties?.tripCode || dep.tripCode || '',
         date:     toYyyymmddUtc(dep.plannedWhen || dep.departureTimePlanned || new Date().toISOString()),
         time:     toHmmUtc(dep.plannedWhen      || dep.departureTimePlanned || new Date().toISOString()),
     })).toString('base64url');
@@ -126,25 +126,28 @@ app.get('/api/db/locations', async (req, res) => {
     try {
         const query = (req.query.query || '').toString().trim();
         if (query.length < 2) return res.json({ locations: [] });
+        // Transitous geocode ist unter /api/v1/geocode (nicht v5)
         const params = new URLSearchParams({ text: query, language: 'de' });
-        const r = await fetch(`${TRANSITOUS}/geocode?${params}`, {
+        const r = await fetch(`https://api.transitous.org/api/v1/geocode?${params}`, {
             signal: AbortSignal.timeout(6000), headers: TR_HEADERS
         });
         if (!r.ok) throw new Error(`Transitous geocode ${r.status}`);
         const data = await r.json();
-        const locs = (data.features || data.results || (Array.isArray(data) ? data : []))
-            .filter(f => {
-                const props = f.properties || f;
-                return props.type === 'stop' || props.stopId || props.id;
-            })
+        // Response: Array von Features mit properties.name, properties.id/stopId
+        const list = Array.isArray(data) ? data : (data.features || data.results || []);
+        const locs = list
             .slice(0, 12)
             .map(f => {
                 const p = f.properties || f;
-                return { id: p.stopId || p.id || '', name: p.name || '', type: 'stop', source: 'Transitous' };
+                const id = p.stopId || p.id || p.gtfsId || '';
+                return { id, name: p.name || p.label || '', type: 'stop', source: 'Transitous' };
             })
             .filter(l => l.id && l.name);
         res.json({ locations: locs });
-    } catch (e) { res.status(502).json({ error: e.message }); }
+    } catch (e) {
+        console.error('[Transitous geocode]', e.message);
+        res.status(502).json({ error: e.message });
+    }
 });
 
 // ─── Abfahrten VRR ───────────────────────────────────────────────────────────
