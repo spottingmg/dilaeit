@@ -414,6 +414,81 @@ app.get('/api/iris/trip-search', async (req, res) => {
     }
 });
 
+// ─── Sync-Datenbank (JSON-File, persistent über Restarts) ────────────────────
+const SYNC_FILE = process.env.SYNC_FILE || '/tmp/dilaeit_sync.json';
+
+function loadSyncDB() {
+    try { return JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8')); } catch { return {}; }
+}
+function saveSyncDB(db) {
+    try { fs.writeFileSync(SYNC_FILE, JSON.stringify(db)); } catch {}
+}
+
+let syncDB = loadSyncDB(); // { [syncCode]: { journeys: [...], updatedAt: ISO } }
+
+// Alle 60s auf Disk speichern
+setInterval(() => saveSyncDB(syncDB), 60000);
+
+function generateSyncCode() {
+    // 6 Zeichen: 2 Buchstaben + 4 Zahlen, z.B. DL-4829
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const l1 = letters[Math.floor(Math.random() * letters.length)];
+    const l2 = letters[Math.floor(Math.random() * letters.length)];
+    const n  = String(Math.floor(Math.random() * 9000) + 1000);
+    return `${l1}${l2}-${n}`;
+}
+
+// ─── Sync API ─────────────────────────────────────────────────────────────────
+// Neuen Sync-Code erstellen
+app.post('/api/sync/create', (req, res) => {
+    let code = generateSyncCode();
+    while (syncDB[code]) code = generateSyncCode(); // Kollision vermeiden
+    syncDB[code] = { journeys: [], updatedAt: new Date().toISOString() };
+    saveSyncDB(syncDB);
+    console.log(`[Sync] Neuer Code erstellt: ${code}`);
+    res.json({ code });
+});
+
+// Code prüfen + Daten laden
+app.get('/api/sync/:code', (req, res) => {
+    const code = req.params.code.toUpperCase();
+    if (!syncDB[code]) return res.status(404).json({ error: 'Code nicht gefunden' });
+    res.json({ journeys: syncDB[code].journeys || [], updatedAt: syncDB[code].updatedAt });
+});
+
+// Daten hochladen (kompletter Ersatz)
+app.post('/api/sync/:code', (req, res) => {
+    const code = req.params.code.toUpperCase();
+    if (!syncDB[code]) return res.status(404).json({ error: 'Code nicht gefunden' });
+    const { journeys } = req.body;
+    if (!Array.isArray(journeys)) return res.status(400).json({ error: 'journeys must be array' });
+    syncDB[code] = { journeys, updatedAt: new Date().toISOString() };
+    saveSyncDB(syncDB);
+    res.json({ ok: true, count: journeys.length });
+});
+
+// Einzelne Fahrt hinzufügen/updaten
+app.put('/api/sync/:code/journey', (req, res) => {
+    const code = req.params.code.toUpperCase();
+    if (!syncDB[code]) return res.status(404).json({ error: 'Code nicht gefunden' });
+    const journey = req.body;
+    if (!journey?.id) return res.status(400).json({ error: 'missing id' });
+    const idx = syncDB[code].journeys.findIndex(j => j.id === journey.id);
+    if (idx >= 0) syncDB[code].journeys[idx] = journey;
+    else syncDB[code].journeys.push(journey);
+    syncDB[code].updatedAt = new Date().toISOString();
+    res.json({ ok: true });
+});
+
+// Einzelne Fahrt löschen
+app.delete('/api/sync/:code/journey/:id', (req, res) => {
+    const code = req.params.code.toUpperCase();
+    if (!syncDB[code]) return res.status(404).json({ error: 'Code nicht gefunden' });
+    syncDB[code].journeys = syncDB[code].journeys.filter(j => j.id !== req.params.id);
+    syncDB[code].updatedAt = new Date().toISOString();
+    res.json({ ok: true });
+});
+
 // ─── Push-Subscription speichern ─────────────────────────────────────────────
 app.post('/api/push/subscribe', async (req, res) => {
     try {
