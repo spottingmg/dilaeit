@@ -140,11 +140,16 @@ app.get('/api/locations', async (req, res) => {
             outputFormat: 'rapidJSON', version: EFA_VERSION, language: 'de',
             type_sf: 'any', name_sf: query, anyObjFilter_sf: 2, locationServerActive: 1,
         });
-        const locs = (data.locations || []).map(l => ({
-            id:   l.id || l.properties?.stopId || '',
-            name: l.name || l.disassembledName || '',
-            type: l.type || 'stop',
-        })).filter(l => l.id && l.name);
+        const locs = (data.locations || []).map(l => {
+            const coord = l.coord || l.coordinates || null;
+            return {
+                id:   l.id || l.properties?.stopId || '',
+                name: l.name || l.disassembledName || '',
+                type: l.type || 'stop',
+                lat:  coord ? (coord.lat ?? coord.latitude ?? coord[1] ?? null) : null,
+                lon:  coord ? (coord.lng ?? coord.longitude ?? coord[0] ?? null) : null,
+            };
+        }).filter(l => l.id && l.name);
         res.json({ locations: locs });
     } catch (e) { res.status(502).json({ error: e.message }); }
 });
@@ -168,7 +173,9 @@ app.get('/api/db/locations', async (req, res) => {
             .map(f => {
                 const p = f.properties || f;
                 const id = p.stopId || p.id || p.gtfsId || '';
-                return { id, name: p.name || p.label || '', type: 'stop', source: 'Transitous' };
+                const lat = p.lat ?? p.latitude ?? f.geometry?.coordinates?.[1] ?? null;
+                const lon = p.lon ?? p.longitude ?? f.geometry?.coordinates?.[0] ?? null;
+                return { id, name: p.name || p.label || '', type: 'stop', source: 'Transitous', lat, lon };
             })
             // Nur echte GTFS Stop-IDs (nicht OSM node/way/relation)
             .filter(l => l.id && l.name && !l.id.startsWith('node/') && !l.id.startsWith('way/') && !l.id.startsWith('relation/'));
