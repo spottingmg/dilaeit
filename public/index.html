@@ -953,7 +953,7 @@
                                 ${isCancelled ? '<span class="text-red-500 font-bold uppercase">[Fällt aus]</span>' : ''}
                             </div>
                         </div>
-                        <button onmousedown="event.stopPropagation()" onclick="event.stopPropagation(); event.preventDefault(); quickCheckin(${JSON.stringify(JSON.stringify(dep))})"
+                        <button onmousedown="event.stopPropagation()" onclick="event.stopPropagation(); event.preventDefault(); quickCheckin(${state.departures.indexOf(dep)})"
                             class="flex items-center gap-1 bg-green-700 hover:bg-green-600 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-colors mr-1 shrink-0 checkin-dep-btn" title="Check-In">
                             <i class="fas fa-sign-in-alt"></i><span class="hidden sm:inline">Check-In</span>
                         </button>
@@ -2359,10 +2359,11 @@
         }
 
         // ─── Quick Check-In aus Abfahrtstafel ─────────────────────────────────────
-        async function quickCheckin(depJson) {
+        async function quickCheckin(depIdx) {
             try {
-                const dep = JSON.parse(depJson);
-                console.log('[quickCheckin] dep:', JSON.stringify(dep).slice(0, 300));
+                const dep = state.departures[depIdx];
+                if (!dep) { console.error('quickCheckin: dep not found at index', depIdx); return; }
+                console.log('[quickCheckin] dep:', dep.line?.name, 'tripId:', dep.tripId, 'dbTripId:', dep.dbTripId);
                 const btn = event?.target?.closest('button');
                 if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin text-green-400 text-xs"></i>';
 
