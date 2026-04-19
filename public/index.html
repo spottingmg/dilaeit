@@ -2362,6 +2362,7 @@
         async function quickCheckin(depJson) {
             try {
                 const dep = JSON.parse(depJson);
+                console.log('[quickCheckin] dep:', JSON.stringify(dep).slice(0, 300));
                 const btn = event?.target?.closest('button');
                 if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin text-green-400 text-xs"></i>';
 
