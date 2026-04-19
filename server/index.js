@@ -562,9 +562,10 @@ app.post('/api/checkin/track', async (req, res) => {
         if (!clientId || !tripId) return res.status(400).json({ error: 'missing fields' });
         activeCheckins.set(clientId, {
             tripId, to, line, date, arrivePlanned,
-            lastDelay:        null,   // letzter bekannter Verspätungswert
-            sentInitial:      false,  // Start-Notification gesendet?
-            sent5min:         false,  // 5-Min-Erinnerung gesendet?
+            lastDelay:   null,
+            sentInitial: false,
+            sent5min:    false,
+            sentArrived: false,
         });
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -653,6 +654,24 @@ setInterval(async () => {
                     tag:  `checkin-5min-${clientId}`,
                     url:  '/stats.html',
                 });
+            }
+
+            // ── 4. Ankunft ────────────────────────────────────────────────────────
+            if (!ci.sentArrived && msToArr <= 0) {
+                ci.sentArrived = true;
+                const delayStr = delayMin === 0  ? 'pünktlich'
+                               : delayMin === 1  ? '+1 Min'
+                               : delayMin === -1 ? '1 Min früher'
+                               : delayMin > 0    ? `+${delayMin} Min`
+                                                 : `${Math.abs(delayMin)} Min früher`;
+                await pushTo(clientId, {
+                    title: `🏁 Angekommen – ${ci.to}`,
+                    body:  `${ci.line} – ${delayStr} – um ${arrTime} Uhr.`,
+                    tag:   `checkin-arrived-${clientId}`,
+                    url:   '/stats.html',
+                });
+                // Check-In nach Ankunft aus aktivem Tracking entfernen
+                setTimeout(() => activeCheckins.delete(clientId), 60000);
             }
 
         } catch {}
