@@ -1874,18 +1874,14 @@
             const zoom = Math.round(liveMap.getZoom());
             const precision = zoom >= 11 ? 5 : zoom >= 8 ? 4 : zoom >= 5 ? 3 : 2;
 
-            // MOTIS v5 API – min/max als "lat,lon" String, zoom als integer
             const min       = `${b.getSouth().toFixed(6)},${b.getWest().toFixed(6)}`;
             const max       = `${b.getNorth().toFixed(6)},${b.getEast().toFixed(6)}`;
-            const startTime = new Date().toISOString();
+            const now       = new Date();
+            const startTime = new Date(now.getTime() - 5 * 60000).toISOString(); // 5 Min zurück
+            const endTime   = new Date(now.getTime() + 60 * 60000).toISOString(); // 1h voraus
 
-            // v5 statt v1 – neuere API-Version mit displayName
-            const url = `https://api.transitous.org/api/v5/map/trips` +
-                        `?min=${encodeURIComponent(min)}` +
-                        `&max=${encodeURIComponent(max)}` +
-                        `&startTime=${encodeURIComponent(startTime)}` +
-                        `&zoom=${zoom}` +
-                        `&precision=${precision}`;
+            const params = new URLSearchParams({ min, max, startTime, endTime, zoom: String(zoom), precision: String(precision) });
+            const url = `https://api.transitous.org/api/v5/map/trips?${params}`;
 
             console.log('[MOTIS] →', url);
 
