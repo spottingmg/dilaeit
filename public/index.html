@@ -1680,8 +1680,10 @@
             const sortedStopovers = [...stopovers].sort((a, b) => {
                 return new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival);
             });
+            // Für Check-In Ausstieg-Lookup merken
+            currentDetailStopovers = sortedStopovers;
 
-            sortedStopovers.forEach(stop => {
+            sortedStopovers.forEach((stop, idx) => {
                 const isCancelled  = stop.cancelled;
                 const isAdditional = stop.additional;
 
@@ -1827,7 +1829,7 @@
                     </div>
                     <!-- Check-In Button (sichtbar wenn checkinDep gesetzt) -->
                     <div class="checkin-stop-btn ${checkinDep ? '' : 'hidden'} shrink-0 flex items-center pr-1">
-                        <button onclick="doCheckinAtStop(${JSON.stringify(JSON.stringify(stop))})"
+                        <button onclick="doCheckinAtStop(${idx})"
                             class="bg-green-600 hover:bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg transition-colors flex items-center gap-1">
                             <i class="fas fa-sign-out-alt"></i> Hier
                         </button>
@@ -2385,9 +2387,10 @@
             document.querySelectorAll('.checkin-stop-btn').forEach(b => b.classList.add('hidden'));
         }
 
-        function doCheckinAtStop(stopJson) {
+        function doCheckinAtStop(stopIdx) {
             try {
-                const stop = JSON.parse(stopJson);
+                const stop = currentDetailStopovers?.[stopIdx];
+                if (!stop) { console.error('doCheckinAtStop: stop not found at index', stopIdx); return; }
                 const dep  = checkinDep;
                 if (!dep) return;
 
