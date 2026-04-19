@@ -173,11 +173,22 @@
         <!-- Toolbar -->
         <div class="flex items-center justify-between mb-3 flex-wrap gap-3">
             <p class="text-zinc-500 text-sm" id="preview-hint"></p>
-            <button onclick="download()"
+            <button onclick="startDownload()"
                 class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-5 py-2.5 rounded-xl transition-colors">
                 <i class="fas fa-download"></i>
                 dilaeit JSON herunterladen
             </button>
+        </div>
+
+        <!-- Geocoding Progress -->
+        <div id="geocode-progress" class="hidden mt-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs text-zinc-400 font-semibold"><i class="fas fa-map-marker-alt text-red-500 mr-2"></i>Koordinaten werden ermittelt…</span>
+                <span id="geocode-label" class="text-xs text-zinc-600 mono truncate max-w-xs"></span>
+            </div>
+            <div class="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div id="geocode-bar" class="h-full bg-red-500 rounded-full transition-all duration-200" style="width:0%"></div>
+            </div>
         </div>
 
         <!-- Tabelle -->
@@ -378,6 +389,66 @@
 
     function escHtml(str) {
         return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ─── Geocoding ────────────────────────────────────────────────────────────
+    const geocodeCache = new Map();
+
+    async function geocodeStation(name) {
+        if (geocodeCache.has(name)) return geocodeCache.get(name);
+        try {
+            const r = await fetch(`/api/db/locations?query=${encodeURIComponent(name)}`);
+            if (!r.ok) { geocodeCache.set(name, null); return null; }
+            const data = await r.json();
+            const loc  = (data.locations || []).find(l => l.lat && l.lon);
+            const coords = loc ? [loc.lat, loc.lon] : null;
+            geocodeCache.set(name, coords);
+            return coords;
+        } catch {
+            geocodeCache.set(name, null);
+            return null;
+        }
+    }
+
+    async function geocodeAll(journeys) {
+        const names = [...new Set(journeys.flatMap(j => [j.from, j.to]))];
+        const progress = document.getElementById('geocode-progress');
+        const bar      = document.getElementById('geocode-bar');
+        const label    = document.getElementById('geocode-label');
+        progress.classList.remove('hidden');
+
+        for (let i = 0; i < names.length; i++) {
+            label.textContent = `${i + 1}/${names.length}: ${names[i]}`;
+            bar.style.width   = `${Math.round((i / names.length) * 100)}%`;
+            await geocodeStation(names[i]);
+            await new Promise(r => setTimeout(r, 80));
+        }
+        bar.style.width = '100%';
+        label.textContent = `${names.length} Stationen fertig ✓`;
+        await new Promise(r => setTimeout(r, 600));
+        progress.classList.add('hidden');
+
+        return journeys.map(j => ({
+            ...j,
+            fromCoords: geocodeCache.get(j.from) ?? null,
+            toCoords:   geocodeCache.get(j.to)   ?? null,
+        }));
+    }
+
+    async function startDownload() {
+        const btn = document.querySelector('[onclick="startDownload()"]');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Koordinaten werden ermittelt…';
+        try {
+            converted = await geocodeAll(converted);
+            const withCoords = converted.filter(j => j.fromCoords || j.toCoords).length;
+            console.log(`Geocoding: ${withCoords}/${converted.length} Fahrten mit Koordinaten`);
+        } catch(e) {
+            console.warn('Geocoding fehlgeschlagen, fahre ohne Koordinaten fort:', e);
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-download"></i> dilaeit JSON herunterladen';
+        download();
     }
 
     // ─── Download ─────────────────────────────────────────────────────────────
