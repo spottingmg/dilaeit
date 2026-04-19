@@ -87,6 +87,18 @@ function toHmmUtc(iso) {
     return `${String(d.getUTCHours()).padStart(2,'0')}${String(d.getUTCMinutes()).padStart(2,'0')}`;
 }
 
+// VRR EFA erwartet lokale Zeit (Europe/Berlin), keine UTC
+function toYyyymmddLocal(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' })
+        .split('.').reverse().join(''); // TT.MM.JJJJ → JJJJMMTT
+}
+
+function toHmmLocal(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' }).replace(':', '');
+}
+
 async function efaGet(endpoint, params) {
     const url = new URL(`${OPEN_SERVICE_BASE()}/${endpoint}`);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
@@ -100,8 +112,8 @@ function encodeTripId(dep) {
         line:     dep.transportation?.id || dep.line?.id || '',
         stopID:   dep.location?.id || dep.stopPoint?.id || dep.stop?.id || '',
         tripCode: dep.transportation?.properties?.tripCode || dep.tripCode || '',
-        date:     toYyyymmddUtc(dep.plannedWhen || dep.departureTimePlanned || new Date().toISOString()),
-        time:     toHmmUtc(dep.plannedWhen      || dep.departureTimePlanned || new Date().toISOString()),
+        date:     toYyyymmddLocal(dep.plannedWhen || dep.departureTimePlanned || new Date().toISOString()),
+        time:     toHmmLocal(dep.plannedWhen      || dep.departureTimePlanned || new Date().toISOString()),
     })).toString('base64url');
 }
 
@@ -177,8 +189,8 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
             type_dm: 'stop', name_dm: stopId, useRealtime: 1,
             mode: 'direct', ptOptionsActive: 1, deleteAssignedStops_dm: 0,
             itdDateTimeDepArr: 'dep',
-            itdDate: toYyyymmddUtc(whenRaw),
-            itdTime: toHmmUtc(whenRaw),
+            itdDate: toYyyymmddLocal(whenRaw),
+            itdTime: toHmmLocal(whenRaw),
             limit: 60,
         });
 
