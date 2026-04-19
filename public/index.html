@@ -964,8 +964,10 @@
             const timeVal = $('query-time').value;
             if (!dateVal || !timeVal) return;
 
-            const timestamp = `${dateVal}T${timeVal}:00`;
-            if (isNaN(new Date(timestamp).getTime())) return;
+            // Lokale Zeit → ISO mit korrektem UTC-Offset (verhindert 2h-Versatz auf UTC-Servern)
+            const localDate = new Date(`${dateVal}T${timeVal}:00`);
+            if (isNaN(localDate.getTime())) return;
+            const timestamp = localDate.toISOString();
 
             const cacheKey = `${state.currentStation.id}|${timestamp.slice(0, 16)}|${state.source}`;
             if (!force && state.departureCache.has(cacheKey)) {
