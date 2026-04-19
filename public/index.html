@@ -900,8 +900,8 @@
                 let showSeconds = false;
                 if (dep.delay !== null && dep.delay !== undefined) {
                     const secs = dep.delay;
-                    // Wenn die Quelle Deutsche Bahn ist, zeigen wir immer Sekunden an, falls vorhanden
-                    if (dep._source && dep._source.includes('Deutsche Bahn')) {
+                    // Wenn die Quelle Deutsche Bahn oder Transitous ist, zeigen wir Sekunden an
+                    if (dep._source && (dep._source.includes('Deutsche Bahn') || dep._source.includes('Transitous'))) {
                         showSeconds = true;
                         roundedDelay = secs;
                     } else if (Math.abs(secs) >= 60) {
@@ -1472,8 +1472,8 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
-            // Sekunden + fett nur für DB-Echtzeitdaten, nie für VRR (liefert immer :00)
-            const isDbSource = sourceName.includes('Deutsche Bahn');
+            // Sekunden + fett für DB-Echtzeitdaten UND Transitous (beide haben echte Sekunden)
+            const isDbSource = sourceName.includes('Deutsche Bahn') || sourceName.includes('Transitous');
 
             // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
             const translationMap = {
