@@ -2353,45 +2353,58 @@
         }
 
         // ─── Quick Check-In aus Abfahrtstafel ─────────────────────────────────────
-        function quickCheckin(depJson) {
+        async function quickCheckin(depJson) {
             try {
-                const dep = JSON.parse(depJson);
+                const dep  = JSON.parse(depJson);
                 const date = (dep.plannedWhen || dep.when || new Date().toISOString()).slice(0, 10);
-                const time = (dep.plannedWhen || dep.when || new Date().toISOString()).slice(11, 16);
+                const time = new Date(dep.plannedWhen || dep.when || new Date()).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
                 const line = dep.line?.name || dep.line?.id || '?';
-                const to   = dep.direction  || '?';
                 const from = state.currentStation?.name || '?';
                 const mode = (() => {
                     const p = (dep.line?.product || dep.line?.mode || '').toLowerCase();
-                    if (p.includes('train') || p.includes('rail') || ['re','rb','ic','ice','s'].some(x => line.toLowerCase().startsWith(x))) return 'train';
-                    if (p.includes('bus') || line.toLowerCase().startsWith('bus')) return 'bus';
-                    if (p.includes('subway') || p.includes('u-bahn')) return 'subway';
+                    if (p.includes('train')||p.includes('rail')||['re','rb','ic','ice','s'].some(x=>line.toLowerCase().startsWith(x))) return 'train';
+                    if (p.includes('bus')||line.toLowerCase().startsWith('bus')) return 'bus';
+                    if (p.includes('subway')||p.includes('u-bahn')) return 'subway';
                     if (p.includes('tram')) return 'tram';
                     return 'other';
                 })();
-                const delaySec = dep.delay;
-                const delayMin = delaySec !== null && delaySec !== undefined ? Math.round(delaySec / 60) : null;
+                const depDelaySec = dep.delay;
+                const depDelayMin = depDelaySec != null ? Math.round(depDelaySec / 60) : null;
+                const depReal = dep.when ? new Date(dep.when).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : null;
 
-                const journey = {
-                    id:    `${date}T${time}-${Math.random().toString(36).slice(2,8)}`,
-                    date, time, line, from, to, mode,
-                    delay: delayMin,
-                    km:    null, arrive: null, note: null,
-                    tripId: dep.tripId || dep.dbTripId || null,
+                // Fahrtverlauf laden um Ausstiegsstops zu holen
+                let stops = [];
+                const tripId = dep.dbTripId || dep.tripId;
+                if (tripId) {
+                    try {
+                        const r = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(tripId)}`, {signal: AbortSignal.timeout(8000)});
+                        if (r.ok) {
+                            const d = await r.json();
+                            stops = (d.stopovers || []).map(s => ({
+                                name: s.stop?.name || '',
+                                time: s.plannedArrival ? new Date(s.plannedArrival).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '',
+                                lat:  s.stop?.location?.latitude  || null,
+                                lon:  s.stop?.location?.longitude || null,
+                            })).filter(s => s.name);
+                        }
+                    } catch {}
+                }
+
+                const checkinData = {
+                    date, time, line, from,
+                    direction: dep.direction || '',
+                    mode, depDelayMin, depReal,
+                    stops, tripId: tripId || null,
                 };
-
-                // Zwischenspeichern in localStorage für stats.html
-                const pending = JSON.parse(localStorage.getItem('dilaeit_checkin_pending') || '[]');
-                pending.push(journey);
-                localStorage.setItem('dilaeit_checkin_pending', JSON.stringify(pending));
+                localStorage.setItem('dilaeit_checkin_prefill', JSON.stringify(checkinData));
 
                 // Visuelles Feedback
                 const btn = event?.target?.closest('button');
                 if (btn) {
-                    btn.innerHTML = '<i class="fas fa-check text-green-400"></i>';
-                    setTimeout(() => { btn.innerHTML = '<i class="fas fa-check-circle"></i>'; btn.classList.remove('text-green-400'); }, 2000);
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin text-green-400"></i>';
                 }
-                console.log('[Check-In]', journey);
+
+                window.location.href = '/stats.html?checkin=1';
             } catch (e) { console.error('Check-In failed', e); }
         }
 
