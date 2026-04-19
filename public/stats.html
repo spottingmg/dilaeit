@@ -80,6 +80,9 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
             <button onclick="openCheckin()" class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors">
                 <i class="fas fa-plus"></i> Check-In
             </button>
+            <button onclick="openSyncModal()" id="sync-btn" title="Geräte synchronisieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
+                <i class="fas fa-sync-alt"></i>
+            </button>
             <button onclick="exportData()" title="Exportieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
                 <i class="fas fa-download"></i>
             </button>
@@ -1028,6 +1031,7 @@ async function saveCheckin() {
     await saveJourney(journey);
     allJourneys.push(journey);
     registerServerTracking(journey);
+    if (typeof pushToServer === 'function') pushToServer();
     buildYearFilter();
     updateAll();
     closeCheckin();
@@ -1109,6 +1113,7 @@ async function saveEdit() {
 
     await saveJourney(updated);
     allJourneys[idx] = updated;
+    if (typeof pushToServer === 'function') pushToServer();
     closeEdit();
     buildYearFilter();
     updateAll();
@@ -1315,6 +1320,7 @@ document.getElementById('edit-modal').addEventListener('click', e => {
 
 init();
 initSW();
+setTimeout(() => { if (typeof autoSync === 'function') autoSync(); }, 200);
 </script>
 <!-- Trip Details Modal -->
 <div id="trip-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-4">
@@ -1447,6 +1453,233 @@ document.getElementById('trip-modal').addEventListener('click', e => {
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeTripModal();
 });
+</script>
+
+<!-- Sync Modal -->
+<div id="sync-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-4">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm mx-4">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900">
+            <div>
+                <div class="font-bold text-white">Geräte synchronisieren</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Greife von überall auf deine Fahrten zu</div>
+            </div>
+            <button onclick="closeSyncModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="px-5 py-5 space-y-4">
+            <!-- Aktueller Code -->
+            <div id="sync-has-code" class="hidden space-y-3">
+                <div class="text-xs text-zinc-500 mono">DEIN SYNC-CODE</div>
+                <div class="flex items-center gap-3">
+                    <div id="sync-code-display" class="flex-1 text-center text-3xl font-black text-red-500 mono tracking-widest bg-zinc-900 rounded-xl py-3"></div>
+                    <button onclick="copySyncCode()" class="text-zinc-500 hover:text-white p-2 rounded-lg hover:bg-zinc-800 transition-colors" title="Kopieren">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-zinc-500 text-center">Auf allen Geräten eingeben um Fahrten zu synchronisieren</p>
+                <div id="sync-status" class="text-xs text-center text-zinc-600"></div>
+                <button onclick="syncNow()" class="w-full bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
+                    <i class="fas fa-sync-alt mr-2"></i>Jetzt synchronisieren
+                </button>
+                <button onclick="resetSyncCode()" class="w-full text-zinc-600 hover:text-red-500 text-xs py-1 transition-colors">
+                    Code zurücksetzen
+                </button>
+            </div>
+
+            <!-- Kein Code: erstellen oder eingeben -->
+            <div id="sync-no-code" class="hidden space-y-3">
+                <p class="text-sm text-zinc-400 text-center">Erstelle einen Sync-Code oder gib einen vorhandenen ein.</p>
+                <button onclick="createSyncCode()" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors">
+                    <i class="fas fa-plus mr-2"></i>Neuen Code erstellen
+                </button>
+                <div class="flex items-center gap-2">
+                    <div class="flex-1 h-px bg-zinc-800"></div>
+                    <span class="text-xs text-zinc-600">oder</span>
+                    <div class="flex-1 h-px bg-zinc-800"></div>
+                </div>
+                <div>
+                    <label class="text-xs text-zinc-500 mono block mb-1">CODE EINGEBEN</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="sync-code-input" placeholder="z.B. AB-1234"
+                            class="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl text-white px-3 py-2 text-sm font-mono uppercase outline-none focus:border-red-500"
+                            maxlength="7" oninput="this.value=this.value.toUpperCase()">
+                        <button onclick="enterSyncCode()" class="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">
+                            OK
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div id="sync-loading" class="hidden text-center py-4 text-zinc-500 text-sm">
+                <i class="fas fa-circle-notch fa-spin mr-2"></i>Wird synchronisiert...
+            </div>
+            <div id="sync-error" class="hidden text-red-500 text-xs text-center"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─── Sync ─────────────────────────────────────────────────────────────────────
+const SYNC_KEY = 'dilaeit_sync_code';
+let syncCode = localStorage.getItem(SYNC_KEY) || null;
+
+function openSyncModal() {
+    document.getElementById('sync-modal').classList.remove('hidden');
+    document.getElementById('sync-error').classList.add('hidden');
+    document.getElementById('sync-loading').classList.add('hidden');
+    if (syncCode) {
+        document.getElementById('sync-has-code').classList.remove('hidden');
+        document.getElementById('sync-no-code').classList.add('hidden');
+        document.getElementById('sync-code-display').textContent = syncCode;
+        document.getElementById('sync-status').textContent = '';
+    } else {
+        document.getElementById('sync-has-code').classList.add('hidden');
+        document.getElementById('sync-no-code').classList.remove('hidden');
+    }
+}
+
+function closeSyncModal() {
+    document.getElementById('sync-modal').classList.add('hidden');
+}
+
+function copySyncCode() {
+    navigator.clipboard.writeText(syncCode || '').then(() => {
+        const btn = document.querySelector('#sync-has-code button[title="Kopieren"]');
+        if (btn) { btn.innerHTML = '<i class="fas fa-check text-green-400"></i>'; setTimeout(() => btn.innerHTML = '<i class="fas fa-copy"></i>', 1500); }
+    });
+}
+
+async function createSyncCode() {
+    showSyncLoading(true);
+    try {
+        const res = await fetch('/api/sync/create', { method: 'POST', headers: {'Content-Type':'application/json'} });
+        if (!res.ok) throw new Error('Server nicht erreichbar');
+        const { code } = await res.json();
+        syncCode = code;
+        localStorage.setItem(SYNC_KEY, code);
+        // Aktuelle Fahrten hochladen
+        await pushToServer();
+        openSyncModal();
+    } catch (e) {
+        showSyncError(e.message);
+    } finally { showSyncLoading(false); }
+}
+
+async function enterSyncCode() {
+    const input = document.getElementById('sync-code-input').value.trim().toUpperCase();
+    if (input.length < 5) { showSyncError('Bitte vollständigen Code eingeben'); return; }
+    showSyncLoading(true);
+    try {
+        const res = await fetch(`/api/sync/${encodeURIComponent(input)}`);
+        if (res.status === 404) throw new Error('Code nicht gefunden');
+        if (!res.ok) throw new Error('Server-Fehler');
+        const { journeys } = await res.json();
+        // Fahrten mergen (Server hat Vorrang bei Konflikten)
+        syncCode = input;
+        localStorage.setItem(SYNC_KEY, input);
+        await mergeJourneys(journeys);
+        openSyncModal();
+        document.getElementById('sync-status').textContent = `✓ ${journeys.length} Fahrten synchronisiert`;
+    } catch (e) {
+        showSyncError(e.message);
+    } finally { showSyncLoading(false); }
+}
+
+async function syncNow() {
+    if (!syncCode) return;
+    showSyncLoading(true);
+    document.getElementById('sync-status').textContent = '';
+    try {
+        // 1. Vom Server laden
+        const res = await fetch(`/api/sync/${encodeURIComponent(syncCode)}`);
+        if (!res.ok) throw new Error('Server nicht erreichbar');
+        const { journeys: serverJourneys, updatedAt } = await res.json();
+
+        // 2. Mergen
+        const merged = await mergeJourneys(serverJourneys);
+
+        // 3. Merged zurück hochladen
+        await pushToServer();
+
+        const status = `✓ ${merged} Fahrten synchronisiert · ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}`;
+        document.getElementById('sync-status').textContent = status;
+        // Sync-Button im Header updaten
+        updateSyncBtn(true);
+    } catch (e) {
+        showSyncError(e.message);
+    } finally { showSyncLoading(false); }
+}
+
+async function mergeJourneys(serverJourneys) {
+    // Merge: lokale + Server, Server überschreibt bei gleicher ID + neuerem updatedAt
+    const localMap = new Map(allJourneys.map(j => [j.id, j]));
+    let added = 0;
+    for (const sj of serverJourneys) {
+        if (!localMap.has(sj.id)) {
+            localMap.set(sj.id, sj);
+            await saveJourney(sj);
+            added++;
+        }
+    }
+    allJourneys = [...localMap.values()].sort((a,b) => b.date?.localeCompare(a.date));
+    buildYearFilter();
+    updateAll();
+    return localMap.size;
+}
+
+async function pushToServer() {
+    if (!syncCode) return;
+    await fetch(`/api/sync/${encodeURIComponent(syncCode)}`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ journeys: allJourneys })
+    });
+}
+
+function resetSyncCode() {
+    if (!confirm('Sync-Code zurücksetzen? Die Verbindung zu anderen Geräten wird getrennt.')) return;
+    syncCode = null;
+    localStorage.removeItem(SYNC_KEY);
+    openSyncModal();
+}
+
+function showSyncLoading(show) {
+    document.getElementById('sync-loading').classList.toggle('hidden', !show);
+    document.getElementById('sync-has-code').classList.toggle('hidden', show || !syncCode);
+    document.getElementById('sync-no-code').classList.toggle('hidden', show || !!syncCode);
+}
+
+function showSyncError(msg) {
+    const el = document.getElementById('sync-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
+
+function updateSyncBtn(synced) {
+    const btn = document.getElementById('sync-btn');
+    if (!btn) return;
+    btn.classList.toggle('text-green-500', synced);
+    btn.classList.toggle('text-zinc-500', !synced);
+}
+
+document.getElementById('sync-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeSyncModal();
+});
+
+// Auto-Sync beim Laden wenn Code vorhanden
+async function autoSync() {
+    if (!syncCode) return;
+    try {
+        const res = await fetch(`/api/sync/${encodeURIComponent(syncCode)}`);
+        if (!res.ok) return;
+        const { journeys: serverJourneys } = await res.json();
+        if (serverJourneys.length > 0) {
+            await mergeJourneys(serverJourneys);
+            await pushToServer(); // lokale auch hochladen
+            updateSyncBtn(true);
+            console.log(`[Sync] Auto-Sync: ${serverJourneys.length} Fahrten vom Server`);
+        }
+    } catch {}
+}
 </script>
 </body>
 </html>
