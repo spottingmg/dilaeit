@@ -191,91 +191,99 @@ app.get('/api/db/locations', async (req, res) => {
   }
 });
 
-// ─── Abfahrten (DB) – bahnhof.de (RIS-Qualität, kein Key) ────────────────────
+// ─── Abfahrten (DB) – Transitous (primär) → bahnhof.de → v6 ──────────────────
+const TRANSITOUS_BASE = 'https://api.transitous.org/api/v5';
+
 app.get('/api/db/stops/:stopId/departures', async (req, res) => {
   try {
-    const stopId  = String(req.params.stopId || '').trim();
+    const stopId   = String(req.params.stopId || '').trim();
     if (!stopId) return res.status(400).json({ error: 'missing stopId' });
-    console.log('[DB departures] stopId:', stopId);
+    const whenRaw  = req.query.when ? decodeURIComponent(req.query.when) : null;
+    const whenDate = whenRaw ? new Date(whenRaw) : new Date();
+    const diffMin  = Math.round((whenDate - Date.now()) / 60000);
 
-    const whenRaw = req.query.when ? decodeURIComponent(req.query.when) : null;
-    const isEva = /^8\d{6}$/.test(stopId); // 7-stellige EVA-Nummer
-    const diffMin = whenRaw ? Math.round((new Date(whenRaw) - Date.now()) / 60000) : 0;
-
-    // bahnhof.de: nur für EVA-Nummern und aktuelle Zeit
-    if (isEva && diffMin >= -5 && diffMin <= 360) {
-        try {
-            const url = `https://www.bahnhof.de/api/boards/departures?evaNumbers=${encodeURIComponent(stopId)}&duration=120&locale=de`;
-            console.log('[bahnhof.de] →', url);
-            const r = await fetch(url, {
-                signal: AbortSignal.timeout(8000),
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 dilaeit/1.0',
-                    'Accept': 'application/json'
-                }
-            });
-            const text = await r.text();
-            console.log('[bahnhof.de] status:', r.status, 'body[:200]:', text.slice(0, 200));
-            if (!r.ok) throw new Error(`bahnhof.de ${r.status}: ${text.slice(0,100)}`);
-            const data = JSON.parse(text);
-
-            const entries = data.entries || data.departures || (Array.isArray(data) ? data : []);
-            console.log('[bahnhof.de] entries:', entries.length);
-
-            const departures = entries.map(e => {
-                const planned = e.timeSchedule ? new Date(e.timeSchedule).toISOString() : null;
-                const rtTime  = e.timeType !== 'SCHEDULE' ? (e.timePredicted || e.timeDelayed) : null;
-                const actual  = rtTime ? new Date(rtTime).toISOString() : planned;
+    // ── 1. Transitous stoptimes ───────────────────────────────────────────────
+    try {
+        const params = new URLSearchParams({
+            stopId, time: whenDate.toISOString(), n: '60', window: '7200'
+        });
+        const r = await fetch(`${TRANSITOUS_BASE}/stoptimes?${params}`, {
+            signal: AbortSignal.timeout(6000),
+            headers: { 'Referer': 'https://dilaeit.onrender.com' }
+        });
+        if (!r.ok) throw new Error(`Transitous ${r.status}`);
+        const data = await r.json();
+        const times = data.stopTimes || data.departures || (Array.isArray(data) ? data : []);
+        if (times.length > 0) {
+            const departures = times.map(t => {
+                const place   = t.place || {};
+                const planned = place.scheduledDeparture || place.scheduledArrival || null;
+                const actual  = place.departure || place.arrival || planned;
                 const delaySec = planned && actual ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
-                const transport = e.transport || {};
-                const direction = transport.direction?.stopPlaces?.[0]?.name
-                               || transport.destination?.name
-                               || e.destination?.name || 'Unbekannt';
-                const lineName = transport.category && (transport.line || transport.number)
-                    ? `${transport.category} ${transport.line || transport.number}`.trim()
-                    : transport.line || transport.number || '???';
                 return {
                     plannedWhen: planned, when: actual, delay: delaySec,
-                    platform:        e.platformPredicted || e.platformSchedule || null,
-                    plannedPlatform: e.platformSchedule  || null,
-                    cancelled:  e.cancelled || e.isCancelled || false,
-                    direction,
-                    tripId:   e.journeyID || e.journeyId || transport.journeyId || null,
-                    dbTripId: e.journeyID || e.journeyId || transport.journeyId || null,
-                    occupancy: e.occupancy ?? null,
-                    line: { name: lineName, product: transport.type?.toLowerCase() || 'train' },
+                    platform:        place.track          || null,
+                    plannedPlatform: place.scheduledTrack || null,
+                    cancelled:  t.cancelled || false,
+                    direction:  t.headsign  || t.tripTo?.name || 'Unbekannt',
+                    tripId:     t.tripId    || null,
+                    dbTripId:   t.tripId    || null,
+                    line: { name: t.displayName || t.routeShortName || t.tripShortName || '???', product: (t.mode || 'bus').toLowerCase() },
+                    _source: 'Transitous'
+                };
+            }).filter(d => d.plannedWhen);
+            return res.json({ departures });
+        }
+        throw new Error('empty');
+    } catch (e) {
+        console.warn('[Transitous stoptimes] failed:', e.message);
+    }
+
+    // ── 2. bahnhof.de (RIS, nur EVA, aktuelle Zeit) ───────────────────────────
+    if (/^8\d{6}$/.test(stopId) && diffMin >= -5 && diffMin <= 360) {
+        try {
+            const r = await fetch(
+                `https://www.bahnhof.de/api/boards/departures?evaNumbers=${encodeURIComponent(stopId)}&duration=120&locale=de`,
+                { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'Mozilla/5.0 dilaeit/1.0' } }
+            );
+            if (!r.ok) throw new Error(`bahnhof.de ${r.status}`);
+            const data = await r.json();
+            const entries = data.entries || data.departures || (Array.isArray(data) ? data : []);
+            const departures = entries.map(e => {
+                const t  = e.transport || {};
+                const planned  = e.timeSchedule ? new Date(e.timeSchedule).toISOString() : null;
+                const rtTime   = e.timeType !== 'SCHEDULE' ? (e.timePredicted || e.timeDelayed) : null;
+                const actual   = rtTime ? new Date(rtTime).toISOString() : planned;
+                const delaySec = planned && actual ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
+                return {
+                    plannedWhen: planned, when: actual, delay: delaySec,
+                    platform: e.platformPredicted || e.platformSchedule || null,
+                    plannedPlatform: e.platformSchedule || null,
+                    cancelled: e.cancelled || false,
+                    direction: t.direction?.stopPlaces?.[0]?.name || t.destination?.name || 'Unbekannt',
+                    tripId:   e.journeyID || e.journeyId || null,
+                    dbTripId: e.journeyID || e.journeyId || null,
+                    line: { name: (t.category ? `${t.category} ${t.line||t.number||''}` : t.line||t.number||'???').trim(), product: t.type?.toLowerCase() || 'train' },
                     _source: 'Deutsche Bahn (RIS)'
                 };
             }).filter(d => d.plannedWhen);
-
-            return res.json({ departures });
-        } catch (e) {
-            console.warn('[bahnhof.de] failed:', e.message, '→ fallback v6');
-        }
+            if (departures.length > 0) return res.json({ departures });
+        } catch (e) { console.warn('[bahnhof.de] failed:', e.message); }
     }
 
-    // Fallback: v6.db.transport.rest
+    // ── 3. v6 Fallback ────────────────────────────────────────────────────────
     const when = whenRaw || new Date().toISOString();
-    const url  = `https://v6.db.transport.rest/stops/${encodeURIComponent(stopId)}/departures?when=${encodeURIComponent(when)}&duration=120&results=60&remarks=true`;
-    console.log('[v6 fallback] →', url);
-    const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const r = await fetch(
+        `https://v6.db.transport.rest/stops/${encodeURIComponent(stopId)}/departures?when=${encodeURIComponent(when)}&duration=120&results=60&remarks=false`,
+        { signal: AbortSignal.timeout(12000) }
+    );
     if (!r.ok) throw new Error(`v6 ${r.status}`);
     const data = await r.json();
     const departures = (data.departures || []).map(d => {
-      const planned  = d.plannedWhen ? new Date(d.plannedWhen).toISOString() : null;
-      const actual   = d.when        ? new Date(d.when).toISOString()        : planned;
-      const delaySec = d.delay !== undefined ? d.delay : (d.when && d.plannedWhen ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000) : null);
-      return {
-        plannedWhen: planned, when: actual, delay: delaySec,
-        platform: d.platform || d.plannedPlatform || null,
-        plannedPlatform: d.plannedPlatform || null,
-        cancelled: d.cancelled || false,
-        direction: d.direction || 'Unbekannt',
-        tripId: d.tripId, dbTripId: d.tripId,
-        occupancy: d.occupancy ?? null,
-        line: { name: d.line?.name || '???', product: d.line?.product || 'train' },
-        _source: 'Deutsche Bahn'
-      };
+        const planned  = d.plannedWhen ? new Date(d.plannedWhen).toISOString() : null;
+        const actual   = d.when ? new Date(d.when).toISOString() : planned;
+        const delaySec = d.delay !== undefined ? d.delay : (d.when && d.plannedWhen ? Math.round((new Date(d.when) - new Date(d.plannedWhen)) / 1000) : null);
+        return { plannedWhen: planned, when: actual, delay: delaySec, platform: d.platform || d.plannedPlatform || null, plannedPlatform: d.plannedPlatform || null, cancelled: d.cancelled || false, direction: d.direction || 'Unbekannt', tripId: d.tripId, dbTripId: d.tripId, line: { name: d.line?.name || '???', product: d.line?.product || 'train' }, _source: 'Deutsche Bahn' };
     });
     res.json({ departures });
   } catch (e) {
