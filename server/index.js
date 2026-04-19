@@ -140,16 +140,11 @@ app.get('/api/locations', async (req, res) => {
             outputFormat: 'rapidJSON', version: EFA_VERSION, language: 'de',
             type_sf: 'any', name_sf: query, anyObjFilter_sf: 2, locationServerActive: 1,
         });
-        const locs = (data.locations || []).map(l => {
-            const coord = l.coord || l.coordinates || null;
-            return {
-                id:   l.id || l.properties?.stopId || '',
-                name: l.name || l.disassembledName || '',
-                type: l.type || 'stop',
-                lat:  coord ? (coord.lat ?? coord.latitude ?? coord[1] ?? null) : null,
-                lon:  coord ? (coord.lng ?? coord.longitude ?? coord[0] ?? null) : null,
-            };
-        }).filter(l => l.id && l.name);
+        const locs = (data.locations || []).map(l => ({
+            id:   l.id || l.properties?.stopId || '',
+            name: l.name || l.disassembledName || '',
+            type: l.type || 'stop',
+        })).filter(l => l.id && l.name);
         res.json({ locations: locs });
     } catch (e) { res.status(502).json({ error: e.message }); }
 });
@@ -173,9 +168,7 @@ app.get('/api/db/locations', async (req, res) => {
             .map(f => {
                 const p = f.properties || f;
                 const id = p.stopId || p.id || p.gtfsId || '';
-                const lat = p.lat ?? p.latitude ?? f.geometry?.coordinates?.[1] ?? null;
-                const lon = p.lon ?? p.longitude ?? f.geometry?.coordinates?.[0] ?? null;
-                return { id, name: p.name || p.label || '', type: 'stop', source: 'Transitous', lat, lon };
+                return { id, name: p.name || p.label || '', type: 'stop', source: 'Transitous' };
             })
             // Nur echte GTFS Stop-IDs (nicht OSM node/way/relation)
             .filter(l => l.id && l.name && !l.id.startsWith('node/') && !l.id.startsWith('way/') && !l.id.startsWith('relation/'));
@@ -434,7 +427,10 @@ app.get('/api/iris/trip-search', async (req, res) => {
 });
 
 // ─── Sync-Datenbank (JSON-File, persistent über Restarts) ────────────────────
-const SYNC_FILE = process.env.SYNC_FILE || '/tmp/dilaeit_sync.json';
+// Render: /tmp wird bei Restart gelöscht → App-Verzeichnis nutzen
+const SYNC_FILE = process.env.SYNC_FILE
+    || path.join(__dirname, '..', 'sync_data.json')   // production: neben /server
+    || path.join(process.cwd(), 'sync_data.json');     // fallback
 
 function loadSyncDB() {
     try { return JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8')); } catch { return {}; }
@@ -481,9 +477,12 @@ app.post('/api/sync/:code', (req, res) => {
     if (!syncDB[code]) return res.status(404).json({ error: 'Code nicht gefunden' });
     const { journeys } = req.body;
     if (!Array.isArray(journeys)) return res.status(400).json({ error: 'journeys must be array' });
-    syncDB[code] = { journeys, updatedAt: new Date().toISOString() };
+    // Merge: eingehende Fahrten mit vorhandenen zusammenführen (kein blindes Überschreiben)
+    const existing = new Map((syncDB[code].journeys || []).map(j => [j.id, j]));
+    for (const j of journeys) { if (j?.id) existing.set(j.id, j); }
+    syncDB[code] = { journeys: [...existing.values()], updatedAt: new Date().toISOString() };
     saveSyncDB(syncDB);
-    res.json({ ok: true, count: journeys.length });
+    res.json({ ok: true, count: syncDB[code].journeys.length });
 });
 
 // Einzelne Fahrt hinzufügen/updaten
