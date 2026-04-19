@@ -194,20 +194,35 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
         const stopId   = String(req.params.stopId || '').trim();
         const whenRaw  = req.query.when ? decodeURIComponent(req.query.when) : null;
         const whenDate = whenRaw ? new Date(whenRaw) : new Date();
-        const params   = new URLSearchParams({
-            stopId, time: whenDate.toISOString(), n: '60', window: '7200'
-        });
+
+        const params = new URLSearchParams();
+        params.set('stopId', stopId);
+        params.set('time',   whenDate.toISOString());
+        params.set('n',      '60');
+        // window in Sekunden als Zahl (nicht String) – 2h = 7200
+        params.set('window', '7200');
+
         const r = await fetch(`${TRANSITOUS}/stoptimes?${params}`, {
             signal: AbortSignal.timeout(8000), headers: TR_HEADERS
         });
         if (!r.ok) throw new Error(`Transitous stoptimes ${r.status}: ${await r.text().catch(()=>'')}`);
         const data  = await r.json();
         const times = data.stopTimes || data.departures || (Array.isArray(data) ? data : []);
+
+        console.log(`[Transitous] stopId=${stopId} time=${whenDate.toISOString()} → ${times.length} Abfahrten`);
+        if (times.length > 0) {
+            console.log('[Transitous] sample[0]:', JSON.stringify(times[0]).slice(0, 200));
+        }
+
         const departures = times.map(t => {
             const place   = t.place || {};
+            // Transitous gibt scheduled* als Soll-Zeit und departure/arrival als RT
             const planned = place.scheduledDeparture || place.scheduledArrival || null;
-            const actual  = place.departure || place.arrival || planned;
-            const delaySec = planned && actual ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
+            const actual  = (place.departure !== place.scheduledDeparture ? place.departure : null)
+                         || (place.arrival   !== place.scheduledArrival   ? place.arrival   : null)
+                         || planned;
+            const delaySec = planned && actual && actual !== planned
+                ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
             return {
                 plannedWhen:     planned,
                 when:            actual,
