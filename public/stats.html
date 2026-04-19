@@ -208,13 +208,12 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
 <div id="checkin-modal">
     <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-900">
-            <h2 class="font-bold text-white">Neue Fahrt eintragen</h2>
+            <h2 class="font-bold text-white" id="ci-modal-title">Neue Fahrt eintragen</h2>
             <button onclick="closeCheckin()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
                 <i class="fas fa-times"></i>
             </button>
         </div>
         <div class="px-6 py-5 space-y-4">
-            <!-- Tabs: Manuell / Aus Abfahrtstafel -->
             <div class="flex gap-2">
                 <button onclick="setCheckinTab('manual')" id="ci-tab-manual" class="stat-tab active flex-1 text-center">Manuell</button>
                 <button onclick="setCheckinTab('search')" id="ci-tab-search" class="stat-tab flex-1 text-center">Aus Abfahrtstafel</button>
@@ -228,7 +227,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
                         <input type="date" id="ci-date">
                     </div>
                     <div>
-                        <label class="text-xs text-zinc-500 mono block mb-1">ABFAHRT</label>
+                        <label class="text-xs text-zinc-500 mono block mb-1">ABFAHRT (SOLL)</label>
                         <input type="time" id="ci-time">
                     </div>
                 </div>
@@ -237,15 +236,34 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
                     <input type="text" id="ci-line" placeholder="z.B. RE 13, Bus 017, ICE 516">
                 </div>
                 <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs text-zinc-500 mono block mb-1">VON</label>
-                        <input type="text" id="ci-from" placeholder="Startstation">
+                    <div class="relative">
+                        <label class="text-xs text-zinc-500 mono block mb-1">EINSTIEG</label>
+                        <input type="text" id="ci-from" placeholder="Station suchen..." autocomplete="off"
+                            oninput="stationSearch(this, 'ci-from-results')" onblur="setTimeout(()=>hideResults('ci-from-results'),200)">
+                        <div id="ci-from-results" class="absolute z-50 top-full left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl mt-1 shadow-xl hidden max-h-48 overflow-y-auto"></div>
+                        <input type="hidden" id="ci-from-id">
+                        <input type="hidden" id="ci-from-lat">
+                        <input type="hidden" id="ci-from-lon">
                     </div>
-                    <div>
-                        <label class="text-xs text-zinc-500 mono block mb-1">NACH</label>
-                        <input type="text" id="ci-to" placeholder="Zielstation">
+                    <div class="relative">
+                        <label class="text-xs text-zinc-500 mono block mb-1">AUSSTIEG</label>
+                        <input type="text" id="ci-to" placeholder="Station suchen..." autocomplete="off"
+                            oninput="stationSearch(this, 'ci-to-results')" onblur="setTimeout(()=>hideResults('ci-to-results'),200)">
+                        <div id="ci-to-results" class="absolute z-50 top-full left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl mt-1 shadow-xl hidden max-h-48 overflow-y-auto"></div>
+                        <input type="hidden" id="ci-to-id">
+                        <input type="hidden" id="ci-to-lat">
+                        <input type="hidden" id="ci-to-lon">
                     </div>
                 </div>
+
+                <!-- Aus Fahrtverlauf: Ausstieg wählen -->
+                <div id="ci-stops-section" class="hidden">
+                    <label class="text-xs text-zinc-500 mono block mb-1">AUSSTIEG AUS FAHRTVERLAUF WÄHLEN</label>
+                    <select id="ci-exit-stop" class="w-full" onchange="onExitStopChange()">
+                        <option value="">-- Ausstieg wählen --</option>
+                    </select>
+                </div>
+
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="text-xs text-zinc-500 mono block mb-1">VERKEHRSMITTEL</label>
@@ -260,26 +278,42 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
                     </div>
                     <div>
                         <label class="text-xs text-zinc-500 mono block mb-1">DISTANZ (km)</label>
-                        <input type="number" id="ci-km" placeholder="optional" min="0" step="0.1">
+                        <input type="number" id="ci-km" placeholder="auto" min="0" step="0.1">
                     </div>
                 </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs text-zinc-500 mono block mb-1">VERSPÄTUNG BEI ANKUNFT (Min)</label>
-                        <input type="number" id="ci-delay" placeholder="0" min="-60" max="999">
+
+                <!-- Zeiten Real -->
+                <div class="bg-zinc-900 rounded-xl p-3 space-y-2 border border-zinc-800">
+                    <div class="text-xs text-zinc-500 mono mb-1">ECHTZEIT <span class="text-zinc-600">(wird automatisch gefüllt, manuell anpassbar)</span></div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-zinc-600 block mb-1">ABFAHRT REAL</label>
+                            <input type="time" id="ci-dep-real" oninput="markManual('ci-dep-real')">
+                        </div>
+                        <div>
+                            <label class="text-xs text-zinc-600 block mb-1">ANKUNFT REAL</label>
+                            <input type="time" id="ci-arr-real" oninput="markManual('ci-arr-real')">
+                        </div>
                     </div>
-                    <div>
-                        <label class="text-xs text-zinc-500 mono block mb-1">ANKUNFT</label>
-                        <input type="time" id="ci-arrive">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-zinc-600 block mb-1">VERSPÄTUNG ABFAHRT (Min)</label>
+                            <input type="number" id="ci-dep-delay" placeholder="0" min="-60" max="999">
+                        </div>
+                        <div>
+                            <label class="text-xs text-zinc-600 block mb-1">VERSPÄTUNG ANKUNFT (Min)</label>
+                            <input type="number" id="ci-delay" placeholder="0" min="-60" max="999">
+                        </div>
                     </div>
                 </div>
+
                 <div>
-                    <label class="text-xs text-zinc-500 mono block mb-1">NOTIZ</label>
+                    <label class="text-xs text-zinc-500 mono block mb-1">NOTIZ / STATUS</label>
                     <input type="text" id="ci-note" placeholder="Optional...">
                 </div>
             </div>
 
-            <!-- Aus Abfahrtstafel (Link) -->
+            <!-- Aus Abfahrtstafel -->
             <div id="ci-search" class="hidden text-center py-8 space-y-3">
                 <i class="fas fa-train text-4xl text-zinc-600"></i>
                 <p class="text-sm text-zinc-400">Gehe zur <a href="/" class="text-red-500 hover:underline">Abfahrtstafel</a> und klicke bei einer Abfahrt auf <b class="text-white">Check-In</b>.</p>
@@ -294,7 +328,186 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
     </div>
 </div>
 
+<!-- Edit Modal -->
+<div id="edit-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-900">
+            <h2 class="font-bold text-white">Fahrt bearbeiten</h2>
+            <button onclick="closeEdit()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="px-6 py-5 space-y-4">
+            <input type="hidden" id="edit-id">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs text-zinc-500 mono block mb-1">DATUM</label>
+                    <input type="date" id="edit-date">
+                </div>
+                <div>
+                    <label class="text-xs text-zinc-500 mono block mb-1">LINIE</label>
+                    <input type="text" id="edit-line">
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="relative">
+                    <label class="text-xs text-zinc-500 mono block mb-1">EINSTIEG</label>
+                    <input type="text" id="edit-from" autocomplete="off"
+                        oninput="stationSearch(this, 'edit-from-results')" onblur="setTimeout(()=>hideResults('edit-from-results'),200)">
+                    <div id="edit-from-results" class="absolute z-50 top-full left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl mt-1 shadow-xl hidden max-h-40 overflow-y-auto"></div>
+                    <input type="hidden" id="edit-from-lat">
+                    <input type="hidden" id="edit-from-lon">
+                </div>
+                <div class="relative">
+                    <label class="text-xs text-zinc-500 mono block mb-1">AUSSTIEG</label>
+                    <input type="text" id="edit-to" autocomplete="off"
+                        oninput="stationSearch(this, 'edit-to-results')" onblur="setTimeout(()=>hideResults('edit-to-results'),200)">
+                    <div id="edit-to-results" class="absolute z-50 top-full left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl mt-1 shadow-xl hidden max-h-40 overflow-y-auto"></div>
+                    <input type="hidden" id="edit-to-lat">
+                    <input type="hidden" id="edit-to-lon">
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs text-zinc-500 mono block mb-1">VERKEHRSMITTEL</label>
+                    <select id="edit-mode">
+                        <option value="train">🚆 Zug</option>
+                        <option value="bus">🚌 Bus</option>
+                        <option value="subway">🚇 U-Bahn</option>
+                        <option value="tram">🚊 Tram</option>
+                        <option value="ferry">⛴ Fähre</option>
+                        <option value="other">🚗 Sonstiges</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-zinc-500 mono block mb-1">DISTANZ (km)</label>
+                    <input type="number" id="edit-km" min="0" step="0.1">
+                </div>
+            </div>
+            <div class="bg-zinc-900 rounded-xl p-3 space-y-2 border border-zinc-800">
+                <div class="text-xs text-zinc-500 mono mb-1">ZEITEN</div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-zinc-600 block mb-1">ABFAHRT SOLL</label>
+                        <input type="time" id="edit-time">
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-600 block mb-1">ABFAHRT REAL
+                            <span id="edit-dep-manual-badge" class="hidden text-yellow-500 text-[9px] ml-1">● manuell</span>
+                        </label>
+                        <input type="time" id="edit-dep-real" oninput="document.getElementById('edit-dep-manual-badge').classList.remove('hidden')">
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-600 block mb-1">ANKUNFT SOLL</label>
+                        <input type="time" id="edit-arrive-planned">
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-600 block mb-1">ANKUNFT REAL
+                            <span id="edit-arr-manual-badge" class="hidden text-yellow-500 text-[9px] ml-1">● manuell</span>
+                        </label>
+                        <input type="time" id="edit-arr-real" oninput="document.getElementById('edit-arr-manual-badge').classList.remove('hidden')">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-zinc-600 block mb-1">VERSPÄTUNG ABF. (Min)</label>
+                        <input type="number" id="edit-dep-delay" min="-60" max="999">
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-600 block mb-1">VERSPÄTUNG ANK. (Min)</label>
+                        <input type="number" id="edit-delay" min="-60" max="999">
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label class="text-xs text-zinc-500 mono block mb-1">NOTIZ</label>
+                <input type="text" id="edit-note">
+            </div>
+            <div class="flex gap-2">
+                <button onclick="closeEdit()" class="flex-1 border border-zinc-700 text-zinc-400 hover:text-white py-2.5 rounded-xl text-sm font-semibold transition-colors">Abbrechen</button>
+                <button onclick="saveEdit()" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl transition-colors text-sm">
+                    <i class="fas fa-save mr-1"></i>Speichern
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+// ─── Station Autocomplete (Transitous Geocode) ────────────────────────────────
+const API_BASE = (() => {
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return '';
+    return '';
+})();
+
+let searchTimers = {};
+
+async function stationSearch(input, resultsId) {
+    const q = input.value.trim();
+    const results = document.getElementById(resultsId);
+    clearTimeout(searchTimers[resultsId]);
+    if (q.length < 2) { results.classList.add('hidden'); return; }
+
+    searchTimers[resultsId] = setTimeout(async () => {
+        try {
+            const r = await fetch(`https://api.transitous.org/api/v1/geocode?text=${encodeURIComponent(q)}&language=de`, {
+                headers: { 'Referer': location.origin }
+            });
+            if (!r.ok) return;
+            const data = await r.json();
+            const list = Array.isArray(data) ? data : (data.features || data.results || []);
+            const stops = list.slice(0, 8).map(f => {
+                const p = f.properties || f;
+                return { id: p.stopId || p.id || '', name: p.name || p.label || '', lat: p.lat || f.geometry?.coordinates?.[1], lon: p.lon || f.geometry?.coordinates?.[0] };
+            }).filter(s => s.id && s.name);
+
+            if (!stops.length) { results.classList.add('hidden'); return; }
+
+            results.innerHTML = stops.map(s => `
+                <div class="px-3 py-2 hover:bg-zinc-800 cursor-pointer text-sm text-zinc-200 border-b border-zinc-800 last:border-0 flex items-center gap-2"
+                    onmousedown="selectStation('${resultsId}', '${s.id}', ${JSON.stringify(s.name)}, ${s.lat || 'null'}, ${s.lon || 'null'})">
+                    <i class="fas fa-map-marker-alt text-red-500 text-xs w-3"></i>
+                    <span class="truncate">${s.name}</span>
+                </div>
+            `).join('');
+            results.classList.remove('hidden');
+        } catch (e) { results.classList.add('hidden'); }
+    }, 300);
+}
+
+function selectStation(resultsId, id, name, lat, lon) {
+    const prefix = resultsId.replace('-results', '');
+    document.getElementById(prefix).value            = name;
+    document.getElementById(`${prefix}-id`).value   = id;
+    document.getElementById(`${prefix}-lat`).value  = lat || '';
+    document.getElementById(`${prefix}-lon`).value  = lon || '';
+    hideResults(resultsId);
+    // Auto-Distanz berechnen wenn beide gesetzt
+    autoCalcDistance();
+}
+
+function hideResults(id) {
+    document.getElementById(id)?.classList.add('hidden');
+}
+
+function autoCalcDistance() {
+    const fromLat = parseFloat(document.getElementById('ci-from-lat').value);
+    const fromLon = parseFloat(document.getElementById('ci-from-lon').value);
+    const toLat   = parseFloat(document.getElementById('ci-to-lat').value);
+    const toLon   = parseFloat(document.getElementById('ci-to-lon').value);
+    if (isNaN(fromLat) || isNaN(toLat)) return;
+    // Haversine-Distanz in km
+    const R  = 6371;
+    const dL = (toLat - fromLat) * Math.PI / 180;
+    const dO = (toLon - fromLon) * Math.PI / 180;
+    const a  = Math.sin(dL/2)**2 + Math.cos(fromLat*Math.PI/180) * Math.cos(toLat*Math.PI/180) * Math.sin(dO/2)**2;
+    const km = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    // Luftlinie × 1.2 als Schätzung für Streckenkilometer
+    const est = Math.round(km * 1.2 * 10) / 10;
+    const kmInput = document.getElementById('ci-km');
+    if (!kmInput.value) kmInput.value = est;
+}
+
 // ─── Database (IndexedDB) ────────────────────────────────────────────────────
 const DB_NAME = 'dilaeit_stats', DB_VERSION = 1, STORE = 'journeys';
 
@@ -372,6 +585,49 @@ async function init() {
         }
     }
     if (pending.length) localStorage.removeItem('dilaeit_checkin_pending');
+
+    // Prefill vom Check-In Button (index.html → stats.html)
+    const prefill = localStorage.getItem('dilaeit_checkin_prefill');
+    if (prefill && new URLSearchParams(location.search).get('checkin') === '1') {
+        localStorage.removeItem('dilaeit_checkin_prefill');
+        try {
+            const p = JSON.parse(prefill);
+            document.getElementById('ci-date').value  = p.date  || '';
+            document.getElementById('ci-time').value  = p.time  || '';
+            document.getElementById('ci-line').value  = p.line  || '';
+            document.getElementById('ci-from').value  = p.from  || '';
+            document.getElementById('ci-dep-real').value = p.depReal || '';
+            if (p.depDelayMin != null) document.getElementById('ci-dep-delay').value = p.depDelayMin;
+            document.getElementById('ci-mode').value  = p.mode  || 'train';
+            // Ausstieg-Dropdown befüllen
+            if (p.stops?.length) {
+                const sel = document.getElementById('ci-exit-stop');
+                sel.innerHTML = '<option value="">-- Ausstieg wählen --</option>';
+                p.stops.forEach((s, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = i;
+                    opt.text  = `${s.time ? s.time + ' ' : ''}${s.name}`;
+                    opt.setAttribute('data-time', s.time || '');
+                    opt.setAttribute('data-lat',  s.lat  || '');
+                    opt.setAttribute('data-lon',  s.lon  || '');
+                    sel.appendChild(opt);
+                });
+                document.getElementById('ci-stops-section').classList.remove('hidden');
+                // selectStation speichert Koordinaten wenn Ausstieg gewählt
+                sel.onchange = () => {
+                    const opt = sel.options[sel.selectedIndex];
+                    if (!opt?.value) return;
+                    document.getElementById('ci-to').value     = opt.text.replace(/^\d{2}:\d{2}\s+/, '');
+                    document.getElementById('ci-to-lat').value = opt.getAttribute('data-lat') || '';
+                    document.getElementById('ci-to-lon').value = opt.getAttribute('data-lon') || '';
+                    const t = opt.getAttribute('data-time');
+                    if (t) document.getElementById('ci-arr-real').value = t;
+                    autoCalcDistance();
+                };
+            }
+            openCheckin();
+        } catch {}
+    }
 
     buildYearFilter();
     updateAll();
@@ -533,21 +789,32 @@ function renderList() {
         const delayStr = j.delay !== null && j.delay !== undefined
             ? `<span class="${j.delay < 1 ? 'text-green-400' : j.delay < 5 ? 'text-yellow-400' : 'text-red-400'} text-xs mono">${j.delay >= 0 ? '+' : ''}${j.delay}'</span>`
             : '';
+        // Zeitanzeige mit manuell-Indikator
+        const depReal = j.depReal ? `<span class="text-zinc-300 mono text-xs${j.depManual ? ' cursor-help underline decoration-dotted decoration-yellow-500' : ''}" ${j.depManual ? 'title="Zeit manuell angepasst"' : ''}>${j.depReal}</span>` : '';
+        const arrReal = j.arrReal ? `<span class="text-zinc-400 mono text-xs${j.arrManual ? ' cursor-help underline decoration-dotted decoration-yellow-500' : ''}" ${j.arrManual ? 'title="Zeit manuell angepasst"' : ''}>→ ${j.arrReal}</span>` : '';
+        const timeStr = (depReal || arrReal) ? `<div class="flex gap-2 mt-0.5">${depReal}${arrReal}</div>` : '';
+
         div.innerHTML = `
             <div class="text-2xl">${modeIcons[j.mode] || '🚌'}</div>
             <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                     <span class="font-bold text-white text-sm">${j.line || '?'}</span>
                     ${delayStr}
                     ${j.km ? `<span class="text-xs text-zinc-500">${j.km} km</span>` : ''}
                 </div>
                 <div class="text-xs text-zinc-400 truncate">${j.from || '?'} → ${j.to || '?'}</div>
                 <div class="text-xs text-zinc-600 mono">${j.date || ''} ${j.time || ''}</div>
+                ${timeStr}
                 ${j.note ? `<div class="text-xs text-zinc-600 mt-0.5 italic">${j.note}</div>` : ''}
             </div>
-            <button onclick="confirmDelete('${j.id}')" class="text-zinc-700 hover:text-red-500 transition-colors ml-2 text-sm">
-                <i class="fas fa-trash"></i>
-            </button>
+            <div class="flex flex-col gap-1 ml-2">
+                <button onclick="openEdit('${j.id}')" class="text-zinc-600 hover:text-blue-400 transition-colors text-sm" title="Bearbeiten">
+                    <i class="fas fa-pen"></i>
+                </button>
+                <button onclick="confirmDelete('${j.id}')" class="text-zinc-600 hover:text-red-500 transition-colors text-sm" title="Löschen">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
         `;
         container.appendChild(div);
     });
@@ -676,6 +943,22 @@ function setCheckinTab(t) {
     document.getElementById('ci-save-btn').classList.toggle('hidden', t === 'search');
 }
 
+function markManual(id) {
+    // Merkt, dass Zeit manuell geändert wurde
+    document.getElementById(id)?.setAttribute('data-manual', 'true');
+}
+
+function onExitStopChange() {
+    const sel = document.getElementById('ci-exit-stop');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt?.value) return;
+    // Ausstieg-Name ins to-Feld setzen
+    document.getElementById('ci-to').value = opt.text.replace(/^\d+:\d+\s+/, '');
+    // Ankunftszeit auto setzen
+    const t = opt.getAttribute('data-time');
+    if (t) document.getElementById('ci-arr-real').value = t;
+}
+
 async function saveCheckin() {
     const err = document.getElementById('ci-error');
     const line = document.getElementById('ci-line').value.trim();
@@ -685,22 +968,36 @@ async function saveCheckin() {
     const time = document.getElementById('ci-time').value;
 
     if (!line || !from || !to || !date || !time) {
-        err.textContent = 'Bitte Linie, Von, Nach, Datum und Uhrzeit ausfüllen.';
+        err.textContent = 'Bitte Linie, Einstieg, Ausstieg, Datum und Uhrzeit ausfüllen.';
         err.classList.remove('hidden'); return;
     }
     err.classList.add('hidden');
 
-    const delayVal = document.getElementById('ci-delay').value;
-    const kmVal    = document.getElementById('ci-km').value;
+    const delayVal    = document.getElementById('ci-delay').value;
+    const depDelayVal = document.getElementById('ci-dep-delay').value;
+    const kmVal       = document.getElementById('ci-km').value;
+    const depRealEl   = document.getElementById('ci-dep-real');
+    const arrRealEl   = document.getElementById('ci-arr-real');
+
+    const getCoords = (prefix) => {
+        const la = parseFloat(document.getElementById(`${prefix}-lat`)?.value);
+        const lo = parseFloat(document.getElementById(`${prefix}-lon`)?.value);
+        return (!isNaN(la) && !isNaN(lo)) ? [la, lo] : null;
+    };
 
     const journey = {
         id:    `${date}T${time}-${Math.random().toString(36).slice(2,8)}`,
-        date, time, line,
-        from,  to,
-        mode:  document.getElementById('ci-mode').value,
-        delay: delayVal !== '' ? Number(delayVal) : null,
-        km:    kmVal    !== '' ? Number(kmVal)    : null,
-        arrive: document.getElementById('ci-arrive').value || null,
+        date, time, line, from, to,
+        fromCoords: getCoords('ci-from'),
+        toCoords:   getCoords('ci-to'),
+        mode:       document.getElementById('ci-mode').value,
+        delay:      delayVal    !== '' ? Number(delayVal)    : null,
+        depDelay:   depDelayVal !== '' ? Number(depDelayVal) : null,
+        km:         kmVal       !== '' ? Number(kmVal)       : null,
+        depReal:    depRealEl?.value  || null,
+        arrReal:    arrRealEl?.value  || null,
+        depManual:  depRealEl?.getAttribute('data-manual') === 'true',
+        arrManual:  arrRealEl?.getAttribute('data-manual') === 'true',
         note:  document.getElementById('ci-note').value.trim() || null,
     };
 
@@ -710,8 +1007,86 @@ async function saveCheckin() {
     updateAll();
     closeCheckin();
 
-    // Reset
-    ['ci-line','ci-from','ci-to','ci-delay','ci-km','ci-arrive','ci-note'].forEach(id => { document.getElementById(id).value = ''; });
+    ['ci-line','ci-from','ci-to','ci-dep-real','ci-arr-real','ci-delay','ci-dep-delay','ci-km','ci-note',
+     'ci-from-id','ci-from-lat','ci-from-lon','ci-to-id','ci-to-lat','ci-to-lon']
+        .forEach(id => { const el = document.getElementById(id); if (el) { el.value = ''; el.removeAttribute('data-manual'); } });
+    document.getElementById('ci-exit-stop').innerHTML = '<option value="">-- Ausstieg wählen --</option>';
+    document.getElementById('ci-stops-section').classList.add('hidden');
+}
+
+// ─── Edit Modal ───────────────────────────────────────────────────────────────
+function openEdit(id) {
+    const j = allJourneys.find(x => x.id === id);
+    if (!j) return;
+    document.getElementById('edit-id').value              = j.id;
+    document.getElementById('edit-date').value            = j.date || '';
+    document.getElementById('edit-line').value            = j.line || '';
+    document.getElementById('edit-from').value            = j.from || '';
+    document.getElementById('edit-to').value              = j.to   || '';
+    document.getElementById('edit-mode').value            = j.mode || 'train';
+    document.getElementById('edit-km').value              = j.km   ?? '';
+    document.getElementById('edit-time').value            = j.time || '';
+    document.getElementById('edit-dep-real').value        = j.depReal || '';
+    document.getElementById('edit-arr-real').value        = j.arrReal || '';
+    document.getElementById('edit-arrive-planned').value  = j.arrivePlanned || '';
+    document.getElementById('edit-dep-delay').value       = j.depDelay ?? '';
+    document.getElementById('edit-delay').value           = j.delay   ?? '';
+    document.getElementById('edit-note').value            = j.note  || '';
+    document.getElementById('edit-from-lat').value        = j.fromCoords?.[0] ?? '';
+    document.getElementById('edit-from-lon').value        = j.fromCoords?.[1] ?? '';
+    document.getElementById('edit-to-lat').value          = j.toCoords?.[0]   ?? '';
+    document.getElementById('edit-to-lon').value          = j.toCoords?.[1]   ?? '';
+
+    // Manuell-Badges
+    document.getElementById('edit-dep-manual-badge').classList.toggle('hidden', !j.depManual);
+    document.getElementById('edit-arr-manual-badge').classList.toggle('hidden', !j.arrManual);
+
+    document.getElementById('edit-modal').classList.remove('hidden');
+}
+
+function closeEdit() {
+    document.getElementById('edit-modal').classList.add('hidden');
+}
+
+async function saveEdit() {
+    const id = document.getElementById('edit-id').value;
+    const idx = allJourneys.findIndex(x => x.id === id);
+    if (idx === -1) return;
+
+    const getEditCoords = (prefix) => {
+        const la = parseFloat(document.getElementById(`${prefix}-lat`)?.value);
+        const lo = parseFloat(document.getElementById(`${prefix}-lon`)?.value);
+        return (!isNaN(la) && !isNaN(lo)) ? [la, lo] : allJourneys[idx][prefix === 'edit-from' ? 'fromCoords' : 'toCoords'];
+    };
+
+    const depRealEl = document.getElementById('edit-dep-real');
+    const arrRealEl = document.getElementById('edit-arr-real');
+    const updated = {
+        ...allJourneys[idx],
+        date:     document.getElementById('edit-date').value,
+        line:     document.getElementById('edit-line').value.trim(),
+        from:     document.getElementById('edit-from').value.trim(),
+        to:       document.getElementById('edit-to').value.trim(),
+        mode:     document.getElementById('edit-mode').value,
+        km:       document.getElementById('edit-km').value !== '' ? Number(document.getElementById('edit-km').value) : null,
+        time:     document.getElementById('edit-time').value,
+        depReal:  depRealEl.value || null,
+        arrReal:  arrRealEl.value || null,
+        arrivePlanned: document.getElementById('edit-arrive-planned').value || null,
+        depDelay: document.getElementById('edit-dep-delay').value !== '' ? Number(document.getElementById('edit-dep-delay').value) : null,
+        delay:    document.getElementById('edit-delay').value    !== '' ? Number(document.getElementById('edit-delay').value)    : null,
+        note:     document.getElementById('edit-note').value.trim() || null,
+        depManual: !document.getElementById('edit-dep-manual-badge').classList.contains('hidden'),
+        arrManual: !document.getElementById('edit-arr-manual-badge').classList.contains('hidden'),
+        fromCoords: getEditCoords('edit-from'),
+        toCoords:   getEditCoords('edit-to'),
+    };
+
+    await saveJourney(updated);
+    allJourneys[idx] = updated;
+    closeEdit();
+    buildYearFilter();
+    updateAll();
 }
 
 // ─── Export / Import ──────────────────────────────────────────────────────────
