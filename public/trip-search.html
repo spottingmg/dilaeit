@@ -356,7 +356,7 @@
             try {
                 // Wenn wir eine explizite ID haben, nutzen wir diese direkt
                 if (explicitTripId) {
-                    const dbResult = await fetch(`${API_BASE}/api/db/trip-details?tripId=${encodeURIComponent(explicitTripId)}&date=${encodeURIComponent(date)}`, {
+                    const dbResult = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(explicitTripId)}`, {
                         signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
                     }).then(r => r.ok ? r.json() : null);
                     if (dbResult) {
@@ -372,9 +372,9 @@
                     searchTransitousTrip(number, date)
                 ]);
 
-                // Priorität: DB → Transitous → VRR
+                // Priorität: DB IRIS → Transitous → VRR
                 if (dbResult?.stopovers?.length > 0) {
-                    showTripResults(dbResult, 'Deutsche Bahn');
+                    showTripResults(dbResult, 'DB IRIS');
                     return;
                 } else if (transitousResult?.stopovers?.length > 0) {
                     showTripResults(transitousResult, 'Transitous');
@@ -501,15 +501,23 @@
                 if (!tripId) return null;
 
                 // Fahrtverlauf über Transitous /trip holen
+                // v1/trip gibt ein Itinerary zurück mit legs[]
                 const tripUrl = `https://api.transitous.org/api/v1/trip?tripId=${encodeURIComponent(tripId)}`;
-                const tripRes = await fetch(tripUrl, { headers: { 'Referer': 'https://dilaeit.onrender.com' } });
-                if (!tripRes.ok) return null;
+                const tripRes = await fetch(tripUrl, { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(10000) });
+                if (!tripRes.ok) {
+                    console.warn('Transitous /trip failed:', tripRes.status, await tripRes.text().catch(()=>''));
+                    return null;
+                }
                 const tripData = await tripRes.json();
 
-                // In unser Format umwandeln
-                const legs = tripData.legs || tripData.itinerary?.legs || [];
-                const transitLeg = legs.find(l => l.mode !== 'WALK') || legs[0];
-                if (!transitLeg) return null;
+                // Transitous /trip gibt entweder { legs: [...] } oder direkt ein Itinerary
+                const legs = tripData.legs || tripData.itinerary?.legs || (Array.isArray(tripData) ? tripData : []);
+                // Transit-Leg finden (nicht WALK)
+                const transitLeg = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
+                if (!transitLeg) {
+                    console.warn('Transitous: kein Transit-Leg gefunden', JSON.stringify(tripData).slice(0,200));
+                    return null;
+                }
 
                 // from + intermediateStops + to zusammenführen
                 const allStops = [
