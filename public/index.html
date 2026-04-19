@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <title>dilaeit - ÖPNV in Echtzeit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="dilaeit">
+    <meta name="description" content="ÖPNV Abfahrtsmonitor in Echtzeit">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="icon" type="image/png" href="/icons/icon-192.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -2457,6 +2465,14 @@
         }
 
         init();
+    </script>
+    <script>
+    // ─── Service Worker + Push ────────────────────────────────────────────────
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+            console.log('[SW] registriert');
+        }).catch(e => console.warn('[SW] Fehler:', e));
+    }
     </script>
 </body>
 </html>
