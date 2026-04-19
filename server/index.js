@@ -529,11 +529,31 @@ async function sendPushToAll(payload) {
 // Aktive Check-Ins: clientId → { tripId, to, line, lastDelay }
 const activeCheckins = new Map();
 
+// Push-Hilfsfunktion
+async function pushTo(clientId, payload) {
+    const sub = pushSubscriptions.get(clientId);
+    if (!sub || !webpush) return;
+    await webpush.sendNotification(sub, JSON.stringify(payload)).catch(e => {
+        if (e.statusCode === 410 || e.statusCode === 404) pushSubscriptions.delete(clientId);
+    });
+}
+
+function delayText(delayMin, arrTime) {
+    if (delayMin === 0) return `Pünktlich – Ankunft ${arrTime}`;
+    if (delayMin > 0)   return `+${delayMin} Min verspätet – Ankunft ca. ${arrTime}`;
+    return `${Math.abs(delayMin)} Min früher – Ankunft ca. ${arrTime}`;
+}
+
 app.post('/api/checkin/track', async (req, res) => {
     try {
         const { clientId, tripId, to, line, date, arrivePlanned } = req.body;
         if (!clientId || !tripId) return res.status(400).json({ error: 'missing fields' });
-        activeCheckins.set(clientId, { tripId, to, line, date, arrivePlanned, lastDelay: null });
+        activeCheckins.set(clientId, {
+            tripId, to, line, date, arrivePlanned,
+            lastDelay:        null,   // letzter bekannter Verspätungswert
+            sentInitial:      false,  // Start-Notification gesendet?
+            sent5min:         false,  // 5-Min-Erinnerung gesendet?
+        });
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -544,19 +564,25 @@ app.post('/api/checkin/untrack', async (req, res) => {
     res.json({ ok: true });
 });
 
-// Live-Tracking Loop: alle 30s aktive Check-Ins abfragen
+// Live-Tracking Loop: alle 30s
 setInterval(async () => {
     if (activeCheckins.size === 0 || !webpush) return;
     const now = Date.now();
+
     for (const [clientId, ci] of activeCheckins) {
         // Veraltete Check-Ins entfernen (> 3h nach geplantem Ausstieg)
         if (ci.arrivePlanned) {
             const planned = new Date(`${ci.date}T${ci.arrivePlanned}`);
-            if (now > planned.getTime() + 3 * 3600000) { activeCheckins.delete(clientId); continue; }
+            if (now > planned.getTime() + 3 * 3600000) {
+                activeCheckins.delete(clientId); continue;
+            }
         }
+
         try {
-            const r = await fetch(`https://api.transitous.org/api/v5/trip?tripId=${encodeURIComponent(ci.tripId)}`,
-                { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(8000) });
+            const r = await fetch(
+                `https://api.transitous.org/api/v5/trip?tripId=${encodeURIComponent(ci.tripId)}`,
+                { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(8000) }
+            );
             if (!r.ok) continue;
             const data = await r.json();
             const legs = data.legs || [];
@@ -568,28 +594,55 @@ setInterval(async () => {
             const pA = exitStop.scheduledArrival;
             const aA = exitStop.arrival || pA;
             if (!pA) continue;
+
             const delaySec = Math.round((new Date(aA) - new Date(pA)) / 1000);
             const delayMin = Math.round(delaySec / 60);
             const arrTime  = new Date(aA).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const msToArr  = new Date(aA).getTime() - now;
 
-            // Nur pushen wenn sich Verspätung geändert hat
-            if (delayMin !== ci.lastDelay) {
-                ci.lastDelay = delayMin;
-                const sub = pushSubscriptions.get(clientId);
-                if (sub) {
-                    const msg = delayMin === 0
-                        ? `${ci.line} pünktlich – Ankunft ${arrTime}`
-                        : delayMin > 0
-                            ? `${ci.line} +${delayMin}' – Ankunft ${arrTime}`
-                            : `${ci.line} ${delayMin}' früher – Ankunft ${arrTime}`;
-                    await webpush.sendNotification(sub, JSON.stringify({
-                        title: `dilaeit · ${ci.to}`,
-                        body:  msg,
-                        tag:   `checkin-${clientId}`,
-                        url:   '/stats.html',
-                    })).catch(() => {});
-                }
+            // ── 1. Start-Notification (einmalig beim ersten erfolgreichen Abruf) ──
+            if (!ci.sentInitial) {
+                ci.sentInitial = true;
+                ci.lastDelay   = delayMin;
+                const body = delayMin === 0
+                    ? `Eingeloggt – ${ci.line} fährt pünktlich. Ankunft ${arrTime} in ${ci.to}.`
+                    : `Eingeloggt – ${ci.line} hat ${delayMin > 0 ? '+' : ''}${delayMin} Min. Ankunft ca. ${arrTime} in ${ci.to}.`;
+                await pushTo(clientId, {
+                    title: `🚆 Check-In: ${ci.line}`,
+                    body,
+                    tag:  `checkin-start-${clientId}`,
+                    url:  '/stats.html',
+                });
+                continue; // Nächste Iteration für Änderungs-Check
             }
+
+            // ── 2. Verspätungsänderung ────────────────────────────────────────────
+            if (delayMin !== ci.lastDelay) {
+                const prev      = ci.lastDelay;
+                ci.lastDelay    = delayMin;
+                const diff      = delayMin - (prev ?? delayMin);
+                const diffText  = diff > 0 ? `+${diff} Min mehr` : `${Math.abs(diff)} Min weniger`;
+                const body      = `${diffText} Verspätung. ${delayText(delayMin, arrTime)}`;
+                await pushTo(clientId, {
+                    title: `${delayMin === 0 ? '✅' : delayMin > 0 ? '⚠️' : '🟢'} ${ci.line} → ${ci.to}`,
+                    body,
+                    tag:  `checkin-delay-${clientId}`,
+                    url:  '/stats.html',
+                });
+            }
+
+            // ── 3. 5-Min-Erinnerung vor Ankunft ──────────────────────────────────
+            if (!ci.sent5min && msToArr > 0 && msToArr < 5 * 60000) {
+                ci.sent5min = true;
+                const body  = `In ca. 5 Min. in ${ci.to}. ${delayText(delayMin, arrTime)}`;
+                await pushTo(clientId, {
+                    title: `🔔 Bald am Ziel – ${ci.line}`,
+                    body,
+                    tag:  `checkin-5min-${clientId}`,
+                    url:  '/stats.html',
+                });
+            }
+
         } catch {}
     }
 }, 30000);
