@@ -142,11 +142,14 @@
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
         <header class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
-            <div class="flex items-center gap-6">
+            <div class="flex items-center gap-3">
                 <div class="flex flex-col items-end text-xs mono text-gray-500">
                     <span id="current-date">--.--.----</span>
                     <span id="current-time" class="text-sm font-bold text-gray-300">--:--:--</span>
                 </div>
+                <a href="/stats.html" title="Statistiken" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform text-gray-500 hover:text-red-500">
+                    <i class="fas fa-chart-bar"></i>
+                </a>
                 <button id="api-base-btn" class="hidden px-3 py-2 rounded-xl bg-gray-100 dark:bg-zinc-900 text-xs font-semibold hover:text-red-500 transition-colors">
                     Backend-URL
                 </button>
@@ -940,6 +943,10 @@
                                 ${isCancelled ? '<span class="text-red-500 font-bold uppercase">[Fällt aus]</span>' : ''}
                             </div>
                         </div>
+                        <button onclick="event.stopPropagation(); quickCheckin(${JSON.stringify(JSON.stringify(dep))})"
+                            class="text-zinc-600 hover:text-green-400 transition-colors px-2 py-1 rounded-lg hover:bg-zinc-800 text-xs mr-1" title="Check-In">
+                            <i class="fas fa-check-circle"></i>
+                        </button>
                         <i class="fas fa-chevron-right text-gray-300 group-hover:text-red-500 transition-colors text-xs pr-2"></i>
                     </div>`;
                 item.onclick = () => showTripDetails(dep);
@@ -1476,6 +1483,11 @@
 
             // Sekunden + fett für DB-Echtzeitdaten UND Transitous (beide haben echte Sekunden)
             const isDbSource = sourceName.includes('Deutsche Bahn') || sourceName.includes('Transitous');
+            console.log('[renderItinerary] sourceName:', sourceName, 'isDbSource:', isDbSource);
+            if (stopovers.length > 0) {
+                const s = stopovers[0];
+                console.log('[renderItinerary] sample stop:', s.stop?.name, 'pA:', s.plannedArrival, 'aA:', s.arrival, 'pD:', s.plannedDeparture, 'aD:', s.departure);
+            }
 
             // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
             const translationMap = {
@@ -1727,13 +1739,13 @@
                     const isConfirmedPast = isPast && actual;
 
                     if (isConfirmedPast && isDbSource) {
-                        // Sekunden NUR wenn nicht :00 (echte Sekundengenauigkeit)
+                        // Sekunden NUR wenn nicht :00 (echte RT-Sekundengenauigkeit)
                         const hasRealSeconds = actual.getSeconds() !== 0;
                         const timeStr = hasRealSeconds
                             ? actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                             : actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                        const weight = hasRT ? 'precision-time' : 'font-mono text-[11px]';
-                        return `${planStr}<span class="${weight} ${rtColor}">${timeStr}</span>`;
+                        // Immer fett für vergangene Halte mit RT-Quelle
+                        return `${planStr}<span class="precision-time ${rtColor}">${timeStr}</span>`;
                     } else if (isConfirmedPast) {
                         // VRR: fett aber keine Sekunden (VRR hat keine echten Sekunden)
                         return `${planStr}<span class="font-bold font-mono text-[11px] ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
@@ -1894,15 +1906,21 @@
 
         async function loadVehicles() {
             if (!liveMap) return;
-            const b    = liveMap.getBounds();
             const zoom = Math.round(liveMap.getZoom());
-            const precision = zoom >= 11 ? 5 : zoom >= 8 ? 4 : zoom >= 5 ? 3 : 2;
 
+            // Mindest-Zoom 10 um "too many trips" zu vermeiden
+            if (zoom < 10) {
+                $('map-vehicle-count').textContent = 'Bitte weiter reinzoomen (min. Zoom 10)';
+                return;
+            }
+
+            const b         = liveMap.getBounds();
+            const precision = zoom >= 11 ? 5 : zoom >= 8 ? 4 : 3;
             const min       = `${b.getSouth().toFixed(6)},${b.getWest().toFixed(6)}`;
             const max       = `${b.getNorth().toFixed(6)},${b.getEast().toFixed(6)}`;
             const now       = new Date();
-            const startTime = new Date(now.getTime() - 5 * 60000).toISOString(); // 5 Min zurück
-            const endTime   = new Date(now.getTime() + 60 * 60000).toISOString(); // 1h voraus
+            const startTime = new Date(now.getTime() - 2 * 60000).toISOString();  // 2 Min zurück
+            const endTime   = new Date(now.getTime() + 30 * 60000).toISOString(); // 30 Min voraus
 
             const params = new URLSearchParams({ min, max, startTime, endTime, zoom: String(zoom), precision: String(precision) });
             const url = `https://api.transitous.org/api/v5/map/trips?${params}`;
@@ -2332,6 +2350,49 @@
             } catch (e) {
                 el.innerHTML = `<div class="text-red-500 text-xs">Fehler: ${e.message}</div>`;
             }
+        }
+
+        // ─── Quick Check-In aus Abfahrtstafel ─────────────────────────────────────
+        function quickCheckin(depJson) {
+            try {
+                const dep = JSON.parse(depJson);
+                const date = (dep.plannedWhen || dep.when || new Date().toISOString()).slice(0, 10);
+                const time = (dep.plannedWhen || dep.when || new Date().toISOString()).slice(11, 16);
+                const line = dep.line?.name || dep.line?.id || '?';
+                const to   = dep.direction  || '?';
+                const from = state.currentStation?.name || '?';
+                const mode = (() => {
+                    const p = (dep.line?.product || dep.line?.mode || '').toLowerCase();
+                    if (p.includes('train') || p.includes('rail') || ['re','rb','ic','ice','s'].some(x => line.toLowerCase().startsWith(x))) return 'train';
+                    if (p.includes('bus') || line.toLowerCase().startsWith('bus')) return 'bus';
+                    if (p.includes('subway') || p.includes('u-bahn')) return 'subway';
+                    if (p.includes('tram')) return 'tram';
+                    return 'other';
+                })();
+                const delaySec = dep.delay;
+                const delayMin = delaySec !== null && delaySec !== undefined ? Math.round(delaySec / 60) : null;
+
+                const journey = {
+                    id:    `${date}T${time}-${Math.random().toString(36).slice(2,8)}`,
+                    date, time, line, from, to, mode,
+                    delay: delayMin,
+                    km:    null, arrive: null, note: null,
+                    tripId: dep.tripId || dep.dbTripId || null,
+                };
+
+                // Zwischenspeichern in localStorage für stats.html
+                const pending = JSON.parse(localStorage.getItem('dilaeit_checkin_pending') || '[]');
+                pending.push(journey);
+                localStorage.setItem('dilaeit_checkin_pending', JSON.stringify(pending));
+
+                // Visuelles Feedback
+                const btn = event?.target?.closest('button');
+                if (btn) {
+                    btn.innerHTML = '<i class="fas fa-check text-green-400"></i>';
+                    setTimeout(() => { btn.innerHTML = '<i class="fas fa-check-circle"></i>'; btn.classList.remove('text-green-400'); }, 2000);
+                }
+                console.log('[Check-In]', journey);
+            } catch (e) { console.error('Check-In failed', e); }
         }
 
         init();
