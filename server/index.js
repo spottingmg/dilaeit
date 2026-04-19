@@ -142,7 +142,8 @@ app.get('/api/db/locations', async (req, res) => {
                 const id = p.stopId || p.id || p.gtfsId || '';
                 return { id, name: p.name || p.label || '', type: 'stop', source: 'Transitous' };
             })
-            .filter(l => l.id && l.name);
+            // Nur echte GTFS Stop-IDs (nicht OSM node/way/relation)
+            .filter(l => l.id && l.name && !l.id.startsWith('node/') && !l.id.startsWith('way/') && !l.id.startsWith('relation/'));
         res.json({ locations: locs });
     } catch (e) {
         console.error('[Transitous geocode]', e.message);
@@ -191,9 +192,15 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 // ─── Abfahrten Transitous (für DB-Tab) ───────────────────────────────────────
 app.get('/api/db/stops/:stopId/departures', async (req, res) => {
     try {
-        const stopId   = String(req.params.stopId || '').trim();
+        const rawId  = String(req.params.stopId || '').trim();
         const whenRaw  = req.query.when ? decodeURIComponent(req.query.when) : null;
         const whenDate = whenRaw ? new Date(whenRaw) : new Date();
+
+        // OSM-Node-IDs (node/[...]) können Transitous nicht abfragen → 502 vermeiden
+        if (rawId.startsWith('node/') || rawId.startsWith('way/') || rawId.startsWith('relation/')) {
+            return res.status(400).json({ error: `OSM-ID ${rawId} nicht als Haltestelle nutzbar` });
+        }
+        const stopId = rawId;
 
         const params = new URLSearchParams();
         params.set('stopId', stopId);
