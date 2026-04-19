@@ -1406,76 +1406,65 @@
 
         // ─── Trip-Details ────────────────────────────────────────────────────────────
         async function showTripDetails(dep) {
-            // tripId ist die VRR-ID, dbTripId ist die DB-Hafas-ID
-            const vrrTripId = dep.tripId || dep.prognosis?.tripId;
-            const dbTripId = dep.dbTripId;
-            
-            if (!vrrTripId && !dbTripId) return;
+            const vrrTripId = dep.tripId;
+            const dbTripId  = dep.dbTripId;
 
-            const lineName = dep.line?.name || dep.line?.id || '???';
-            const modal    = $('detail-view');
+            // Wenn im Check-In Modus: immer öffnen, auch ohne TripId
+            if (!vrrTripId && !dbTripId && !checkinDep) return;
+
+            const lineName  = dep.line?.name || dep.line?.id || '???';
+            const modal     = $('detail-view');
             const itinerary = $('trip-itinerary');
             modal.classList.add('active');
             switchDetailTab('itinerary');
-            
-            // Auto-Erkennung: Zug → DB-Hafas, sonst VRR
+
             const isTrainLine = isTrain(dep.line);
-            const loaderText = isTrainLine ? 'Lade DB-Echtzeitdaten...' : 'Lade Verlauf...';
-            itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i><div class="text-xs mono opacity-50 mt-3">${loaderText}</div></div>`;
+            itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i><div class="text-xs mono opacity-50 mt-3">Lade Verlauf...</div></div>`;
             $('detail-line-badge').textContent = lineName;
             $('detail-train-direction').textContent = dep.direction || 'Unbekanntes Ziel';
-
             currentTripDetail = dep;
+
             try {
-                let url;
-                let sourceName = 'VRR OpenService';
-                
-                // PRIORITÄT: Wenn wir eine DB-TripId haben, nutzen wir diese IMMER für Züge
-                if (dbTripId) {
+                let url, sourceName = 'VRR OpenService';
+
+                // Transitous tripId (enthält ':' oder Feed-Prefix) → direkt an train-details
+                const isTransitousId = vrrTripId && (vrrTripId.includes(':') || vrrTripId.includes('|') || /^[a-z]{2}:/.test(vrrTripId));
+
+                if (dbTripId && !isTransitousId) {
                     url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`;
                     sourceName = 'Deutsche Bahn';
+                } else if (isTransitousId || (dbTripId && isTransitousId)) {
+                    // Transitous trip
+                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId || vrrTripId)}`;
+                    sourceName = 'Transitous';
                 } else if (isTrainLine) {
-                    // Falls wir noch keine DB-ID haben, versuchen wir sie über die Zugnummer zu finden
                     const number = dep.line?.name || dep.line?.id || '';
-                    const date = $('query-date').value || new Date().toISOString().slice(0, 10);
-                    const searchUrl = `${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`;
-                    
+                    const date   = $('query-date').value || new Date().toISOString().slice(0, 10);
                     try {
-                        const searchRes = await fetch(searchUrl, {
-                            signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined
-                        });
+                        const searchRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`,
+                            { signal: AbortSignal.timeout(6000) });
                         if (searchRes.ok) {
-                            const searchData = await searchRes.json();
-                            if (searchData?.tripId) {
-                                url = `${API_BASE}/api/train-details/${encodeURIComponent(searchData.tripId)}`;
-                                sourceName = 'Deutsche Bahn';
-                            }
+                            const sd = await searchRes.json();
+                            if (sd?.tripId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(sd.tripId)}`; sourceName = 'Deutsche Bahn'; }
                         }
-                    } catch (e) { console.warn('DB-Suche fehlgeschlagen, Fallback zu VRR'); }
+                    } catch {}
                 }
 
-                // Falls wir IMMER NOCH keine URL haben, aber es ein Zug ist, erzwingen wir eine Suche über die Nummer
-                if (!url && isTrainLine) {
-                    sourceName = 'Deutsche Bahn';
-                    // ... (hier wurde bereits oben gesucht, falls fehlgeschlagen bleibt url null)
-                }
-
-                // Fallback zu VRR, wenn keine DB-URL gefunden wurde oder es kein Zug ist
-                if (!url && vrrTripId) {
+                if (!url && vrrTripId && !isTransitousId) {
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
                     sourceName = isTrainLine ? 'Deutsche Bahn (Fallback)' : 'VRR OpenService';
                 }
-                
-                if (!url) throw new Error('Keine gültige Trip-ID gefunden');
 
-                const res = await fetch(url, {
-                    signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined
-                });
+                if (!url) {
+                    itinerary.innerHTML = `<div class="py-10 text-center text-zinc-500 text-sm">Kein Fahrtverlauf verfügbar.</div>`;
+                    return;
+                }
+
+                const res  = await fetch(url, { signal: AbortSignal.timeout(9000) });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
-                const stops    = data?.stopovers || [];
-                const remarks  = data?.remarks   || [];
-                // Server-Quelle nutzen falls vorhanden (z.B. 'Deutsche Bahn (RIS)')
+                const stops          = data?.stopovers || [];
+                const remarks        = data?.remarks   || [];
                 const finalSourceName = data?.source || sourceName;
                 addTripToArchive(dep, { stopovers: stops, remarks }, finalSourceName);
                 currentDetailStopovers = stops;
