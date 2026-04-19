@@ -122,7 +122,7 @@ function decodeTripId(encoded) {
 }
 
 // ─── Statische Dateien ───────────────────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(publicPath));
 app.get('/', (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));
 
@@ -426,11 +426,11 @@ app.get('/api/iris/trip-search', async (req, res) => {
     }
 });
 
-// ─── Sync-Datenbank (JSON-File, persistent über Restarts) ────────────────────
+// ─── Sync-Datenbank ───────────────────────────────────────────────────────────
 // Render: /tmp wird bei Restart gelöscht → App-Verzeichnis nutzen
 const SYNC_FILE = process.env.SYNC_FILE
-    || path.join(__dirname, '..', 'sync_data.json')   // production: neben /server
-    || path.join(process.cwd(), 'sync_data.json');     // fallback
+    || path.join(__dirname, '..', 'sync_data.json')
+    || path.join(process.cwd(), 'sync_data.json');
 
 function loadSyncDB() {
     try { return JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8')); } catch { return {}; }
@@ -477,11 +477,12 @@ app.post('/api/sync/:code', (req, res) => {
     if (!syncDB[code]) return res.status(404).json({ error: 'Code nicht gefunden' });
     const { journeys } = req.body;
     if (!Array.isArray(journeys)) return res.status(400).json({ error: 'journeys must be array' });
-    // Merge: eingehende Fahrten mit vorhandenen zusammenführen (kein blindes Überschreiben)
+    // Merge statt Überschreiben – verhindert Datenverlust bei gleichzeitigem Push
     const existing = new Map((syncDB[code].journeys || []).map(j => [j.id, j]));
     for (const j of journeys) { if (j?.id) existing.set(j.id, j); }
     syncDB[code] = { journeys: [...existing.values()], updatedAt: new Date().toISOString() };
     saveSyncDB(syncDB);
+    console.log(`[Sync] ${code}: ${syncDB[code].journeys.length} Fahrten gespeichert`);
     res.json({ ok: true, count: syncDB[code].journeys.length });
 });
 
