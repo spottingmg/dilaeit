@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>dilaeit · Träwelling Konverter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="description" content="Träwelling-Export in das dilaeit-Format konvertieren">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="icon" type="image/png" href="/icons/icon-192.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        body { background: #0a0a0a; color: #e5e7eb; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+
+        /* Drop Zone */
+        #drop-zone {
+            border: 2px dashed #374151;
+            border-radius: 16px;
+            padding: 4rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .2s, background .2s;
+            background: #111;
+        }
+        #drop-zone.drag-over {
+            border-color: #ef4444;
+            background: #1a0a0a;
+        }
+        #drop-zone:hover {
+            border-color: #4b5563;
+        }
+
+        /* Mode badges */
+        .badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 8px; border-radius: 99px;
+            font-size: 11px; font-weight: 600;
+        }
+        .badge-train  { background: #1e3a5f; color: #93c5fd; }
+        .badge-bus    { background: #14532d; color: #86efac; }
+        .badge-subway { background: #2e1065; color: #c4b5fd; }
+        .badge-tram   { background: #451a03; color: #fcd34d; }
+        .badge-ferry  { background: #164e63; color: #67e8f9; }
+        .badge-other  { background: #1f2937; color: #9ca3af; }
+
+        /* Stat card */
+        .scard {
+            background: #111;
+            border: 1px solid #1f2937;
+            border-radius: 14px;
+            padding: 16px 20px;
+            flex: 1; min-width: 120px;
+        }
+
+        /* Table */
+        .results-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .results-table th {
+            text-align: left; padding: 10px 12px;
+            color: #6b7280; font-weight: 600; font-size: 11px;
+            text-transform: uppercase; letter-spacing: .05em;
+            border-bottom: 1px solid #1f2937;
+            white-space: nowrap;
+        }
+        .results-table td {
+            padding: 9px 12px;
+            border-bottom: 1px solid #111827;
+            color: #e5e7eb;
+        }
+        .results-table tr:last-child td { border-bottom: none; }
+        .results-table tr:hover td { background: #111; }
+
+        /* Step */
+        .step-num {
+            width: 28px; height: 28px; border-radius: 50%;
+            background: #ef4444; color: white;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 700; flex-shrink: 0;
+        }
+    </style>
+    <script>tailwind.config = { darkMode: 'class' }</script>
+</head>
+<body class="dark min-h-screen">
+
+<!-- Header -->
+<header class="sticky top-0 z-50 border-b border-zinc-900 bg-black/80 backdrop-blur-sm">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <span class="text-red-600 font-black text-xl italic tracking-tight">dilaeit</span>
+            <span class="text-zinc-600 text-xs mono">/ träwelling-konverter</span>
+        </a>
+        <div class="flex items-center gap-3">
+            <a href="/stats.html" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm" title="Statistiken">
+                <i class="fas fa-chart-bar"></i>
+            </a>
+            <a href="/" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm" title="Abfahrtsmonitor">
+                <i class="fas fa-train"></i>
+            </a>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-4xl mx-auto px-4 py-10">
+
+    <!-- Hero -->
+    <div class="mb-10">
+        <h1 class="text-3xl font-black tracking-tight mb-2">
+            <span class="text-zinc-300">Träwelling</span>
+            <span class="text-zinc-600 mx-3">→</span>
+            <span class="text-red-600 italic">dilaeit</span>
+        </h1>
+        <p class="text-zinc-400 text-sm max-w-lg">
+            Konvertiere deinen Träwelling-Export ins dilaeit-Format und importiere alle deine Fahrten mit einem Klick.
+            Deine Daten verlassen dabei nie deinen Browser.
+        </p>
+    </div>
+
+    <!-- Anleitung -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+        <div class="flex items-start gap-3 bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
+            <div class="step-num">1</div>
+            <div>
+                <p class="font-semibold text-sm text-zinc-200 mb-1">Export bei Träwelling</p>
+                <p class="text-zinc-500 text-xs">Einstellungen → Daten exportieren → JSON-Datei herunterladen</p>
+            </div>
+        </div>
+        <div class="flex items-start gap-3 bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
+            <div class="step-num">2</div>
+            <div>
+                <p class="font-semibold text-sm text-zinc-200 mb-1">Datei hier ablegen</p>
+                <p class="text-zinc-500 text-xs">JSON-Export per Drag & Drop oder Klick hochladen und konvertieren</p>
+            </div>
+        </div>
+        <div class="flex items-start gap-3 bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
+            <div class="step-num">3</div>
+            <div>
+                <p class="font-semibold text-sm text-zinc-200 mb-1">In dilaeit importieren</p>
+                <p class="text-zinc-500 text-xs">In <a href="/stats.html" class="text-red-500 hover:underline">stats.html</a> auf <i class="fas fa-upload text-xs"></i> klicken und konvertierte Datei auswählen</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drop Zone -->
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <input type="file" id="file-input" accept=".json" class="hidden">
+        <div class="text-5xl mb-4 text-zinc-600"><i class="fas fa-file-import"></i></div>
+        <p class="text-zinc-300 font-semibold text-lg mb-1">Träwelling JSON hier ablegen</p>
+        <p class="text-zinc-600 text-sm">oder klicken zum Auswählen</p>
+        <p class="text-zinc-700 text-xs mt-3 mono">Träwelling_export_*.json</p>
+    </div>
+
+    <!-- Fehler -->
+    <div id="error-box" class="hidden mt-4 bg-red-950 border border-red-900 text-red-300 rounded-xl px-4 py-3 text-sm flex items-start gap-3">
+        <i class="fas fa-exclamation-circle mt-0.5 text-red-500"></i>
+        <span id="error-text"></span>
+    </div>
+
+    <!-- Ergebnis -->
+    <div id="result-section" class="hidden mt-8">
+
+        <!-- Stats -->
+        <div class="flex flex-wrap gap-3 mb-6" id="stat-row"></div>
+
+        <!-- Toolbar -->
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-3">
+            <p class="text-zinc-500 text-sm" id="preview-hint"></p>
+            <button onclick="download()"
+                class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-5 py-2.5 rounded-xl transition-colors">
+                <i class="fas fa-download"></i>
+                dilaeit JSON herunterladen
+            </button>
+        </div>
+
+        <!-- Tabelle -->
+        <div class="border border-zinc-800 rounded-2xl overflow-hidden">
+            <div style="max-height: 460px; overflow-y: auto;">
+                <table class="results-table">
+                    <thead class="sticky top-0 bg-zinc-950">
+                        <tr>
+                            <th>Datum</th>
+                            <th>Zeit</th>
+                            <th>Linie</th>
+                            <th>Von</th>
+                            <th>Nach</th>
+                            <th>Typ</th>
+                            <th>km</th>
+                            <th>Abf.</th>
+                            <th>Ank.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="preview-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Hinweis -->
+        <div class="mt-6 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5">
+            <p class="text-zinc-400 text-sm font-semibold mb-2">
+                <i class="fas fa-info-circle text-red-500 mr-2"></i>So importierst du die Datei in dilaeit:
+            </p>
+            <ol class="text-zinc-500 text-xs space-y-1 list-decimal list-inside">
+                <li>Öffne <a href="/stats.html" class="text-red-500 hover:underline">dilaeit Statistiken</a></li>
+                <li>Klicke oben rechts auf das <i class="fas fa-upload text-xs"></i> Symbol</li>
+                <li>Wähle die heruntergeladene <span class="mono text-zinc-400">dilaeit_import.json</span> aus</li>
+                <li>Fertig – alle Fahrten erscheinen in deiner Statistik</li>
+            </ol>
+        </div>
+    </div>
+
+</main>
+
+<!-- Footer -->
+<footer class="max-w-4xl mx-auto px-4 py-8 border-t border-zinc-900 mt-16">
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-3 text-zinc-700 text-xs">
+        <p>Deine Daten werden ausschließlich lokal im Browser verarbeitet – nichts wird hochgeladen.</p>
+        <a href="https://traewelling.de" target="_blank" rel="noopener" class="hover:text-zinc-500 transition-colors">
+            Träwelling <i class="fas fa-external-link-alt text-[10px]"></i>
+        </a>
+    </div>
+</footer>
+
+<script>
+    let converted = [];
+
+    // ─── Konvertierung ────────────────────────────────────────────────────────
+    function modeFrom(cat, mode) {
+        const c = (cat || '').toLowerCase();
+        const m = (mode || '').toLowerCase();
+        if (c === 'bus') return 'bus';
+        if (c === 'subway' || m.includes('subway')) return 'subway';
+        if (c === 'tram' || m.includes('tram')) return 'tram';
+        if (c === 'ferry' || m.includes('ferry')) return 'ferry';
+        return 'train';
+    }
+
+    function fmt(iso) {
+        if (!iso) return null;
+        return new Date(iso).toLocaleTimeString('de-DE', {
+            hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin'
+        });
+    }
+
+    function delayMin(planned, real) {
+        if (!planned || !real) return null;
+        return Math.round((new Date(real) - new Date(planned)) / 60000);
+    }
+
+    function convert(raw) {
+        let parsed;
+        try { parsed = JSON.parse(raw); } catch {
+            throw new Error('Ungültige JSON-Datei – bitte prüfe ob die Datei vollständig heruntergeladen wurde.');
+        }
+        if (!parsed.data || !Array.isArray(parsed.data)) {
+            throw new Error('Kein gültiger Träwelling-Export. Erwartet wird eine Datei mit einem "data"-Array.');
+        }
+        if (parsed.data.length === 0) {
+            throw new Error('Die Export-Datei enthält keine Fahrten.');
+        }
+
+        return parsed.data.map(entry => {
+            const s  = entry.status;
+            const ci = s.checkin;
+            const depISO     = ci.manualDeparture || ci.origin.departurePlanned;
+            const arrISO     = ci.manualArrival   || ci.destination.arrivalPlanned;
+            const arrRealISO = ci.destination.arrivalReal  || arrISO;
+            const depRealISO = ci.origin.departureReal     || depISO;
+
+            const date = new Date(depISO).toLocaleDateString('de-DE', {
+                timeZone: 'Europe/Berlin',
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            }).split('.').reverse().join('-');
+
+            return {
+                id:            'trw-' + s.id,
+                date,
+                time:          fmt(depISO),
+                line:          ci.lineName || ci.number || '?',
+                from:          ci.origin.name,
+                to:            ci.destination.name,
+                mode:          modeFrom(ci.category, ci.mode),
+                km:            ci.distance ? Math.round(ci.distance / 100) / 10 : null,
+                depDelay:      delayMin(ci.origin.departurePlanned, ci.origin.departureReal),
+                delay:         delayMin(ci.destination.arrivalPlanned, ci.destination.arrivalReal),
+                depReal:       fmt(depRealISO),
+                arrReal:       fmt(arrRealISO),
+                arrivePlanned: fmt(arrISO),
+                depManual:     !!ci.manualDeparture,
+                arrManual:     !!ci.manualArrival,
+                note:          s.body || null,
+                tripId:        ci.hafasId || null,
+                fromCoords:    null,
+                toCoords:      null,
+            };
+        });
+    }
+
+    // ─── Render ───────────────────────────────────────────────────────────────
+    function delayBadge(min) {
+        if (min === null || min === undefined) return '<span class="text-zinc-700">—</span>';
+        if (min === 0)  return '<span class="text-green-500 mono text-xs">±0\'</span>';
+        if (min > 0)    return `<span class="text-red-400 mono text-xs font-bold">+${min}'</span>`;
+        return `<span class="text-green-400 mono text-xs">${min}'</span>`;
+    }
+
+    const MODE_ICONS = {
+        train: 'fa-train', bus: 'fa-bus', subway: 'fa-subway',
+        tram: 'fa-tram', ferry: 'fa-ship', other: 'fa-circle'
+    };
+
+    function render(journeys) {
+        // Stat cards
+        let totalKm = 0, delayed = 0, early = 0;
+        const modes = {};
+        journeys.forEach(j => {
+            if (j.km) totalKm += j.km;
+            if (j.delay !== null) {
+                if (j.delay > 0) delayed++;
+                if (j.delay < 0) early++;
+            }
+            modes[j.mode] = (modes[j.mode] || 0) + 1;
+        });
+        const onTime = journeys.length - delayed - early;
+        const pct = Math.round(((onTime + early) / journeys.length) * 100);
+
+        document.getElementById('stat-row').innerHTML = `
+            <div class="scard">
+                <p class="text-zinc-500 text-xs mb-1">Fahrten gesamt</p>
+                <p class="text-2xl font-black text-zinc-100">${journeys.length}</p>
+            </div>
+            <div class="scard">
+                <p class="text-zinc-500 text-xs mb-1">km gesamt</p>
+                <p class="text-2xl font-black text-zinc-100">${Math.round(totalKm).toLocaleString('de-DE')}</p>
+            </div>
+            <div class="scard">
+                <p class="text-zinc-500 text-xs mb-1">Pünktlich</p>
+                <p class="text-2xl font-black text-green-400">${pct}%</p>
+            </div>
+            <div class="scard">
+                <p class="text-zinc-500 text-xs mb-1">Verspätet</p>
+                <p class="text-2xl font-black text-red-400">${delayed}</p>
+            </div>
+        `;
+
+        // Preview hint
+        const shown = Math.min(journeys.length, 500);
+        document.getElementById('preview-hint').textContent =
+            shown < journeys.length
+                ? `Vorschau: erste ${shown} von ${journeys.length} Fahrten`
+                : `${journeys.length} Fahrten bereit`;
+
+        // Table rows
+        document.getElementById('preview-body').innerHTML = journeys.slice(0, 500).map(j => `
+            <tr>
+                <td class="text-zinc-500 mono text-xs whitespace-nowrap">${j.date}</td>
+                <td class="text-zinc-400 mono text-xs">${j.time || '—'}</td>
+                <td class="font-semibold text-zinc-200 whitespace-nowrap">${escHtml(j.line)}</td>
+                <td class="text-zinc-400 max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap" title="${escHtml(j.from)}">${escHtml(j.from)}</td>
+                <td class="text-zinc-400 max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap" title="${escHtml(j.to)}">${escHtml(j.to)}</td>
+                <td><span class="badge badge-${j.mode}"><i class="fas ${MODE_ICONS[j.mode] || 'fa-circle'}" style="font-size:9px"></i> ${j.mode}</span></td>
+                <td class="text-zinc-500 text-xs mono">${j.km != null ? j.km.toFixed(1) : '—'}</td>
+                <td>${delayBadge(j.depDelay)}</td>
+                <td>${delayBadge(j.delay)}</td>
+            </tr>
+        `).join('');
+
+        document.getElementById('result-section').classList.remove('hidden');
+        document.getElementById('error-box').classList.add('hidden');
+    }
+
+    function escHtml(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ─── Download ─────────────────────────────────────────────────────────────
+    function download() {
+        const blob = new Blob([JSON.stringify(converted, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'dilaeit_import.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+
+    // ─── Error ────────────────────────────────────────────────────────────────
+    function showError(msg) {
+        const box = document.getElementById('error-box');
+        document.getElementById('error-text').textContent = msg;
+        box.classList.remove('hidden');
+        document.getElementById('result-section').classList.add('hidden');
+    }
+
+    // ─── File handling ────────────────────────────────────────────────────────
+    function handleFile(file) {
+        if (!file) return;
+        if (!file.name.endsWith('.json')) {
+            showError('Bitte eine JSON-Datei auswählen.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                converted = convert(e.target.result);
+                render(converted);
+            } catch (err) {
+                showError(err.message);
+            }
+        };
+        reader.readAsText(file, 'utf-8');
+    }
+
+    // File input
+    document.getElementById('file-input').addEventListener('change', e => {
+        handleFile(e.target.files[0]);
+        e.target.value = '';
+    });
+
+    // Drag & Drop
+    const dz = document.getElementById('drop-zone');
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', e => { if (!dz.contains(e.relatedTarget)) dz.classList.remove('drag-over'); });
+    dz.addEventListener('drop', e => {
+        e.preventDefault();
+        dz.classList.remove('drag-over');
+        handleFile(e.dataTransfer.files[0]);
+    });
+</script>
+</body>
+</html>
