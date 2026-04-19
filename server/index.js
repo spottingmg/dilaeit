@@ -6,6 +6,21 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
+// ─── Web Push ─────────────────────────────────────────────────────────────────
+let webpush = null;
+try {
+    webpush = (await import('web-push')).default;
+    webpush.setVapidDetails(
+        'mailto:dilaeit@example.com',
+        process.env.VAPID_PUBLIC  || 'BCxNLln4Ui7gwWRg2gFH958VTt8oHA3SnCxazwESjqPWXitqdWe4qo9n87IDqLGU2ZV2zFXqQ7tIx-8RUqxargc',
+        process.env.VAPID_PRIVATE || 'N3sMzEbnvsqjooNL4kMu_KbI07flYZ3ooBmZFXvH97c'
+    );
+    console.log('✅ Web Push initialisiert');
+} catch (e) { console.warn('⚠️  web-push nicht verfügbar:', e.message); }
+
+// Push-Subscriptions im Speicher (für Produktion: in DB speichern)
+const pushSubscriptions = new Map();
+
 // ─── Frontend-Pfad ───────────────────────────────────────────────────────────
 const potentialPaths = [
     path.join(process.cwd(), 'public'),
@@ -95,6 +110,7 @@ function decodeTripId(encoded) {
 }
 
 // ─── Statische Dateien ───────────────────────────────────────────────────────
+app.use(express.json());
 app.use(express.static(publicPath));
 app.get('/', (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));
 
@@ -397,6 +413,111 @@ app.get('/api/iris/trip-search', async (req, res) => {
         res.status(502).json({ error: e.message });
     }
 });
+
+// ─── Push-Subscription speichern ─────────────────────────────────────────────
+app.post('/api/push/subscribe', async (req, res) => {
+    try {
+        const { subscription, clientId } = req.body;
+        if (!subscription?.endpoint) return res.status(400).json({ error: 'missing subscription' });
+        pushSubscriptions.set(clientId || subscription.endpoint, subscription);
+        console.log(`[Push] Neue Subscription: ${Object.keys(Object.fromEntries(pushSubscriptions)).length} gesamt`);
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/push/unsubscribe', async (req, res) => {
+    const { clientId } = req.body;
+    if (clientId) pushSubscriptions.delete(clientId);
+    res.json({ ok: true });
+});
+
+// ─── VAPID Public Key ─────────────────────────────────────────────────────────
+app.get('/api/push/vapid-public', (_req, res) => {
+    res.json({ key: process.env.VAPID_PUBLIC || 'BCxNLln4Ui7gwWRg2gFH958VTt8oHA3SnCxazwESjqPWXitqdWe4qo9n87IDqLGU2ZV2zFXqQ7tIx-8RUqxargc' });
+});
+
+// ─── Push senden (intern, von Live-Tracking aufgerufen) ───────────────────────
+async function sendPushToAll(payload) {
+    if (!webpush || pushSubscriptions.size === 0) return;
+    const dead = [];
+    for (const [id, sub] of pushSubscriptions) {
+        try {
+            await webpush.sendNotification(sub, JSON.stringify(payload));
+        } catch (e) {
+            if (e.statusCode === 410 || e.statusCode === 404) dead.push(id);
+        }
+    }
+    dead.forEach(id => pushSubscriptions.delete(id));
+}
+
+// ─── Server-seitiges Live-Tracking ───────────────────────────────────────────
+// Aktive Check-Ins: clientId → { tripId, to, line, lastDelay }
+const activeCheckins = new Map();
+
+app.post('/api/checkin/track', async (req, res) => {
+    try {
+        const { clientId, tripId, to, line, date, arrivePlanned } = req.body;
+        if (!clientId || !tripId) return res.status(400).json({ error: 'missing fields' });
+        activeCheckins.set(clientId, { tripId, to, line, date, arrivePlanned, lastDelay: null });
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/checkin/untrack', async (req, res) => {
+    const { clientId } = req.body;
+    if (clientId) activeCheckins.delete(clientId);
+    res.json({ ok: true });
+});
+
+// Live-Tracking Loop: alle 30s aktive Check-Ins abfragen
+setInterval(async () => {
+    if (activeCheckins.size === 0 || !webpush) return;
+    const now = Date.now();
+    for (const [clientId, ci] of activeCheckins) {
+        // Veraltete Check-Ins entfernen (> 3h nach geplantem Ausstieg)
+        if (ci.arrivePlanned) {
+            const planned = new Date(`${ci.date}T${ci.arrivePlanned}`);
+            if (now > planned.getTime() + 3 * 3600000) { activeCheckins.delete(clientId); continue; }
+        }
+        try {
+            const r = await fetch(`https://api.transitous.org/api/v5/trip?tripId=${encodeURIComponent(ci.tripId)}`,
+                { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(8000) });
+            if (!r.ok) continue;
+            const data = await r.json();
+            const legs = data.legs || [];
+            const leg  = legs.find(l => l.mode && l.mode !== 'WALK') || legs[0];
+            if (!leg) continue;
+            const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
+            const exitStop = allStops.find(s => s.name === ci.to);
+            if (!exitStop) continue;
+            const pA = exitStop.scheduledArrival;
+            const aA = exitStop.arrival || pA;
+            if (!pA) continue;
+            const delaySec = Math.round((new Date(aA) - new Date(pA)) / 1000);
+            const delayMin = Math.round(delaySec / 60);
+            const arrTime  = new Date(aA).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+            // Nur pushen wenn sich Verspätung geändert hat
+            if (delayMin !== ci.lastDelay) {
+                ci.lastDelay = delayMin;
+                const sub = pushSubscriptions.get(clientId);
+                if (sub) {
+                    const msg = delayMin === 0
+                        ? `${ci.line} pünktlich – Ankunft ${arrTime}`
+                        : delayMin > 0
+                            ? `${ci.line} +${delayMin}' – Ankunft ${arrTime}`
+                            : `${ci.line} ${delayMin}' früher – Ankunft ${arrTime}`;
+                    await webpush.sendNotification(sub, JSON.stringify({
+                        title: `dilaeit · ${ci.to}`,
+                        body:  msg,
+                        tag:   `checkin-${clientId}`,
+                        url:   '/stats.html',
+                    })).catch(() => {});
+                }
+            }
+        } catch {}
+    }
+}, 30000);
 
 // ─── Server starten ───────────────────────────────────────────────────────────
 const port = Number(process.env.PORT || 8787);
