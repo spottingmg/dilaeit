@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>dilaeit · Statistiken</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="dilaeit">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="icon" type="image/png" href="/icons/icon-192.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -74,6 +82,9 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
             </button>
             <button onclick="exportData()" title="Exportieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
                 <i class="fas fa-download"></i>
+            </button>
+            <button onclick="togglePush()" id="push-btn" title="Push-Benachrichtigungen" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
+                <i class="fas fa-bell"></i>
             </button>
             <label title="Importieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm cursor-pointer">
                 <i class="fas fa-upload"></i>
@@ -1016,6 +1027,7 @@ async function saveCheckin() {
 
     await saveJourney(journey);
     allJourneys.push(journey);
+    registerServerTracking(journey);
     buildYearFilter();
     updateAll();
     closeCheckin();
@@ -1220,7 +1232,89 @@ function startLiveTracking() {
     liveTrackTimer = setInterval(updateActivJourneys, 30000);
 }
 
+// ─── Service Worker + Push ────────────────────────────────────────────────────
+const CLIENT_ID = (() => {
+    let id = localStorage.getItem('dilaeit_client_id');
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem('dilaeit_client_id', id); }
+    return id;
+})();
+
+let swReg = null;
+
+async function initSW() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+        swReg = await navigator.serviceWorker.register('/sw.js');
+        updatePushBtn();
+    } catch (e) { console.warn('[SW] Fehler:', e); }
+}
+
+function updatePushBtn() {
+    const btn = document.getElementById('push-btn');
+    if (!btn || !swReg) return;
+    swReg.pushManager.getSubscription().then(sub => {
+        btn.innerHTML = sub
+            ? '<i class="fas fa-bell text-red-500"></i>'
+            : '<i class="fas fa-bell-slash"></i>';
+        btn.title = sub ? 'Push aktiv – klicken zum Deaktivieren' : 'Push-Benachrichtigungen aktivieren';
+    });
+}
+
+async function togglePush() {
+    if (!swReg) { alert('Service Worker nicht verfügbar.'); return; }
+    const existing = await swReg.pushManager.getSubscription();
+    if (existing) {
+        await existing.unsubscribe();
+        await fetch('/api/push/unsubscribe', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ clientId: CLIENT_ID })
+        }).catch(()=>{});
+        updatePushBtn();
+        return;
+    }
+    try {
+        const { key } = await fetch('/api/push/vapid-public').then(r => r.json());
+        const raw   = atob(key.replace(/-/g,'+').replace(/_/g,'/'));
+        const vapid = new Uint8Array([...raw].map(c => c.charCodeAt(0)));
+        const sub   = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapid });
+        await fetch('/api/push/subscribe', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ subscription: sub, clientId: CLIENT_ID })
+        });
+        updatePushBtn();
+        swReg.showNotification('dilaeit', {
+            body: 'Push-Benachrichtigungen aktiviert! Du wirst bei Verspätungsänderungen informiert.',
+            icon: '/icons/icon-192.png', badge: '/icons/icon-192.png'
+        });
+    } catch (e) { alert('Push konnte nicht aktiviert werden: ' + e.message); }
+}
+
+async function registerServerTracking(journey) {
+    if (!journey?.tripId || !journey?.arrivePlanned) return;
+    try {
+        await fetch('/api/checkin/track', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                clientId: CLIENT_ID, tripId: journey.tripId,
+                to: journey.to, line: journey.line,
+                date: journey.date, arrivePlanned: journey.arrivePlanned,
+            })
+        });
+    } catch {}
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeCheckin(); closeEdit(); }
+});
+document.getElementById('checkin-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeCheckin();
+});
+document.getElementById('edit-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeEdit();
+});
+
 init();
+initSW();
 </script>
 <!-- Trip Details Modal -->
 <div id="trip-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur flex items-center justify-center p-4">
