@@ -2450,6 +2450,27 @@
                 pending.push(journey);
                 localStorage.setItem('dilaeit_checkin_pending', JSON.stringify(pending));
 
+                // Server-seitiges Tracking + Sync direkt registrieren
+                const clientId = localStorage.getItem('dilaeit_client_id');
+                const syncCode = localStorage.getItem('dilaeit_sync_code');
+                if (journey.tripId && journey.arrivePlanned && clientId) {
+                    fetch('/api/checkin/track', {
+                        method: 'POST', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({
+                            clientId, tripId: journey.tripId,
+                            to: journey.to, line: journey.line,
+                            date: journey.date, arrivePlanned: journey.arrivePlanned,
+                        })
+                    }).catch(()=>{});
+                }
+                if (syncCode) {
+                    // Auch in Server-Sync pushen
+                    fetch(`/api/sync/${encodeURIComponent(syncCode)}`, {
+                        method: 'POST', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({ journeys: pending })
+                    }).catch(()=>{});
+                }
+
                 // Check-In Modus beenden + Modal schließen
                 cancelCheckinMode();
                 $('detail-view').classList.remove('active');
