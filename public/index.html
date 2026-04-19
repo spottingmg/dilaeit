@@ -237,8 +237,16 @@
             <div id="archive-list" class="hidden px-4 pb-4 space-y-2 text-sm text-gray-700 dark:text-gray-200"></div>
         </div>
 
+        <!-- Live-Karte Button – immer sichtbar -->
+        <div class="flex justify-end px-1 mb-2">
+            <button onclick="toggleMap()" id="map-toggle-btn"
+                class="text-[11px] font-semibold flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-700 text-gray-400 hover:text-orange-400 hover:border-orange-500 transition-all">
+                <i class="fas fa-map"></i> Live-Karte
+            </button>
+        </div>
+
         <!-- Live-Karte -->
-        <div id="map-section" class="mt-6 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden hidden">
+        <div id="map-section" class="mt-2 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden hidden">
             <div class="flex items-center justify-between px-4 py-3">
                 <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
@@ -262,10 +270,6 @@
                     <p id="board-type" class="text-xs text-gray-500 uppercase tracking-widest mt-1">Abfahrtstafel</p>
                 </div>
                 <div class="flex items-center gap-3">
-                    <button onclick="toggleMap()" id="map-toggle-btn"
-                        class="text-[10px] text-gray-500 mono flex items-center gap-1.5 hover:text-orange-400 transition-colors px-2 py-1 rounded-lg hover:bg-zinc-800">
-                        <i class="fas fa-map"></i> Karte
-                    </button>
                     <div id="refresh-indicator" class="text-[10px] text-gray-500 mono flex items-center gap-2">
                         <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
                         LIVE REFRESH
@@ -1837,14 +1841,30 @@
             const btn     = $('map-toggle-btn');
             section.classList.toggle('hidden', !mapVisible);
             if (btn) btn.classList.toggle('text-orange-400', mapVisible);
+            if (btn) btn.classList.toggle('border-orange-500', mapVisible);
 
             if (mapVisible) {
                 if (!liveMap) initLiveMap();
                 else setTimeout(() => liveMap.invalidateSize(), 100);
                 loadVehicles();
                 mapRefreshTimer = setInterval(loadVehicles, 60000);
+                // Click-outside schließt die Karte
+                setTimeout(() => {
+                    document.addEventListener('click', closeMapOnOutsideClick, { once: false });
+                }, 100);
             } else {
                 if (mapRefreshTimer) { clearInterval(mapRefreshTimer); mapRefreshTimer = null; }
+                document.removeEventListener('click', closeMapOnOutsideClick);
+            }
+        }
+
+        function closeMapOnOutsideClick(e) {
+            const section = $('map-section');
+            const btn     = $('map-toggle-btn');
+            if (!mapVisible) { document.removeEventListener('click', closeMapOnOutsideClick); return; }
+            // Klick außerhalb der Karte und nicht auf den Toggle-Button
+            if (section && !section.contains(e.target) && btn && !btn.contains(e.target)) {
+                toggleMap();
             }
         }
 
