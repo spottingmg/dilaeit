@@ -311,6 +311,14 @@
             </header>
 
             <div class="flex-1 relative overflow-hidden">
+                <!-- Check-In Modus Banner -->
+                <div id="checkin-mode-banner" class="hidden mx-3 mt-3 mb-1 bg-green-900/40 border border-green-600/40 rounded-xl px-3 py-2 flex items-center gap-2">
+                    <i class="fas fa-map-marker-alt text-green-400 text-xs"></i>
+                    <span class="text-xs text-green-300 font-semibold">Wähle deinen Ausstieg</span>
+                    <button onclick="cancelCheckinMode()" class="ml-auto text-green-600 hover:text-red-400 text-xs transition-colors">
+                        <i class="fas fa-times"></i> Abbrechen
+                    </button>
+                </div>
                 <div id="panel-itinerary">
                     <div id="trip-itinerary" class="relative z-10 overflow-y-auto" style="max-height:62vh"></div>
                 </div>
@@ -550,6 +558,7 @@
                 $('detail-view').classList.remove('active');
                 if (tripMapTimer) { clearInterval(tripMapTimer); tripMapTimer = null; }
                 currentDetailStopovers = null;
+                cancelCheckinMode();
                 switchDetailTab('itinerary');
             });
             document.addEventListener('click', e => {
@@ -586,6 +595,7 @@
         // ─── Suche ───────────────────────────────────────────────────────────────────
         let searchSessionId = 0;
         let currentTripDetail = null;
+        let checkinDep = null; // Wenn gesetzt: Fahrtverlauf ist im Check-In Modus
         let routeStations = { start: null, via: null, dest: null };
 
         function createRouteSearchHandler(fieldId) {
@@ -1825,6 +1835,13 @@
                             ${isCancelled ? '<span class="text-red-500 text-[10px] font-bold">ENTFÄLLT</span>' : ''}
                             ${stop.remarks?.length > 0 ? `<span class="text-red-400 text-[10px]"><i class="fas fa-exclamation-triangle mr-0.5"></i>${translate(stop.remarks[0].text)}</span>` : ''}
                         </div>
+                    </div>
+                    <!-- Check-In Button (nur im Check-In Modus) -->
+                    <div class="checkin-stop-btn hidden shrink-0 flex items-center pr-1">
+                        <button onclick="doCheckinAtStop(${JSON.stringify(JSON.stringify(stop))})"
+                            class="bg-green-600 hover:bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg transition-colors flex items-center gap-1">
+                            <i class="fas fa-sign-out-alt"></i> Hier
+                        </button>
                     </div>`;
                 container.appendChild(stopItem);
             });
@@ -2355,57 +2372,95 @@
         // ─── Quick Check-In aus Abfahrtstafel ─────────────────────────────────────
         async function quickCheckin(depJson) {
             try {
-                const dep  = JSON.parse(depJson);
-                const date = (dep.plannedWhen || dep.when || new Date().toISOString()).slice(0, 10);
-                const time = new Date(dep.plannedWhen || dep.when || new Date()).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                const line = dep.line?.name || dep.line?.id || '?';
-                const from = state.currentStation?.name || '?';
-                const mode = (() => {
+                const dep = JSON.parse(depJson);
+                const btn = event?.target?.closest('button');
+                if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin text-green-400 text-xs"></i>';
+
+                // Check-In Modus setzen und Fahrtverlauf öffnen
+                checkinDep = dep;
+                await showTripDetails(dep);
+
+                // Banner + Buttons anzeigen
+                $('checkin-mode-banner').classList.remove('hidden');
+                document.querySelectorAll('.checkin-stop-btn').forEach(b => b.classList.remove('hidden'));
+
+                if (btn) btn.innerHTML = '<i class="fas fa-check-circle text-green-400 text-xs"></i>';
+                setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-check-circle text-xs"></i>'; }, 3000);
+            } catch (e) { console.error('Check-In failed', e); }
+        }
+
+        function cancelCheckinMode() {
+            checkinDep = null;
+            $('checkin-mode-banner').classList.add('hidden');
+            document.querySelectorAll('.checkin-stop-btn').forEach(b => b.classList.add('hidden'));
+        }
+
+        function doCheckinAtStop(stopJson) {
+            try {
+                const stop = JSON.parse(stopJson);
+                const dep  = checkinDep;
+                if (!dep) return;
+
+                const date      = (dep.plannedWhen || dep.when || new Date().toISOString()).slice(0, 10);
+                const time      = new Date(dep.plannedWhen || dep.when || new Date()).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                const line      = dep.line?.name || dep.line?.id || '?';
+                const from      = state.currentStation?.name || '?';
+                const to        = stop.stop?.name || '?';
+                const mode      = (() => {
                     const p = (dep.line?.product || dep.line?.mode || '').toLowerCase();
                     if (p.includes('train')||p.includes('rail')||['re','rb','ic','ice','s'].some(x=>line.toLowerCase().startsWith(x))) return 'train';
-                    if (p.includes('bus')||line.toLowerCase().startsWith('bus')) return 'bus';
+                    if (p.includes('bus')) return 'bus';
                     if (p.includes('subway')||p.includes('u-bahn')) return 'subway';
                     if (p.includes('tram')) return 'tram';
                     return 'other';
                 })();
+
+                // Zeiten
+                const depReal  = dep.when       ? new Date(dep.when).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})             : null;
+                const arrPlanned = stop.plannedArrival  ? new Date(stop.plannedArrival).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : null;
+                const arrReal  = stop.arrival   ? new Date(stop.arrival).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})          : arrPlanned;
                 const depDelaySec = dep.delay;
                 const depDelayMin = depDelaySec != null ? Math.round(depDelaySec / 60) : null;
-                const depReal = dep.when ? new Date(dep.when).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : null;
+                const arrDelaySec = stop.arrivalDelaySec;
+                const arrDelayMin = arrDelaySec != null ? Math.round(arrDelaySec / 60) : null;
 
-                // Fahrtverlauf laden um Ausstiegsstops zu holen
-                let stops = [];
-                const tripId = dep.dbTripId || dep.tripId;
-                if (tripId) {
-                    try {
-                        const r = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(tripId)}`, {signal: AbortSignal.timeout(8000)});
-                        if (r.ok) {
-                            const d = await r.json();
-                            stops = (d.stopovers || []).map(s => ({
-                                name: s.stop?.name || '',
-                                time: s.plannedArrival ? new Date(s.plannedArrival).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '',
-                                lat:  s.stop?.location?.latitude  || null,
-                                lon:  s.stop?.location?.longitude || null,
-                            })).filter(s => s.name);
-                        }
-                    } catch {}
-                }
+                // Koordinaten
+                const fromCoords = null; // keine Koordinaten für Einstiegsstation verfügbar
+                const toCoords   = stop.stop?.location ? [stop.stop.location.latitude, stop.stop.location.longitude] : null;
 
-                const checkinData = {
-                    date, time, line, from,
-                    direction: dep.direction || '',
-                    mode, depDelayMin, depReal,
-                    stops, tripId: tripId || null,
+                const journey = {
+                    id:       `${date}T${time}-${Math.random().toString(36).slice(2,8)}`,
+                    date, time, line, from, to,
+                    fromCoords, toCoords, mode,
+                    depDelay:   depDelayMin,
+                    delay:      arrDelayMin,
+                    depReal,
+                    arrReal,
+                    arrivePlanned: arrPlanned,
+                    depManual:  false,
+                    arrManual:  false,
+                    km:   null,
+                    note: null,
+                    tripId: dep.dbTripId || dep.tripId || null,
                 };
-                localStorage.setItem('dilaeit_checkin_prefill', JSON.stringify(checkinData));
 
-                // Visuelles Feedback
-                const btn = event?.target?.closest('button');
-                if (btn) {
-                    btn.innerHTML = '<i class="fas fa-spinner fa-spin text-green-400"></i>';
-                }
+                // In localStorage für stats.html speichern
+                const pending = JSON.parse(localStorage.getItem('dilaeit_checkin_pending') || '[]');
+                pending.push(journey);
+                localStorage.setItem('dilaeit_checkin_pending', JSON.stringify(pending));
 
-                window.location.href = '/stats.html?checkin=1';
-            } catch (e) { console.error('Check-In failed', e); }
+                // Check-In Modus beenden + Modal schließen
+                cancelCheckinMode();
+                $('detail-view').classList.remove('active');
+
+                // Kurze Bestätigung
+                const toast = document.createElement('div');
+                toast.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-600 text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-xl z-50 flex items-center gap-2 animate-bounce';
+                toast.innerHTML = `<i class="fas fa-check-circle"></i> Check-In gespeichert: ${line} → ${to}`;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 3000);
+
+            } catch (e) { console.error('doCheckinAtStop failed', e); }
         }
 
         init();
