@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dilaeit · Statistiken</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+* { font-family: 'Inter', sans-serif; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+body { background: #0a0a0a; color: #e5e7eb; }
+
+/* Modal */
+#checkin-modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center; }
+#checkin-modal.open { display:flex; }
+
+/* Map */
+#stats-map { height: 400px; border-radius: 12px; overflow: hidden; }
+.leaflet-tile-pane { filter: brightness(0.7) saturate(0.8); }
+
+/* Chart containers */
+.chart-wrap { position: relative; height: 280px; }
+
+/* Tab active */
+.stat-tab.active { background: #ef4444; color: white; }
+.stat-tab { background: #1f1f1f; color: #6b7280; border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .2s; border: 1px solid #374151; }
+.stat-tab:hover:not(.active) { color: #d1d5db; border-color: #ef4444; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #111; } ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+
+/* Input */
+input[type=text], input[type=date], input[type=time], input[type=number], select {
+    background: #1a1a1a; border: 1px solid #374151; border-radius: 8px; color: #e5e7eb;
+    padding: 8px 12px; font-size: 13px; width: 100%; outline: none;
+}
+input:focus, select:focus { border-color: #ef4444; }
+input[type=date]::-webkit-calendar-picker-indicator,
+input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(0.5); }
+
+/* Journey card */
+.journey-card { background: #111; border: 1px solid #1f2937; border-radius: 12px; padding: 14px 16px; transition: border-color .2s; }
+.journey-card:hover { border-color: #374151; }
+
+/* Progress bar */
+.pbar { height: 6px; border-radius: 3px; background: #1f2937; overflow: hidden; }
+.pbar-fill { height: 100%; border-radius: 3px; background: #ef4444; transition: width .6s ease; }
+
+/* Stat card */
+.scard { background: #111; border: 1px solid #1f2937; border-radius: 16px; padding: 20px; }
+
+/* Mode colors */
+.mode-train { color: #3b82f6; } .mode-bus { color: #10b981; } .mode-subway { color: #8b5cf6; }
+.mode-tram { color: #f59e0b; } .mode-rail { color: #3b82f6; } .mode-ferry { color: #06b6d4; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Header -->
+<header class="sticky top-0 z-50 border-b border-zinc-900 bg-black/80 backdrop-blur-sm">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <span class="text-red-600 font-black text-xl italic tracking-tight">dilaeit</span>
+            <span class="text-zinc-600 text-xs mono">/ stats</span>
+        </a>
+        <div class="flex items-center gap-2">
+            <button onclick="openCheckin()" class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors">
+                <i class="fas fa-plus"></i> Check-In
+            </button>
+            <button onclick="exportData()" title="Exportieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
+                <i class="fas fa-download"></i>
+            </button>
+            <label title="Importieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm cursor-pointer">
+                <i class="fas fa-upload"></i>
+                <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
+            </label>
+        </div>
+    </div>
+</header>
+
+<!-- Main -->
+<main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- Summary Cards -->
+    <div id="summary-cards" class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="scard">
+            <div class="text-3xl font-black text-white mono" id="stat-total">0</div>
+            <div class="text-xs text-zinc-500 mt-1">Fahrten gesamt</div>
+        </div>
+        <div class="scard">
+            <div class="text-3xl font-black text-blue-400 mono" id="stat-km">0</div>
+            <div class="text-xs text-zinc-500 mt-1">km zurückgelegt</div>
+        </div>
+        <div class="scard">
+            <div class="text-3xl font-black text-red-400 mono" id="stat-delay">0'</div>
+            <div class="text-xs text-zinc-500 mt-1">Ø Verspätung</div>
+        </div>
+        <div class="scard">
+            <div class="text-3xl font-black text-green-400 mono" id="stat-ontime">--%</div>
+            <div class="text-xs text-zinc-500 mt-1">Pünktlich</div>
+        </div>
+    </div>
+
+    <!-- Jahr-Filter -->
+    <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs text-zinc-500 mono">ZEITRAUM</span>
+        <div id="year-filter" class="flex gap-1 flex-wrap"></div>
+        <button onclick="setYear('all')" id="year-all" class="stat-tab active">Alle</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-2 flex-wrap">
+        <button onclick="showTab('charts')"  id="tab-charts"  class="stat-tab active"><i class="fas fa-chart-bar mr-1"></i>Diagramme</button>
+        <button onclick="showTab('list')"    id="tab-list"    class="stat-tab"><i class="fas fa-list mr-1"></i>Fahrten</button>
+        <button onclick="showTab('map')"     id="tab-map"     class="stat-tab"><i class="fas fa-map mr-1"></i>Karte</button>
+        <button onclick="showTab('delay')"   id="tab-delay"   class="stat-tab"><i class="fas fa-clock mr-1"></i>Verspätung</button>
+    </div>
+
+    <!-- PANEL: Charts -->
+    <div id="panel-charts" class="space-y-4">
+        <!-- Diagramm-Typ Wahl -->
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-zinc-500 mono">DIAGRAMM</span>
+            <button onclick="setChartType('bar')"  id="ct-bar"  class="stat-tab active">Balken</button>
+            <button onclick="setChartType('pie')"  id="ct-pie"  class="stat-tab">Kreis</button>
+            <button onclick="setChartType('line')" id="ct-line" class="stat-tab">Graph</button>
+        </div>
+        <div class="grid md:grid-cols-2 gap-4">
+            <div class="scard">
+                <div class="text-xs text-zinc-500 mono mb-3">FAHRTEN PRO MONAT</div>
+                <div class="chart-wrap"><canvas id="chart-monthly"></canvas></div>
+            </div>
+            <div class="scard">
+                <div class="text-xs text-zinc-500 mono mb-3">VERKEHRSMITTEL</div>
+                <div class="chart-wrap"><canvas id="chart-modes"></canvas></div>
+            </div>
+            <div class="scard">
+                <div class="text-xs text-zinc-500 mono mb-3">KM PRO MONAT</div>
+                <div class="chart-wrap"><canvas id="chart-km"></canvas></div>
+            </div>
+            <div class="scard">
+                <div class="text-xs text-zinc-500 mono mb-3">WOCHENTAGE</div>
+                <div class="chart-wrap"><canvas id="chart-weekday"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANEL: Liste -->
+    <div id="panel-list" class="hidden space-y-2">
+        <div class="flex items-center gap-2 mb-3">
+            <input type="text" id="list-search" placeholder="Suche nach Linie, Station..." oninput="renderList()" class="flex-1">
+        </div>
+        <div id="journey-list" class="space-y-2"></div>
+        <div id="list-empty" class="hidden text-center py-16 text-zinc-600">
+            <i class="fas fa-train text-4xl mb-3 block opacity-30"></i>
+            Noch keine Fahrten. Klick auf <b class="text-white">Check-In</b> um zu starten.
+        </div>
+    </div>
+
+    <!-- PANEL: Karte -->
+    <div id="panel-map" class="hidden">
+        <div class="scard">
+            <div class="text-xs text-zinc-500 mono mb-3">ALLE STRECKEN</div>
+            <div id="stats-map"></div>
+            <div class="text-xs text-zinc-600 mt-2 flex gap-4">
+                <span><span class="inline-block w-3 h-1 bg-red-500 rounded mr-1"></span>Zug/RE/RB</span>
+                <span><span class="inline-block w-3 h-1 bg-green-500 rounded mr-1"></span>Bus</span>
+                <span><span class="inline-block w-3 h-1 bg-purple-500 rounded mr-1"></span>U-Bahn</span>
+                <span><span class="inline-block w-3 h-1 bg-yellow-500 rounded mr-1"></span>Tram</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANEL: Verspätung -->
+    <div id="panel-delay" class="hidden space-y-4">
+        <div class="grid md:grid-cols-3 gap-3">
+            <div class="scard text-center">
+                <div class="text-4xl font-black text-green-400 mono" id="delay-ontime">--%</div>
+                <div class="text-xs text-zinc-500 mt-1">Pünktlich (&lt;1 Min)</div>
+            </div>
+            <div class="scard text-center">
+                <div class="text-4xl font-black text-yellow-400 mono" id="delay-slight">--%</div>
+                <div class="text-xs text-zinc-500 mt-1">Leicht verspätet (1-5 Min)</div>
+            </div>
+            <div class="scard text-center">
+                <div class="text-4xl font-black text-red-400 mono" id="delay-late">--%</div>
+                <div class="text-xs text-zinc-500 mt-1">Stark verspätet (&gt;5 Min)</div>
+            </div>
+        </div>
+        <div class="scard">
+            <div class="text-xs text-zinc-500 mono mb-3">VERSPÄTUNG NACH LINIE (TOP 10)</div>
+            <div id="delay-by-line" class="space-y-2"></div>
+        </div>
+        <div class="scard">
+            <div class="text-xs text-zinc-500 mono mb-3">VERSPÄTUNGSVERLAUF</div>
+            <div class="chart-wrap"><canvas id="chart-delay"></canvas></div>
+        </div>
+    </div>
+
+</main>
+
+<!-- Check-In Modal -->
+<div id="checkin-modal">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-900">
+            <h2 class="font-bold text-white">Neue Fahrt eintragen</h2>
+            <button onclick="closeCheckin()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="px-6 py-5 space-y-4">
+            <!-- Tabs: Manuell / Aus Abfahrtstafel -->
+            <div class="flex gap-2">
+                <button onclick="setCheckinTab('manual')" id="ci-tab-manual" class="stat-tab active flex-1 text-center">Manuell</button>
+                <button onclick="setCheckinTab('search')" id="ci-tab-search" class="stat-tab flex-1 text-center">Aus Abfahrtstafel</button>
+            </div>
+
+            <!-- Manuell -->
+            <div id="ci-manual" class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">DATUM</label>
+                        <input type="date" id="ci-date">
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">ABFAHRT</label>
+                        <input type="time" id="ci-time">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-zinc-500 mono block mb-1">LINIE / ZUG</label>
+                    <input type="text" id="ci-line" placeholder="z.B. RE 13, Bus 017, ICE 516">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">VON</label>
+                        <input type="text" id="ci-from" placeholder="Startstation">
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">NACH</label>
+                        <input type="text" id="ci-to" placeholder="Zielstation">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">VERKEHRSMITTEL</label>
+                        <select id="ci-mode">
+                            <option value="train">🚆 Zug (RE/RB/IC...)</option>
+                            <option value="bus">🚌 Bus</option>
+                            <option value="subway">🚇 U-Bahn</option>
+                            <option value="tram">🚊 Straßenbahn</option>
+                            <option value="ferry">⛴ Fähre</option>
+                            <option value="other">🚗 Sonstiges</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">DISTANZ (km)</label>
+                        <input type="number" id="ci-km" placeholder="optional" min="0" step="0.1">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">VERSPÄTUNG BEI ANKUNFT (Min)</label>
+                        <input type="number" id="ci-delay" placeholder="0" min="-60" max="999">
+                    </div>
+                    <div>
+                        <label class="text-xs text-zinc-500 mono block mb-1">ANKUNFT</label>
+                        <input type="time" id="ci-arrive">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-zinc-500 mono block mb-1">NOTIZ</label>
+                    <input type="text" id="ci-note" placeholder="Optional...">
+                </div>
+            </div>
+
+            <!-- Aus Abfahrtstafel (Link) -->
+            <div id="ci-search" class="hidden text-center py-8 space-y-3">
+                <i class="fas fa-train text-4xl text-zinc-600"></i>
+                <p class="text-sm text-zinc-400">Gehe zur <a href="/" class="text-red-500 hover:underline">Abfahrtstafel</a> und klicke bei einer Abfahrt auf <b class="text-white">Check-In</b>.</p>
+                <p class="text-xs text-zinc-600">Gespeicherte Fahrten werden automatisch hier angezeigt.</p>
+            </div>
+
+            <button onclick="saveCheckin()" id="ci-save-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors">
+                <i class="fas fa-check mr-2"></i>Fahrt speichern
+            </button>
+            <p id="ci-error" class="text-red-500 text-xs text-center hidden"></p>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─── Database (IndexedDB) ────────────────────────────────────────────────────
+const DB_NAME = 'dilaeit_stats', DB_VERSION = 1, STORE = 'journeys';
+
+function openDB() {
+    return new Promise((res, rej) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = e => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE)) {
+                const s = db.createObjectStore(STORE, { keyPath: 'id' });
+                s.createIndex('date', 'date');
+                s.createIndex('line', 'line');
+            }
+        };
+        req.onsuccess  = e => res(e.target.result);
+        req.onerror    = e => rej(e.target.error);
+    });
+}
+
+async function getAllJourneys() {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+        const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+        req.onsuccess = e => res(e.target.result || []);
+        req.onerror   = e => rej(e.target.error);
+    });
+}
+
+async function saveJourney(j) {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+        const req = db.transaction(STORE, 'readwrite').objectStore(STORE).put(j);
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+    });
+}
+
+async function deleteJourney(id) {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+        const req = db.transaction(STORE, 'readwrite').objectStore(STORE).delete(id);
+        req.onsuccess = () => res();
+        req.onerror   = e => rej(e.target.error);
+    });
+}
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let allJourneys = [];
+let activeYear  = 'all';
+let chartType   = 'bar';
+let activeTab   = 'charts';
+let charts      = {};
+let statsMap    = null;
+
+function filteredJourneys() {
+    if (activeYear === 'all') return allJourneys;
+    return allJourneys.filter(j => j.date?.startsWith(activeYear));
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+async function init() {
+    // Datumsvorbelegung
+    const now = new Date();
+    document.getElementById('ci-date').value = now.toISOString().slice(0, 10);
+    document.getElementById('ci-time').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+    allJourneys = await getAllJourneys();
+
+    // Extern eingecheckte Fahrten (von index.html) laden
+    const pending = JSON.parse(localStorage.getItem('dilaeit_checkin_pending') || '[]');
+    for (const j of pending) {
+        if (!allJourneys.find(x => x.id === j.id)) {
+            await saveJourney(j);
+            allJourneys.push(j);
+        }
+    }
+    if (pending.length) localStorage.removeItem('dilaeit_checkin_pending');
+
+    buildYearFilter();
+    updateAll();
+}
+
+// ─── Year Filter ──────────────────────────────────────────────────────────────
+function buildYearFilter() {
+    const years = [...new Set(allJourneys.map(j => j.date?.slice(0, 4)).filter(Boolean))].sort().reverse();
+    const container = document.getElementById('year-filter');
+    container.innerHTML = '';
+    years.forEach(y => {
+        const btn = document.createElement('button');
+        btn.className = 'stat-tab';
+        btn.id = `year-${y}`;
+        btn.textContent = y;
+        btn.onclick = () => setYear(y);
+        container.appendChild(btn);
+    });
+}
+
+function setYear(y) {
+    activeYear = y;
+    document.querySelectorAll('[id^="year-"]').forEach(b => b.classList.remove('active'));
+    document.getElementById(`year-${y}`)?.classList.add('active');
+    updateAll();
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+function showTab(tab) {
+    activeTab = tab;
+    ['charts','list','map','delay'].forEach(t => {
+        document.getElementById(`panel-${t}`)?.classList.toggle('hidden', t !== tab);
+        document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
+    });
+    if (tab === 'map')   initStatsMap();
+    if (tab === 'list')  renderList();
+    if (tab === 'delay') renderDelay();
+    if (tab === 'charts') renderCharts();
+}
+
+// ─── Summary ──────────────────────────────────────────────────────────────────
+function updateSummary(jorneys) {
+    const total  = jorneys.length;
+    const km     = jorneys.reduce((s, j) => s + (j.km || 0), 0);
+    const withDelay = jorneys.filter(j => j.delay !== null && j.delay !== undefined);
+    const avgDelay  = withDelay.length ? withDelay.reduce((s, j) => s + j.delay, 0) / withDelay.length : 0;
+    const ontime    = withDelay.length ? withDelay.filter(j => j.delay < 1).length / withDelay.length * 100 : null;
+
+    document.getElementById('stat-total').textContent  = total;
+    document.getElementById('stat-km').textContent     = km >= 1000 ? `${(km/1000).toFixed(1)}k` : Math.round(km);
+    document.getElementById('stat-delay').textContent  = `${avgDelay >= 0 ? '+' : ''}${Math.round(avgDelay)}'`;
+    document.getElementById('stat-ontime').textContent = ontime !== null ? `${Math.round(ontime)}%` : '--%';
+}
+
+// ─── Charts ──────────────────────────────────────────────────────────────────
+const CHART_COLORS = {
+    red:    '#ef4444', blue:   '#3b82f6', green:  '#10b981',
+    yellow: '#f59e0b', purple: '#8b5cf6', pink:   '#ec4899',
+    cyan:   '#06b6d4', orange: '#f97316', gray:   '#6b7280',
+};
+const PALETTE = Object.values(CHART_COLORS);
+
+Chart.defaults.color = '#9ca3af';
+Chart.defaults.borderColor = '#1f2937';
+
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function makeChart(id, config) {
+    destroyChart(id);
+    const ctx = document.getElementById(id)?.getContext('2d');
+    if (!ctx) return;
+    charts[id] = new Chart(ctx, config);
+}
+
+function setChartType(t) {
+    chartType = t;
+    ['bar','pie','line'].forEach(x => document.getElementById(`ct-${x}`)?.classList.toggle('active', x === t));
+    renderCharts();
+}
+
+function renderCharts() {
+    const jorneys = filteredJourneys();
+
+    // Monthly
+    const months   = Array.from({length:12}, (_,i) => new Date(0, i).toLocaleString('de-DE',{month:'short'}));
+    const bySeason = new Array(12).fill(0);
+    const kmBySeason = new Array(12).fill(0);
+    jorneys.forEach(j => {
+        const m = new Date(j.date).getMonth();
+        if (!isNaN(m)) { bySeason[m]++; kmBySeason[m] += j.km || 0; }
+    });
+
+    const baseConfig = (labels, data, label, color) => {
+        const type = chartType === 'pie' ? 'pie' : chartType === 'line' ? 'line' : 'bar';
+        const isPie = type === 'pie';
+        return {
+            type,
+            data: {
+                labels,
+                datasets: [{
+                    label,
+                    data,
+                    backgroundColor: isPie ? PALETTE.slice(0, data.length).map(c => c + '99') : color + '33',
+                    borderColor:     isPie ? PALETTE.slice(0, data.length) : color,
+                    borderWidth:     isPie ? 2 : 1.5,
+                    borderRadius:    type === 'bar' ? 4 : 0,
+                    fill:            type === 'line',
+                    tension:         0.4,
+                    pointRadius:     type === 'line' ? 3 : 0,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: isPie, position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } },
+                scales: isPie ? {} : {
+                    x: { grid: { color: '#1f2937' }, ticks: { font: { size: 10 } } },
+                    y: { grid: { color: '#1f2937' }, ticks: { font: { size: 10 }, stepSize: 1 }, beginAtZero: true }
+                }
+            }
+        };
+    };
+
+    makeChart('chart-monthly', baseConfig(months, bySeason, 'Fahrten', CHART_COLORS.red));
+    makeChart('chart-km',      baseConfig(months, kmBySeason.map(v => Math.round(v)), 'km', CHART_COLORS.blue));
+
+    // Modes
+    const modeCount = {};
+    jorneys.forEach(j => { modeCount[j.mode || 'other'] = (modeCount[j.mode || 'other'] || 0) + 1; });
+    const modeLabels = { train:'Zug', bus:'Bus', subway:'U-Bahn', tram:'Tram', ferry:'Fähre', other:'Sonstiges' };
+    const mLabels = Object.keys(modeCount).map(k => modeLabels[k] || k);
+    const mData   = Object.values(modeCount);
+    makeChart('chart-modes', baseConfig(mLabels, mData, 'Fahrten', CHART_COLORS.purple));
+
+    // Weekdays
+    const wdays = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+    const byDay = new Array(7).fill(0);
+    jorneys.forEach(j => { const d = (new Date(j.date).getDay() + 6) % 7; if (!isNaN(d)) byDay[d]++; });
+    makeChart('chart-weekday', baseConfig(wdays, byDay, 'Fahrten', CHART_COLORS.green));
+}
+
+// ─── List ─────────────────────────────────────────────────────────────────────
+function renderList() {
+    const q = (document.getElementById('list-search')?.value || '').toLowerCase();
+    const jorneys = filteredJourneys()
+        .filter(j => !q || j.line?.toLowerCase().includes(q) || j.from?.toLowerCase().includes(q) || j.to?.toLowerCase().includes(q))
+        .sort((a, b) => b.date?.localeCompare(a.date) || b.time?.localeCompare(a.time));
+
+    const container = document.getElementById('journey-list');
+    const empty     = document.getElementById('list-empty');
+    container.innerHTML = '';
+    if (!jorneys.length) { empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+
+    const modeIcons = { train:'🚆', bus:'🚌', subway:'🚇', tram:'🚊', ferry:'⛴', other:'🚗' };
+
+    jorneys.forEach(j => {
+        const div = document.createElement('div');
+        div.className = 'journey-card flex items-center gap-3';
+        const delayStr = j.delay !== null && j.delay !== undefined
+            ? `<span class="${j.delay < 1 ? 'text-green-400' : j.delay < 5 ? 'text-yellow-400' : 'text-red-400'} text-xs mono">${j.delay >= 0 ? '+' : ''}${j.delay}'</span>`
+            : '';
+        div.innerHTML = `
+            <div class="text-2xl">${modeIcons[j.mode] || '🚌'}</div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-white text-sm">${j.line || '?'}</span>
+                    ${delayStr}
+                    ${j.km ? `<span class="text-xs text-zinc-500">${j.km} km</span>` : ''}
+                </div>
+                <div class="text-xs text-zinc-400 truncate">${j.from || '?'} → ${j.to || '?'}</div>
+                <div class="text-xs text-zinc-600 mono">${j.date || ''} ${j.time || ''}</div>
+                ${j.note ? `<div class="text-xs text-zinc-600 mt-0.5 italic">${j.note}</div>` : ''}
+            </div>
+            <button onclick="confirmDelete('${j.id}')" class="text-zinc-700 hover:text-red-500 transition-colors ml-2 text-sm">
+                <i class="fas fa-trash"></i>
+            </button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+async function confirmDelete(id) {
+    if (!confirm('Fahrt löschen?')) return;
+    await deleteJourney(id);
+    allJourneys = allJourneys.filter(j => j.id !== id);
+    updateAll();
+}
+
+// ─── Map ──────────────────────────────────────────────────────────────────────
+function initStatsMap() {
+    if (!statsMap) {
+        statsMap = L.map('stats-map', { zoomControl: true });
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 18, subdomains: 'abcd',
+            attribution: '© OSM · CARTO'
+        }).addTo(statsMap);
+    }
+    statsMap.eachLayer(l => { if (l instanceof L.Polyline || l instanceof L.CircleMarker) statsMap.removeLayer(l); });
+
+    const jorneys = filteredJourneys().filter(j => j.fromCoords && j.toCoords);
+    const modeColors = { train: '#ef4444', bus: '#10b981', subway: '#8b5cf6', tram: '#f59e0b', ferry: '#06b6d4', other: '#6b7280' };
+    const bounds = [];
+
+    jorneys.forEach(j => {
+        const from = j.fromCoords, to = j.toCoords;
+        const color = modeColors[j.mode] || '#6b7280';
+        L.polyline([from, to], { color, weight: 2, opacity: 0.7 }).addTo(statsMap);
+        L.circleMarker(from, { radius: 4, color, fillColor: color, fillOpacity: 1, weight: 1 })
+            .bindTooltip(j.from || '').addTo(statsMap);
+        L.circleMarker(to,   { radius: 4, color, fillColor: color, fillOpacity: 1, weight: 1 })
+            .bindTooltip(j.to || '').addTo(statsMap);
+        bounds.push(from, to);
+    });
+
+    if (bounds.length) statsMap.fitBounds(bounds, { padding: [30, 30] });
+    else statsMap.setView([51.2, 6.8], 8);
+    setTimeout(() => statsMap.invalidateSize(), 100);
+
+    if (!jorneys.length) {
+        document.getElementById('stats-map').insertAdjacentHTML('afterend',
+            '<p class="text-xs text-zinc-600 text-center mt-2">Keine Fahrten mit Koordinaten. Füge Fahrten mit Koordinaten hinzu für die Karte.</p>');
+    }
+}
+
+// ─── Delay ────────────────────────────────────────────────────────────────────
+function renderDelay() {
+    const jorneys = filteredJourneys().filter(j => j.delay !== null && j.delay !== undefined);
+    const total   = jorneys.length;
+    if (!total) return;
+
+    const ontime  = jorneys.filter(j => j.delay < 1).length;
+    const slight  = jorneys.filter(j => j.delay >= 1 && j.delay <= 5).length;
+    const late    = jorneys.filter(j => j.delay > 5).length;
+
+    document.getElementById('delay-ontime').textContent = `${Math.round(ontime/total*100)}%`;
+    document.getElementById('delay-slight').textContent = `${Math.round(slight/total*100)}%`;
+    document.getElementById('delay-late').textContent   = `${Math.round(late/total*100)}%`;
+
+    // By line
+    const byLine = {};
+    jorneys.forEach(j => {
+        if (!byLine[j.line]) byLine[j.line] = [];
+        byLine[j.line].push(j.delay);
+    });
+    const lineStats = Object.entries(byLine)
+        .map(([line, delays]) => ({ line, avg: delays.reduce((s,d) => s+d,0)/delays.length, count: delays.length }))
+        .sort((a,b) => b.avg - a.avg).slice(0, 10);
+
+    const maxAvg = lineStats[0]?.avg || 1;
+    document.getElementById('delay-by-line').innerHTML = lineStats.map(ls => `
+        <div class="flex items-center gap-3 text-xs">
+            <span class="text-zinc-300 font-mono w-20 truncate">${ls.line}</span>
+            <div class="flex-1 pbar"><div class="pbar-fill" style="width:${(ls.avg/maxAvg*100).toFixed(0)}%;background:${ls.avg>5?'#ef4444':ls.avg>1?'#f59e0b':'#10b981'}"></div></div>
+            <span class="text-zinc-400 w-16 text-right">${ls.avg >= 0 ? '+' : ''}${ls.avg.toFixed(1)}' (${ls.count}×)</span>
+        </div>
+    `).join('');
+
+    // Delay timeline
+    const sorted = [...jorneys].sort((a,b) => a.date?.localeCompare(b.date));
+    const labels = sorted.map(j => j.date?.slice(5));
+    const data   = sorted.map(j => j.delay);
+    destroyChart('chart-delay');
+    const ctx = document.getElementById('chart-delay')?.getContext('2d');
+    if (ctx) charts['chart-delay'] = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets: [{
+            label: 'Verspätung (Min)', data,
+            borderColor: '#ef4444', backgroundColor: '#ef444420',
+            borderWidth: 1.5, fill: true, tension: 0.3, pointRadius: 2
+        }]},
+        options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: '#1f2937' }, ticks: { maxTicksLimit: 10, font: { size: 10 } } },
+                y: { grid: { color: '#1f2937' }, ticks: { font: { size: 10 } } }
+            }
+        }
+    });
+}
+
+// ─── updateAll ────────────────────────────────────────────────────────────────
+function updateAll() {
+    const j = filteredJourneys();
+    updateSummary(j);
+    if (activeTab === 'charts') renderCharts();
+    if (activeTab === 'list')   renderList();
+    if (activeTab === 'map')    initStatsMap();
+    if (activeTab === 'delay')  renderDelay();
+}
+
+// ─── Check-In Modal ───────────────────────────────────────────────────────────
+function openCheckin() {
+    document.getElementById('checkin-modal').classList.add('open');
+    document.getElementById('ci-error').classList.add('hidden');
+}
+function closeCheckin() { document.getElementById('checkin-modal').classList.remove('open'); }
+function setCheckinTab(t) {
+    ['manual','search'].forEach(x => {
+        document.getElementById(`ci-${x}`)?.classList.toggle('hidden', x !== t);
+        document.getElementById(`ci-tab-${x}`)?.classList.toggle('active', x === t);
+    });
+    document.getElementById('ci-save-btn').classList.toggle('hidden', t === 'search');
+}
+
+async function saveCheckin() {
+    const err = document.getElementById('ci-error');
+    const line = document.getElementById('ci-line').value.trim();
+    const from = document.getElementById('ci-from').value.trim();
+    const to   = document.getElementById('ci-to').value.trim();
+    const date = document.getElementById('ci-date').value;
+    const time = document.getElementById('ci-time').value;
+
+    if (!line || !from || !to || !date || !time) {
+        err.textContent = 'Bitte Linie, Von, Nach, Datum und Uhrzeit ausfüllen.';
+        err.classList.remove('hidden'); return;
+    }
+    err.classList.add('hidden');
+
+    const delayVal = document.getElementById('ci-delay').value;
+    const kmVal    = document.getElementById('ci-km').value;
+
+    const journey = {
+        id:    `${date}T${time}-${Math.random().toString(36).slice(2,8)}`,
+        date, time, line,
+        from,  to,
+        mode:  document.getElementById('ci-mode').value,
+        delay: delayVal !== '' ? Number(delayVal) : null,
+        km:    kmVal    !== '' ? Number(kmVal)    : null,
+        arrive: document.getElementById('ci-arrive').value || null,
+        note:  document.getElementById('ci-note').value.trim() || null,
+    };
+
+    await saveJourney(journey);
+    allJourneys.push(journey);
+    buildYearFilter();
+    updateAll();
+    closeCheckin();
+
+    // Reset
+    ['ci-line','ci-from','ci-to','ci-delay','ci-km','ci-arrive','ci-note'].forEach(id => { document.getElementById(id).value = ''; });
+}
+
+// ─── Export / Import ──────────────────────────────────────────────────────────
+async function exportData() {
+    const j    = await getAllJourneys();
+    const blob = new Blob([JSON.stringify(j, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `dilaeit-stats-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function importData(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!Array.isArray(data)) throw new Error('Ungültiges Format');
+        let count = 0;
+        for (const j of data) {
+            if (j.id && j.date) {
+                await saveJourney(j);
+                if (!allJourneys.find(x => x.id === j.id)) { allJourneys.push(j); count++; }
+            }
+        }
+        buildYearFilter();
+        updateAll();
+        alert(`${count} Fahrten importiert.`);
+    } catch (err) {
+        alert('Import fehlgeschlagen: ' + err.message);
+    }
+    e.target.value = '';
+}
+
+// ─── Keyboard ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeCheckin();
+});
+document.getElementById('checkin-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeCheckin();
+});
+
+init();
+</script>
+</body>
+</html>
