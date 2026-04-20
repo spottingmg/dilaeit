@@ -275,6 +275,19 @@
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
+        <!-- Störungsmeldungen -->
+        <div id="disruptions-panel" class="hidden mt-4 rounded-2xl border border-orange-800/50 bg-orange-950/30 overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none" onclick="toggleDisruptions()">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                    <span class="text-xs font-bold uppercase tracking-wider text-orange-300">Störungsmeldungen</span>
+                    <span id="disruptions-count" class="text-[10px] text-orange-600 mono"></span>
+                </div>
+                <i id="disruptions-chevron" class="fas fa-chevron-down text-[10px] text-orange-600 transition-transform duration-200" style="transform:rotate(180deg)"></i>
+            </div>
+            <div id="disruptions-list" class="px-4 pb-3 space-y-2"></div>
+        </div>
+
             <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
                 <div>
                     <h2 id="station-display-name" class="text-2xl font-bold tracking-tight"></h2>
@@ -1017,14 +1030,22 @@
                 buildLineFilter();
                 renderDepartures();
                 autoSaveDepartures(state.departures);
-                // Störungsmeldungen beim ersten Laden einer Station abrufen
-                if (force || !state.disruptionsLoaded) {
+                // Störungsmeldungen beim ersten Laden der Station abrufen
+                if (!state.disruptionsLoaded) {
                     state.disruptionsLoaded = true;
-                    loadDisruptions(state.currentStation.name);
+                    loadDisruptions(state.currentStation.name).catch(()=>{});
                 }
             } catch (err) {
                 console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
-                $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
+                if (state.departures?.length) {
+                    renderDepartures();
+                    const warn = document.createElement('div');
+                    warn.className = 'text-[10px] text-yellow-500 text-center py-2 mono';
+                    warn.textContent = '⚠ Aktualisierung fehlgeschlagen – letzte bekannte Daten';
+                    $('departures-list').prepend(warn);
+                } else {
+                    $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
+                }
             }
         }
 
@@ -1050,6 +1071,44 @@
                 localStorage.setItem(archiveKey, JSON.stringify(next));
                 if (archiveOpen) renderArchive();
             } catch (e) { console.error('Archive error', e); }
+        }
+
+        // ─── Störungsmeldungen ────────────────────────────────────────────────────
+        let disruptionsOpen = true;
+
+        async function loadDisruptions(stationName) {
+            const panel = $('disruptions-panel');
+            const list  = $('disruptions-list');
+            const count = $('disruptions-count');
+            if (!panel || !list) return;
+            panel.classList.add('hidden');
+            if (!stationName) return;
+            try {
+                const r = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stationName)}`);
+                if (!r.ok) return;
+                const { disruptions } = await r.json();
+                if (!disruptions?.length) return;
+                if (count) count.textContent = `${disruptions.length} Meldung${disruptions.length > 1 ? 'en' : ''}`;
+                list.innerHTML = disruptions.map(d => {
+                    const icon = d.type === 'disruption' ? 'fa-exclamation-triangle text-orange-400' : 'fa-info-circle text-orange-400';
+                    const lineTag = d.line ? `<span class="px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 text-[10px] font-bold italic mr-1">${d.line}</span>` : '';
+                    return `<div class="flex items-start gap-2 text-xs text-orange-200/80 py-1 border-b border-orange-900/30 last:border-0">
+                        <i class="fas ${icon} mt-0.5 shrink-0 text-[11px]"></i>
+                        <span>${lineTag}${d.text}</span>
+                    </div>`;
+                }).join('');
+                panel.classList.remove('hidden');
+                $('disruptions-chevron').style.transform = disruptionsOpen ? 'rotate(180deg)' : '';
+                list.classList.toggle('hidden', !disruptionsOpen);
+            } catch {}
+        }
+
+        function toggleDisruptions() {
+            disruptionsOpen = !disruptionsOpen;
+            const list = $('disruptions-list');
+            if (list) list.classList.toggle('hidden', !disruptionsOpen);
+            const chev = $('disruptions-chevron');
+            if (chev) chev.style.transform = disruptionsOpen ? 'rotate(180deg)' : '';
         }
 
         let archiveOpen = false;
@@ -1484,33 +1543,26 @@
                 currentDetailStopovers = stops;
                 renderItinerary(stops, remarks, finalSourceName);
 
-                // DB-Störungsmeldungen im Hintergrund für VRR + Transitous nachladen
+                // DB-Störungsmeldungen im Hintergrund für VRR + Transitous
                 if (finalSourceName === 'VRR OpenService' || finalSourceName === 'Transitous') {
-                    const stationName = state.currentStation?.name || '';
-                    const lineName    = dep.line?.name || dep.line?.id || '';
-                    if (stationName) {
-                        fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stationName)}`)
+                    const stName  = state.currentStation?.name || '';
+                    const lnName  = dep.line?.name || dep.line?.id || '';
+                    if (stName) {
+                        fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stName)}`)
                             .then(r => r.ok ? r.json() : null)
                             .then(data => {
                                 if (!data?.disruptions?.length) return;
-                                // Nur Meldungen zur aktuellen Linie oder allgemeine
-                                const q = lineName.toUpperCase().replace(/\s+/g,'');
+                                const q = lnName.toUpperCase().replace(/\s+/g,'');
                                 const relevant = data.disruptions.filter(d => {
-                                    if (!d.line) return true; // allgemeine Störung
+                                    if (!d.line) return true;
                                     const dl = d.line.toUpperCase().replace(/\s+/g,'');
                                     return dl === q || dl.endsWith(q) || q.endsWith(dl);
                                 });
                                 if (!relevant.length) return;
-                                // Als remarks-Format aufbereiten
-                                const dbRemarks = relevant.map(d => ({
-                                    text: d.text,
-                                    type: d.type || 'hint',
-                                    priority: d.priority || 50,
-                                }));
-                                const allRemarks = [...remarks, ...dbRemarks];
-                                renderItinerary(stops, allRemarks, finalSourceName);
+                                const dbRemarks = relevant.map(d => ({ text: d.text, type: d.type || 'hint', priority: d.priority || 50 }));
+                                renderItinerary(stops, [...remarks, ...dbRemarks], finalSourceName);
                             })
-                            .catch(() => {});
+                            .catch(()=>{});
                     }
                 }
             } catch (e) {
@@ -1731,13 +1783,18 @@
                 const isCancelled  = stop.cancelled;
                 const isAdditional = stop.additional;
 
+                // Bei ausgefallenen Halten: nur Planzeit zeigen, keine Echtzeit
                 const schedArr  = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
-                const actualArr = stop.arrival          ? new Date(stop.arrival)           : null;
+                const actualArr = isCancelled ? null : (stop.arrival ? new Date(stop.arrival) : null);
                 const schedDep  = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
-                const actualDep = stop.departure        ? new Date(stop.departure)         : null;
+                const actualDep = isCancelled ? null : (stop.departure ? new Date(stop.departure) : null);
 
                 const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
                 const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
+
+                // Für ausgefallene Halte: arrivalDelaySec/departureDelaySec ignorieren
+                const arrDelaySec = isCancelled ? null : stop.arrivalDelaySec;
+                const depDelaySec = isCancelled ? null : stop.departureDelaySec;
 
                 const formatTime = (sched, actual, hasLive, delaySec) => {
                     if (!sched) return '';
@@ -1801,12 +1858,19 @@
                 };
 
                 const stopItem = document.createElement('div');
-                stopItem.className = `relative flex items-stretch gap-0 ${isCancelled ? 'opacity-40' : ''} py-1 min-h-[2.5rem]`;
+                stopItem.className = `relative flex items-stretch gap-0 ${isCancelled ? 'opacity-50' : ''} py-1 min-h-[2.5rem]`;
 
                 // Zeitblock links – mit sichtbarer Verspätungs-Badge
                 const timeBlock = (() => {
                     const fmtRow = (label, sched, actual, hasLive, delaySec) => {
                         if (!sched) return '';
+                        // Ausgefallene Halte: nur Planzeit, grau durchgestrichen
+                        if (isCancelled) {
+                            return `<div class="flex items-center justify-end gap-0.5 leading-tight">
+                                <span class="text-gray-600 text-[8px] w-3">${label}</span>
+                                <span class="text-gray-500 font-mono text-[11px] line-through">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
+                            </div>`;
+                        }
                         const timeHtml = formatTime(sched, actual, hasLive, delaySec);
 
                         // Verspätungs-Badge separat und größer darstellen
@@ -1831,8 +1895,8 @@
                         </div>`;
                     };
 
-                    const arrHtml = fmtRow('AN', schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec);
-                    const depHtml = fmtRow('AB', schedDep, actualDep, hasLiveDep, stop.departureDelaySec);
+                    const arrHtml = fmtRow('AN', schedArr, actualArr, hasLiveArr, arrDelaySec);
+                    const depHtml = fmtRow('AB', schedDep, actualDep, hasLiveDep, depDelaySec);
                     return arrHtml + depHtml || `<div class="mono text-[11px] text-gray-500">--:--</div>`;
                 })();
 
@@ -1847,7 +1911,7 @@
                 })();
 
                 // Dot-Farbe
-                const dotColor = isCancelled ? 'bg-gray-600' : isAdditional ? 'bg-blue-500' : 'bg-red-600';
+                const dotColor = isCancelled ? 'bg-gray-500' : isAdditional ? 'bg-green-500' : 'bg-red-600';
 
                 stopItem.innerHTML = `
                     <!-- Zeiten links -->
@@ -1862,7 +1926,7 @@
                     </div>
                     <!-- Name + Info rechts -->
                     <div class="flex-1 min-w-0 flex flex-col justify-center pl-2">
-                        <span class="text-sm font-semibold ${isCancelled ? 'line-through text-gray-500' : ''} ${isAdditional ? 'text-blue-400' : ''}">
+                        <span class="text-sm font-semibold ${isCancelled ? 'line-through text-gray-500' : ''} ${isAdditional ? 'text-green-400' : ''}">
                             ${stop.stop.name}${isAdditional ? ' <span class="text-[9px]">[+]</span>' : ''}
                         </span>
                         <div class="flex flex-wrap gap-x-2 items-center mt-0.5">
