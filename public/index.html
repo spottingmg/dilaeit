@@ -275,7 +275,20 @@
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
-            <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
+            <!-- Störungsmeldungen -->
+        <div id="disruptions-panel" class="hidden mt-4 rounded-2xl border border-orange-800/50 bg-orange-950/30 overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none" onclick="toggleDisruptions()">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                    <span class="text-xs font-bold uppercase tracking-wider text-orange-300">Störungsmeldungen</span>
+                    <span id="disruptions-count" class="text-[10px] text-orange-600 mono"></span>
+                </div>
+                <i id="disruptions-chevron" class="fas fa-chevron-down text-[10px] text-orange-600 transition-transform duration-200"></i>
+            </div>
+            <div id="disruptions-list" class="px-4 pb-3 space-y-2 text-sm"></div>
+        </div>
+
+        <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
                 <div>
                     <h2 id="station-display-name" class="text-2xl font-bold tracking-tight"></h2>
                     <p id="board-type" class="text-xs text-gray-500 uppercase tracking-widest mt-1">Abfahrtstafel</p>
@@ -799,12 +812,13 @@
                 item.onclick = () => {
                     state.currentStation = res;
                     state.currentRegion  = detectRegion(res.name);
-                    activeLineFilter = null;   // Filter bei neuer Station zurücksetzen
+                    activeLineFilter = null;
                     $('station-search').value = res.name;
                     container.classList.add('hidden');
                     $('board-header').classList.remove('hidden');
                     $('station-display-name').textContent = res.name;
                     refreshDepartures();
+                    loadDisruptions(res.name);
                     if (state.refreshTimer) clearInterval(state.refreshTimer);
                     state.refreshTimer = setInterval(refreshDepartures, REFRESH_INTERVAL);
                 };
@@ -1044,6 +1058,76 @@
                 localStorage.setItem(archiveKey, JSON.stringify(next));
                 if (archiveOpen) renderArchive();
             } catch (e) { console.error('Archive error', e); }
+        }
+
+        // ─── Störungsmeldungen ────────────────────────────────────────────────────
+        let disruptionsOpen = true;
+
+        async function loadDisruptions(stationName) {
+            const panel = $('disruptions-panel');
+            const list  = $('disruptions-list');
+            const count = $('disruptions-count');
+            panel.classList.add('hidden');
+            if (!stationName) return;
+            try {
+                const r = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stationName)}`);
+                if (!r.ok) return;
+                const { disruptions } = await r.json();
+                if (!disruptions?.length) return;
+
+                count.textContent = `${disruptions.length} Meldung${disruptions.length > 1 ? 'en' : ''}`;
+                list.innerHTML = disruptions.map(d => {
+                    const icon = d.type === 'disruption' ? 'fa-exclamation-triangle text-orange-400'
+                               : d.type === 'status'     ? 'fa-info-circle text-blue-400'
+                               : 'fa-info-circle text-orange-400';
+                    const lineTag = d.line ? `<span class="px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 text-[10px] font-bold italic mr-1">${d.line}</span>` : '';
+                    return `<div class="flex items-start gap-2 text-xs text-orange-200/80 py-1 border-b border-orange-900/30 last:border-0">
+                        <i class="fas ${icon} mt-0.5 shrink-0 text-[11px]"></i>
+                        <span>${lineTag}${d.text}</span>
+                    </div>`;
+                }).join('');
+
+                panel.classList.remove('hidden');
+                if (disruptionsOpen) {
+                    list.classList.remove('hidden');
+                    $('disruptions-chevron').style.transform = 'rotate(180deg)';
+                } else {
+                    list.classList.add('hidden');
+                    $('disruptions-chevron').style.transform = '';
+                }
+            } catch {}
+        }
+
+        function toggleDisruptions() {
+            disruptionsOpen = !disruptionsOpen;
+            $('disruptions-list').classList.toggle('hidden', !disruptionsOpen);
+            $('disruptions-chevron').style.transform = disruptionsOpen ? 'rotate(180deg)' : '';
+        }
+
+        // ─── Trip-Enrichment mit DB-Daten ─────────────────────────────────────────
+        async function enrichTripWithDB(lineName, stationName, stopovers) {
+            try {
+                const r = await fetch(`${API_BASE}/api/db/trip-remarks?number=${encodeURIComponent(lineName)}&stopName=${encodeURIComponent(stationName)}`);
+                if (!r.ok) return null;
+                const data = await r.json();
+                if (!data.remarks?.length && !data.stopovers?.length) return null;
+
+                // Stopover-Infos mergen (cancelled/additional/arrDelay per Name)
+                if (data.stopovers?.length && stopovers?.length) {
+                    const dbMap = new Map(data.stopovers.map(s => [s.name.toLowerCase().trim(), s]));
+                    stopovers.forEach(s => {
+                        const db = dbMap.get((s.stop?.name || '').toLowerCase().trim());
+                        if (!db) return;
+                        if (db.cancelled)  s.cancelled  = true;
+                        if (db.additional) s.additional = true;
+                        if (db.remarks?.length) s.remarks = [...(s.remarks || []), ...db.remarks];
+                        // Delay aus DB wenn VRR keinen hat
+                        if (s.arrivalDelaySec   === null && db.arrDelay   !== null) s.arrivalDelaySec   = db.arrDelay   * 60;
+                        if (s.departureDelaySec === null && db.depDelay   !== null) s.departureDelaySec = db.depDelay   * 60;
+                    });
+                }
+                return data.remarks;
+            } catch { return null; }
         }
 
         let archiveOpen = false;
@@ -1477,6 +1561,20 @@
                 addTripToArchive(dep, { stopovers: stops, remarks }, finalSourceName);
                 currentDetailStopovers = stops;
                 renderItinerary(stops, remarks, finalSourceName);
+
+                // DB-Enrichment im Hintergrund (cancelled/additional/remarks)
+                const lineName    = dep.line?.name || dep.line?.id || '';
+                const stationName = state.currentStation?.name || '';
+                if (lineName && stationName && (finalSourceName === 'VRR OpenService' || finalSourceName === 'Transitous')) {
+                    enrichTripWithDB(lineName, stationName, stops).then(dbRemarks => {
+                        if (dbRemarks?.length) {
+                            const allRemarks = [...remarks, ...dbRemarks];
+                            renderItinerary(stops, allRemarks, finalSourceName);
+                        } else if (stops.some(s => s.cancelled || s.additional)) {
+                            renderItinerary(stops, remarks, finalSourceName);
+                        }
+                    }).catch(() => {});
+                }
             } catch (e) {
                 console.error('Trip details failed', e);
                 itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
