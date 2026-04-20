@@ -282,6 +282,130 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
     }
 });
 
+// ─── Störungsmeldungen via DB REST ───────────────────────────────────────────
+const DB_REST = 'https://v6.db.transport.rest';
+
+app.get('/api/disruptions', async (req, res) => {
+    try {
+        const name = (req.query.name || '').toString().trim();
+        if (name.length < 2) return res.json({ disruptions: [] });
+
+        // 1. DB Stop-ID ermitteln
+        const locR = await fetch(`${DB_REST}/locations?query=${encodeURIComponent(name)}&results=1&stops=true&addresses=false&poi=false`,
+            { signal: AbortSignal.timeout(5000) });
+        if (!locR.ok) return res.json({ disruptions: [] });
+        const locs = await locR.json();
+        const stop = Array.isArray(locs) ? locs[0] : (locs.locations || locs.results || [])[0];
+        if (!stop?.id) return res.json({ disruptions: [] });
+
+        // 2. Abfahrten mit Remarks holen
+        const depR = await fetch(`${DB_REST}/stops/${encodeURIComponent(stop.id)}/departures?results=30&remarks=true&duration=120`,
+            { signal: AbortSignal.timeout(6000) });
+        if (!depR.ok) return res.json({ disruptions: [] });
+        const depData = await depR.json();
+        const deps = depData.departures || (Array.isArray(depData) ? depData : []);
+
+        // 3. Remarks aggregieren + deduplizieren
+        const seen  = new Set();
+        const disruptions = [];
+        const keepTypes = new Set(['disruption', 'status', 'hint', 'warning', 'cancelled']);
+
+        for (const dep of deps) {
+            for (const rem of (dep.remarks || [])) {
+                const text = (rem.text || rem.summary || '').trim();
+                if (!text || seen.has(text)) continue;
+                seen.add(text);
+                // Typ bestimmen
+                const type = rem.type || (rem.code ? 'disruption' : 'hint');
+                if (!keepTypes.has(type) && !rem.code) continue;
+                disruptions.push({
+                    text,
+                    type,
+                    code:     rem.code     || null,
+                    summary:  rem.summary  || null,
+                    priority: rem.priority || 50,
+                    line:     dep.line?.name || null,
+                });
+            }
+        }
+
+        // Wichtigste zuerst
+        disruptions.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        res.json({ disruptions: disruptions.slice(0, 15), stopName: stop.name });
+    } catch (e) {
+        console.error('[disruptions]', e.message);
+        res.json({ disruptions: [] });
+    }
+});
+
+// ─── Trip-Remarks via DB REST (für VRR + Transitous Trips) ────────────────────
+app.get('/api/db/trip-remarks', async (req, res) => {
+    try {
+        const { number, stopName, date } = req.query;
+        if (!number || !stopName) return res.json({ remarks: [] });
+
+        // DB Stop finden
+        const locR = await fetch(`${DB_REST}/locations?query=${encodeURIComponent(stopName)}&results=1&stops=true&addresses=false&poi=false`,
+            { signal: AbortSignal.timeout(5000) });
+        if (!locR.ok) return res.json({ remarks: [] });
+        const locs = await locR.json();
+        const stop = Array.isArray(locs) ? locs[0] : (locs.locations || locs.results || [])[0];
+        if (!stop?.id) return res.json({ remarks: [] });
+
+        // Abfahrten mit Remarks holen
+        const when  = date ? new Date(date + 'T00:00:00') : new Date();
+        const depR  = await fetch(`${DB_REST}/stops/${encodeURIComponent(stop.id)}/departures?results=60&remarks=true&duration=180`,
+            { signal: AbortSignal.timeout(6000) });
+        if (!depR.ok) return res.json({ remarks: [] });
+        const depData = await depR.json();
+        const deps = depData.departures || (Array.isArray(depData) ? depData : []);
+
+        // Passende Linie finden
+        const q = number.trim().toUpperCase().replace(/\s+/g, '');
+        const matching = deps.filter(d => {
+            const n = (d.line?.name || '').toUpperCase().replace(/\s+/g, '');
+            return n === q || n.endsWith(q);
+        });
+
+        if (!matching.length) return res.json({ remarks: [] });
+
+        // Bestes Match: meiste Remarks
+        const best = matching.reduce((a, b) => (b.remarks?.length || 0) > (a.remarks?.length || 0) ? b : a);
+        const remarks = (best.remarks || [])
+            .filter(r => r.text || r.summary)
+            .map(r => ({ text: r.text || r.summary || '', type: r.type || 'hint', priority: r.priority || 50, code: r.code || null }));
+
+        // Falls tripId vorhanden: volles Trip mit Remarks holen
+        if (best.tripId) {
+            try {
+                const tripR = await fetch(`${DB_REST}/trips/${encodeURIComponent(best.tripId)}?stopovers=true&remarks=true`,
+                    { signal: AbortSignal.timeout(8000) });
+                if (tripR.ok) {
+                    const tripData = await tripR.json();
+                    const trip = tripData.trip ?? tripData;
+                    const tripRemarks = (trip.remarks || [])
+                        .filter(r => r.text || r.summary)
+                        .map(r => ({ text: r.text || r.summary || '', type: r.type || 'hint', priority: r.priority || 50, code: r.code || null }));
+                    const stopoversWithRemarks = (trip.stopovers || []).map(s => ({
+                        name:       s.stop?.name || '',
+                        cancelled:  s.cancelled  || false,
+                        additional: s.additional || false,
+                        remarks:    (s.remarks || []).map(r => ({ text: r.text || '', type: r.type || 'hint' })),
+                        arrDelay:   s.arrivalDelay   ?? null,
+                        depDelay:   s.departureDelay ?? null,
+                    }));
+                    return res.json({ remarks: tripRemarks, stopovers: stopoversWithRemarks, tripId: best.tripId });
+                }
+            } catch {}
+        }
+
+        res.json({ remarks });
+    } catch (e) {
+        console.error('[trip-remarks]', e.message);
+        res.json({ remarks: [] });
+    }
+});
+
 // ─── Fahrtverlauf Transitous ──────────────────────────────────────────────────
 app.get('/api/train-details/:tripId', async (req, res) => {
     try {
@@ -330,93 +454,23 @@ app.get('/api/trips/:tripId', async (req, res) => {
         const { line, stopID, tripCode, date, time } = payload || {};
         if (!line || !stopID || tripCode == null || !date || !time)
             return res.status(400).json({ error: 'tripId missing fields' });
-
-        // VRR + Transitous parallel abrufen
-        const [data, transitousData] = await Promise.allSettled([
-            efaGet('XML_TRIPSTOPTIMES_REQUEST', {
-                outputFormat: 'rapidJSON', version: EFA_VERSION,
-                mode: 'direct', line, stopID, tripCode, date, time,
-                tStOTType: 'ALL', useRealtime: 1
-            }),
-            // Transitous für cancelled/additional/remarks: Zugnummer aus line-ID ableiten
-            (async () => {
-                const num = (line.split(':').pop() || line).replace(/^0+/, '').trim();
-                if (!num) return null;
-                const when = new Date(`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}T${time.slice(0,2)}:${time.slice(2,4)}:00`);
-                const params = new URLSearchParams({ stopId: stopID.replace(/^de:/, 'de-DELFI_de:'), time: when.toISOString(), n: '100', window: '7200' });
-                // Versuche direkt über stopID → stoptimes den tripId zu finden
-                const r = await fetch(`${TRANSITOUS}/stoptimes?${params}`, { signal: AbortSignal.timeout(6000), headers: TR_HEADERS });
-                if (!r.ok) return null;
-                const d = await r.json();
-                const times = d.stopTimes || d.departures || [];
-                const match = times.find(t => {
-                    const dn = (t.displayName || t.routeShortName || t.tripShortName || '').toUpperCase().replace(/\s+/g,'');
-                    return dn === num.toUpperCase().replace(/\s+/g,'') || dn.endsWith(num.toUpperCase().replace(/\s+/g,''));
-                });
-                if (!match?.tripId) return null;
-                const tr = await fetch(`${TRANSITOUS}/trip?tripId=${encodeURIComponent(match.tripId)}`, { signal: AbortSignal.timeout(8000), headers: TR_HEADERS });
-                if (!tr.ok) return null;
-                return await tr.json();
-            })()
-        ]);
-
-        const seq = (data.status === 'fulfilled' ? data.value : data)?.transportation?.locationSequence || [];
-
-        // Transitous-Stopdaten als Map für Anreicherung
-        const tStopMap = new Map();
-        if (transitousData.value) {
-            const legs = transitousData.value.legs || [];
-            const leg  = legs.find(l => l.mode && l.mode !== 'WALK') || legs[0];
-            if (leg) {
-                const allS = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
-                allS.forEach(s => tStopMap.set((s.name || '').toLowerCase().trim(), s));
-            }
-        }
-
-        const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
-            const stopName = (s.name || s.parent?.name || '').toLowerCase().trim();
-            const tStop    = tStopMap.get(stopName);
-            const planned  = s.properties?.plannedPlatformName || null;
-            const actual   = s.properties?.platformName        || null;
-            const stopRemarks = [];
-            if (planned && actual && planned !== actual) {
-                stopRemarks.push({ text: 'Platform change', type: 'hint', priority: 70 });
-            }
-            return {
-                stop:             { name: s.name || s.parent?.name || '' },
-                plannedArrival:   toIsoStringOrNull(s.arrivalTimePlanned),
-                arrival:          toIsoStringOrNull(s.arrivalTimeEstimated),
-                plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
-                departure:        toIsoStringOrNull(s.departureTimeEstimated),
-                plannedPlatform:  planned,
-                platform:         actual,
-                cancelled:        tStop?.cancelled  || s.isNotServiced || false,
-                additional:       tStop?.additional || false,
-                remarks:          stopRemarks,
-                // Transitous-Delays übernehmen falls VRR keine Echtzeit hat
-                arrivalDelaySec:   tStop?.arrival && tStop?.scheduledArrival
-                    ? Math.round((new Date(tStop.arrival) - new Date(tStop.scheduledArrival)) / 1000) : null,
-                departureDelaySec: tStop?.departure && tStop?.scheduledDeparture
-                    ? Math.round((new Date(tStop.departure) - new Date(tStop.scheduledDeparture)) / 1000) : null,
-            };
+        const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
+            outputFormat: 'rapidJSON', version: EFA_VERSION,
+            mode: 'direct', line, stopID, tripCode, date, time,
+            tStOTType: 'ALL', useRealtime: 1
         });
-
-        // Trip-Remarks aus Transitous
-        const tripRemarks = [];
-        if (transitousData.value) {
-            const leg = (transitousData.value.legs || []).find(l => l.mode && l.mode !== 'WALK');
-            if (leg?.interlineWithPreviousLeg) {
-                const fromLine = leg.tripFrom?.displayName || leg.tripFrom?.routeShortName || '';
-                tripRemarks.push({ text: fromLine ? `Wendet aus ${fromLine}` : 'Durchbindung – Fahrzeug kommt von vorheriger Fahrt', type: 'hint', priority: 80 });
-            }
-            if (leg?.tripTo) {
-                const toLine = leg.tripTo.displayName || leg.tripTo.routeShortName || '';
-                const toDest = leg.tripTo.headsign   || '';
-                if (toLine) tripRemarks.push({ text: `Fährt weiter als ${toLine}${toDest ? ` nach ${toDest}` : ''}`, type: 'hint', priority: 80 });
-            }
-        }
-
-        res.json({ stopovers, remarks: tripRemarks, source: 'VRR OpenService' });
+        const seq = data.transportation?.locationSequence || [];
+        const stopovers = (Array.isArray(seq) ? seq : []).map(s => ({
+            stop:             { name: s.name || s.parent?.name || '' },
+            plannedArrival:   toIsoStringOrNull(s.arrivalTimePlanned),
+            arrival:          toIsoStringOrNull(s.arrivalTimeEstimated),
+            plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
+            departure:        toIsoStringOrNull(s.departureTimeEstimated),
+            plannedPlatform:  s.properties?.plannedPlatformName || s.properties?.platformName || null,
+            platform:         s.properties?.platformName || null,
+            cancelled: false, additional: false,
+        }));
+        res.json({ stopovers, remarks: [], source: 'VRR OpenService' });
     } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
