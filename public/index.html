@@ -173,7 +173,7 @@
                 <!-- Quelle-Umschalter -->
                 <div class="flex bg-gray-100 dark:bg-zinc-900 p-1 rounded-xl self-start">
                     <button id="source-vrr" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm">VRR</button>
-                    <button id="source-db" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300">Träwelling</button>
+                    <button id="source-db" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300">Deutsche Bahn</button>
                 </div>
                 
                 <div class="flex gap-2">
@@ -190,7 +190,7 @@
                     </div>
                     <a href="trip-search.html" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2 shadow-lg shadow-red-600/20">
                         <i class="fas fa-train"></i>
-                        <span class="hidden md:inline">Zugnr./Fahrtnr. suchen</span>
+                        <span class="hidden md:inline">Zug-/Busnummer</span>
                         <span class="md:hidden">Nummer</span>
                     </a>
                 </div>
@@ -390,7 +390,7 @@
         //
         // Wenn du die Seite statisch über GitHub Pages hostest, brauchst du zusätzlich eine Backend-URL.
         // Du kannst sie im UI unter "Backend-URL" setzen (wird in localStorage gespeichert).
-        const DEFAULT_REMOTE_API_BASE = ''; // optional hart setzen, z.B. window.location.origin
+        const DEFAULT_REMOTE_API_BASE = ''; // optional hart setzen, z.B. 'https://dilaeit.onrender.com'
         const API_BASE = (() => {
             const saved = localStorage.getItem('dilaeit_api_base');
             if (saved) return saved;
@@ -451,11 +451,11 @@
             if (src === 'VRR') {
                 vrrBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
                 dbBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
-                input.placeholder = 'Haltestelle suchen...';
+                input.placeholder = 'Haltestelle suchen (VRR)...';
             } else {
                 dbBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
                 vrrBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
-                input.placeholder = 'Haltestelle suchen...';
+                input.placeholder = 'Haltestelle suchen (Deutsche Bahn)...';
             }
             
             // Suche zurücksetzen
@@ -1811,7 +1811,7 @@
                 })();
 
                 // Dot-Farbe
-                const dotColor = isCancelled ? 'bg-gray-600' : isAdditional ? 'bg-blue-500' : 'bg-red-600';
+                const dotColor = isCancelled ? 'bg-gray-600' : isAdditional ? 'bg-green-500' : 'bg-red-600';
 
                 stopItem.innerHTML = `
                     <!-- Zeiten links -->
@@ -1826,7 +1826,7 @@
                     </div>
                     <!-- Name + Info rechts -->
                     <div class="flex-1 min-w-0 flex flex-col justify-center pl-2">
-                        <span class="text-sm font-semibold ${isCancelled ? 'line-through text-gray-500' : ''} ${isAdditional ? 'text-blue-400' : ''}">
+                        <span class="text-sm font-semibold ${isCancelled ? 'line-through text-gray-500' : ''} ${isAdditional ? 'text-green-400' : ''}">
                             ${stop.stop.name}${isAdditional ? ' <span class="text-[9px]">[+]</span>' : ''}
                         </span>
                         <div class="flex flex-wrap gap-x-2 items-center mt-0.5">
@@ -1860,7 +1860,7 @@
 
         // ─── Live-Karte (Transitous/MOTIS) ───────────────────────────────────────────
         const MOTIS_BASE   = 'https://api.transitous.org/api/v1';
-        const MOTIS_AGENT  = 'dilaeit/1.0 (' + window.location.origin + ')';
+        const MOTIS_AGENT  = 'dilaeit/1.0 (https://dilaeit.onrender.com)';
 
         let liveMap         = null;
         let vehicleMarkers  = new Map(); // tripId → marker
@@ -1945,7 +1945,7 @@
 
             try {
                 const res = await fetch(url, {
-                    headers: { 'Referer': window.location.origin }
+                    headers: { 'Referer': 'https://dilaeit.onrender.com' }
                 });
                 const text = await res.text();
                 if (!res.ok) throw new Error(`MOTIS ${res.status}: ${text}`);
@@ -2073,7 +2073,7 @@
             if (!liveMap || !mapVisible) return;
             // Transitous Stationssuche für Koordinaten
             fetch(`${MOTIS_BASE}/geocode?text=${encodeURIComponent(station.name)}&language=de`, {
-                headers: { 'Referer': window.location.origin }
+                headers: { 'Referer': 'https://dilaeit.onrender.com' }
             })
             .then(r => r.ok ? r.json() : null)
             .then(data => {
