@@ -481,8 +481,6 @@ app.get('/api/trips/:tripId', async (req, res) => {
             tStOTType: 'ALL', useRealtime: 1
         });
         const seq = data.transportation?.locationSequence || [];
-        // Debug: first stop fields to find cancellation indicator
-        if (seq[0]) console.log('[VRR stop fields]', Object.keys(seq[0]), 'props:', JSON.stringify(seq[0].properties || {}).slice(0,200));
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
             const pA = toIsoStringOrNull(s.arrivalTimePlanned);
             const aA = toIsoStringOrNull(s.arrivalTimeEstimated);
@@ -503,9 +501,10 @@ app.get('/api/trips/:tripId', async (req, res) => {
                 departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
                 plannedPlatform:  planned,
                 platform:         actual,
-                cancelled: s.isNotServiced || s.isCancelled
-                    || (s.properties?.realtimeStatus === 'CANCELLED')
-                    || (s.realtimeStatus === 'CANCELLED')
+                cancelled: s.isCancelled || s.isNotServiced
+                    || (Array.isArray(s.properties?.realtimeStatus)
+                        ? s.properties.realtimeStatus.some(r => r.includes('CANCELLED'))
+                        : (s.properties?.realtimeStatus || '').includes('CANCELLED'))
                     || false,
                 additional: false,
                 remarks: stopRemarks,
