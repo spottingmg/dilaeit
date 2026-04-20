@@ -799,6 +799,7 @@
                 item.onclick = () => {
                     state.currentStation = res;
                     state.currentRegion  = detectRegion(res.name);
+                    state.disruptionsLoaded = false;
                     activeLineFilter = null;   // Filter bei neuer Station zurücksetzen
                     $('station-search').value = res.name;
                     container.classList.add('hidden');
@@ -1016,6 +1017,11 @@
                 buildLineFilter();
                 renderDepartures();
                 autoSaveDepartures(state.departures);
+                // Störungsmeldungen beim ersten Laden einer Station abrufen
+                if (force || !state.disruptionsLoaded) {
+                    state.disruptionsLoaded = true;
+                    loadDisruptions(state.currentStation.name);
+                }
             } catch (err) {
                 console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
                 $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
