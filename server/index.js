@@ -312,36 +312,48 @@ app.get('/api/disruptions', async (req, res) => {
         const stop  = stops.find(s => s.id && s.name) || stops[0];
         if (!stop?.id) return res.json({ disruptions: [] });
 
-        // 80 Abfahrten mit Remarks – genug um auch Züge zu erfassen
-        const depR = await fetch(`${DB_REST}/stops/${encodeURIComponent(stop.id)}/departures?results=80&remarks=true&duration=180`,
-            { signal: AbortSignal.timeout(6000) });
-        if (!depR.ok) return res.json({ disruptions: [] });
-        const depData = await depR.json();
-        const deps = depData.departures || (Array.isArray(depData) ? depData : []);
-
-        // Triviale Betriebshinweise herausfiltern
-        const trivial = new Set([
-            'sonderfahrt', 'zusatzhalt', 'halt entfällt', 'stop cancelled',
-            'additional stop', 'special service',
-            'fahrzeuggebundene einstiegshilfe vorhanden.',
-            'rollstuhlgerechtes wc vorhanden.', 'stufenfreier zugang.',
-            'fahrradmitnahme möglich.', 'wlan verfügbar.', 'bicycles conveyed.',
-            'step-free access.', 'power sockets available.',
+        // Parallel: Züge (20 Abf.) + alle Verkehrsmittel (80 Abf.)
+        const [trainR, allR] = await Promise.allSettled([
+            fetch(`${DB_REST}/stops/${encodeURIComponent(stop.id)}/departures?results=20&remarks=true&duration=180&products=nationalExpress%2Cnational%2Cregional%2CregionalExp%2Csuburban`,
+                { signal: AbortSignal.timeout(6000) }),
+            fetch(`${DB_REST}/stops/${encodeURIComponent(stop.id)}/departures?results=80&remarks=true&duration=180`,
+                { signal: AbortSignal.timeout(6000) }),
         ]);
+
+        const trainDeps = trainR.status === 'fulfilled' && trainR.value.ok
+            ? ((await trainR.value.json()).departures || []) : [];
+        const allDeps   = allR.status === 'fulfilled' && allR.value.ok
+            ? ((await allR.value.json()).departures || []) : [];
+
+        // Triviale Betriebshinweise herausfiltern (Substring-Match)
+        const trivialPatterns = [
+            'sonderfahrt', 'zusatzhalt', 'fahrzeuggebundene einstiegshilfe',
+            'rollstuhlgerechtes wc', 'stufenfreier zugang', 'fahrradmitnahme möglich',
+            'wlan verfügbar', 'bicycles conveyed', 'step-free access',
+            'power sockets available', 'quiet zone', 'air conditioning',
+            'on-board restaurant', 'no catering',
+        ];
+        const isTrivial = (text) => {
+            const t = text.toLowerCase();
+            if (t === 'halt entfällt' || t === 'stop cancelled' || t === 'additional stop') return true;
+            return trivialPatterns.some(p => t.includes(p));
+        };
 
         const seen = new Set();
         const disruptions = [];
-        for (const dep of deps) {
+
+        // Zug-Störungen zuerst (höhere Priorität)
+        for (const dep of [...trainDeps, ...allDeps]) {
             for (const rem of (dep.remarks || [])) {
                 const text = (rem.text || rem.summary || '').trim();
-                if (!text || seen.has(text) || trivial.has(text.toLowerCase())) continue;
-                if (text.length < 15) continue;
+                if (!text || seen.has(text) || isTrivial(text) || text.length < 20) continue;
                 seen.add(text);
+                const isTrainDep = trainDeps.includes(dep);
                 disruptions.push({
                     text,
                     type:     rem.type     || 'hint',
                     code:     rem.code     || null,
-                    priority: rem.priority || (rem.type === 'disruption' ? 80 : 50),
+                    priority: rem.priority || (isTrainDep ? 80 : 50),
                     line:     dep.line?.name || null,
                 });
             }
@@ -352,7 +364,6 @@ app.get('/api/disruptions', async (req, res) => {
             return b.text.length - a.text.length;
         });
 
-        // Dedupliziere ähnliche Texte (gleicher Anfang)
         const final = [];
         for (const d of disruptions) {
             const prefix = d.text.slice(0, 50).toLowerCase();
