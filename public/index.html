@@ -1552,14 +1552,11 @@
                             .then(r => r.ok ? r.json() : null)
                             .then(data => {
                                 if (!data?.disruptions?.length) return;
-                                const q = lnName.toUpperCase().replace(/\s+/g,'');
-                                const relevant = data.disruptions.filter(d => {
-                                    if (!d.line) return true;
-                                    const dl = d.line.toUpperCase().replace(/\s+/g,'');
-                                    return dl === q || dl.endsWith(q) || q.endsWith(dl);
-                                });
-                                if (!relevant.length) return;
-                                const dbRemarks = relevant.map(d => ({ text: d.text, type: d.type || 'hint', priority: d.priority || 50 }));
+                                // Alle Störungen zeigen (nicht nur liniengefiltert)
+                                // da Streckenstörungen oft unter anderer Linie gelistet
+                                const dbRemarks = data.disruptions.map(d => ({
+                                    text: d.text, type: d.type || 'hint', priority: d.priority || 50
+                                }));
                                 renderItinerary(stops, [...remarks, ...dbRemarks], finalSourceName);
                             })
                             .catch(()=>{});
