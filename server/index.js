@@ -295,30 +295,19 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         const leg   = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
         if (!leg) throw new Error('Kein Transit-Leg');
 
-        // Durchbindung aus interlineWithPreviousLeg + tripFrom/tripTo
         const remarks = [];
         if (leg.interlineWithPreviousLeg) {
             const fromLine = leg.tripFrom?.displayName || leg.tripFrom?.routeShortName || '';
             const fromDest = leg.tripFrom?.headsign    || leg.tripFrom?.name           || '';
-            remarks.push({
-                text: fromLine
-                    ? `Wendet aus ${fromLine}${fromDest ? ` (${fromDest})` : ''}`
-                    : 'Durchbindung – Fahrzeug kommt von vorheriger Fahrt',
-                type: 'hint', priority: 80
-            });
+            remarks.push({ text: fromLine ? `Wendet aus ${fromLine}${fromDest ? ` (${fromDest})` : ''}` : 'Durchbindung – Fahrzeug kommt von vorheriger Fahrt', type: 'hint', priority: 80 });
         }
         if (leg.tripTo) {
             const toLine = leg.tripTo.displayName || leg.tripTo.routeShortName || '';
             const toDest = leg.tripTo.headsign    || leg.tripTo.name           || '';
-            if (toLine) remarks.push({
-                text: `Fährt weiter als ${toLine}${toDest ? ` nach ${toDest}` : ''}`,
-                type: 'hint', priority: 80
-            });
+            if (toLine) remarks.push({ text: `Fährt weiter als ${toLine}${toDest ? ` nach ${toDest}` : ''}`, type: 'hint', priority: 80 });
         }
 
         const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
-        const stopovers = allStops.map(s => {
-            const pA = s.scheduledArrival   || null;
             const aA = s.arrival            || null;
             const pD = s.scheduledDeparture || null;
             const aD = s.departure          || null;
@@ -358,26 +347,29 @@ app.get('/api/trips/:tripId', async (req, res) => {
         });
         const seq = data.transportation?.locationSequence || [];
 
-        // VRR EFA Infotexte auf Trip-Ebene (z.B. SEV, Verspätungsgrund)
+        // Debug: VRR EFA Top-Level Keys loggen
+        console.log('[VRR trip keys]', Object.keys(data));
+        if (seq[0]) console.log('[VRR stop[0] keys]', Object.keys(seq[0]));
+        const anyInfo = data.infos || data.hints || data.messages || data.infoLinks || [];
+        if (anyInfo.length) console.log('[VRR infos sample]', JSON.stringify(anyInfo[0]).slice(0,300));
+
+        // VRR EFA Infotexte auf Trip-Ebene
         const tripRemarks = [];
-        const infos = data.infos || data.hints || [];
-        for (const info of infos) {
-            const text = info.infoLinkText || info.subtitle || info.content || info.text || '';
+        for (const info of (data.infos || data.hints || data.messages || data.infoLinks || [])) {
+            const text = info.infoLinkText || info.subtitle || info.content || info.text || info.description || '';
             if (text) tripRemarks.push({ text, type: 'hint', priority: info.priority || 50 });
         }
 
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
-            // Stop-level Infotexte (z.B. Gleisänderung, Halteausfall)
             const stopRemarks = [];
-            for (const info of (s.infos || [])) {
+            for (const info of (s.infos || s.messages || s.hints || [])) {
                 const text = info.infoLinkText || info.subtitle || info.content || info.text || '';
                 if (text) stopRemarks.push({ text, type: 'hint', priority: info.priority || 50 });
             }
-            // Gleisänderung explizit als Remark
             const planned = s.properties?.plannedPlatformName || null;
             const actual  = s.properties?.platformName        || null;
             if (planned && actual && planned !== actual) {
-                stopRemarks.push({ text: `Platform change`, type: 'hint', priority: 70 });
+                stopRemarks.push({ text: 'Platform change', type: 'hint', priority: 70 });
             }
             return {
                 stop:             { name: s.name || s.parent?.name || '' },
@@ -461,25 +453,16 @@ app.get('/api/iris/trip-search', async (req, res) => {
             cancelled: s.cancelled || false, additional: false, remarks: []
         }));
 
-        // Durchbindung aus interlineWithPreviousLeg + tripFrom/tripTo
         const irisRemarks = [];
         if (leg.interlineWithPreviousLeg) {
             const fromLine = leg.tripFrom?.displayName || leg.tripFrom?.routeShortName || '';
             const fromDest = leg.tripFrom?.headsign    || leg.tripFrom?.name           || '';
-            irisRemarks.push({
-                text: fromLine
-                    ? `Wendet aus ${fromLine}${fromDest ? ` (${fromDest})` : ''}`
-                    : 'Durchbindung – Fahrzeug kommt von vorheriger Fahrt',
-                type: 'hint', priority: 80
-            });
+            irisRemarks.push({ text: fromLine ? `Wendet aus ${fromLine}${fromDest ? ` (${fromDest})` : ''}` : 'Durchbindung – Fahrzeug kommt von vorheriger Fahrt', type: 'hint', priority: 80 });
         }
         if (leg.tripTo) {
             const toLine = leg.tripTo.displayName || leg.tripTo.routeShortName || '';
             const toDest = leg.tripTo.headsign    || leg.tripTo.name           || '';
-            if (toLine) irisRemarks.push({
-                text: `Fährt weiter als ${toLine}${toDest ? ` nach ${toDest}` : ''}`,
-                type: 'hint', priority: 80
-            });
+            if (toLine) irisRemarks.push({ text: `Fährt weiter als ${toLine}${toDest ? ` nach ${toDest}` : ''}`, type: 'hint', priority: 80 });
         }
 
         res.json({
