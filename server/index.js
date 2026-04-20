@@ -122,7 +122,7 @@ function decodeTripId(encoded) {
 }
 
 // ─── Statische Dateien ───────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 app.use(express.static(publicPath));
 app.get('/', (_req, res) => res.sendFile(path.join(publicPath, 'index.html')));
 
@@ -294,6 +294,36 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         const legs  = data.legs || [];
         const leg   = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
         if (!leg) throw new Error('Kein Transit-Leg');
+        // Debug: Leg-Felder für Alert-Erkennung loggen
+        console.log('[Transitous leg keys]', Object.keys(leg).filter(k => !['intermediateStops'].includes(k)));
+        if (leg.alerts?.length) console.log('[Transitous alerts]', JSON.stringify(leg.alerts).slice(0, 300));
+
+        // Alerts → remarks konvertieren (Transitous Format)
+        function alertsToRemarks(alerts = []) {
+            return alerts
+                .filter(a => a && (a.headerText || a.descriptionText || a.header || a.text))
+                .map(a => ({
+                    text: a.headerText || a.header || a.descriptionText || a.text || '',
+                    type: a.effect === 'NO_SERVICE' ? 'status' : 'hint',
+                    priority: a.effect === 'NO_SERVICE' ? 100 : 50,
+                }));
+        }
+
+        const legRemarks = alertsToRemarks(leg.alerts || leg.notes || []);
+
+        // SEV-Hinweis aus leg.serviceJourneyInterchange (Durchbindung/Vereinigung)
+        const interchangeRemarks = [];
+        if (leg.interchangeFrom) {
+            const f = leg.interchangeFrom;
+            const lineName = f.displayName || f.routeShortName || '';
+            if (lineName) interchangeRemarks.push({ text: `Wendet aus ${lineName}`, type: 'hint', priority: 80 });
+        }
+        if (leg.interchangeTo) {
+            const t = leg.interchangeTo;
+            const lineName = t.displayName || t.routeShortName || '';
+            const dest     = t.headsign || '';
+            if (lineName) interchangeRemarks.push({ text: `Fährt weiter als ${lineName}${dest ? ` nach ${dest}` : ''}`, type: 'hint', priority: 80 });
+        }
 
         const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
         const stopovers = allStops.map(s => {
@@ -301,6 +331,11 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             const aA = s.arrival            || null;
             const pD = s.scheduledDeparture || null;
             const aD = s.departure          || null;
+            const stopRemarks = alertsToRemarks(s.alerts || s.notes || []);
+            // Haltausfall explizit kennzeichnen
+            if (s.cancelled && !stopRemarks.find(r => r.text.toLowerCase().includes('entfäll'))) {
+                stopRemarks.push({ text: 'Stop cancelled', type: 'status', priority: 100 });
+            }
             return {
                 stop: { name: s.name || '', id: s.stopId || null,
                         location: (s.lat && s.lon) ? { latitude: s.lat, longitude: s.lon } : null },
@@ -310,11 +345,14 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                 departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
                 platform:        s.track          || null,
                 plannedPlatform: s.scheduledTrack || null,
-                cancelled: s.cancelled || false, additional: false, remarks: []
+                cancelled: s.cancelled || false, additional: false,
+                remarks: stopRemarks,
             };
         });
         res.json({
-            stopovers, remarks: [], source: 'Transitous', tripId,
+            stopovers,
+            remarks: [...interchangeRemarks, ...legRemarks],
+            source: 'Transitous', tripId,
             line: { name: leg.displayName || leg.routeShortName || leg.tripShortName || '', product: (leg.mode || 'bus').toLowerCase() }
         });
     } catch (e) {
@@ -426,11 +464,8 @@ app.get('/api/iris/trip-search', async (req, res) => {
     }
 });
 
-// ─── Sync-Datenbank ───────────────────────────────────────────────────────────
-// Render: /tmp wird bei Restart gelöscht → App-Verzeichnis nutzen
-const SYNC_FILE = process.env.SYNC_FILE
-    || path.join(__dirname, '..', 'sync_data.json')
-    || path.join(process.cwd(), 'sync_data.json');
+// ─── Sync-Datenbank (JSON-File, persistent über Restarts) ────────────────────
+const SYNC_FILE = process.env.SYNC_FILE || '/tmp/dilaeit_sync.json';
 
 function loadSyncDB() {
     try { return JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8')); } catch { return {}; }
@@ -477,13 +512,9 @@ app.post('/api/sync/:code', (req, res) => {
     if (!syncDB[code]) return res.status(404).json({ error: 'Code nicht gefunden' });
     const { journeys } = req.body;
     if (!Array.isArray(journeys)) return res.status(400).json({ error: 'journeys must be array' });
-    // Merge statt Überschreiben – verhindert Datenverlust bei gleichzeitigem Push
-    const existing = new Map((syncDB[code].journeys || []).map(j => [j.id, j]));
-    for (const j of journeys) { if (j?.id) existing.set(j.id, j); }
-    syncDB[code] = { journeys: [...existing.values()], updatedAt: new Date().toISOString() };
+    syncDB[code] = { journeys, updatedAt: new Date().toISOString() };
     saveSyncDB(syncDB);
-    console.log(`[Sync] ${code}: ${syncDB[code].journeys.length} Fahrten gespeichert`);
-    res.json({ ok: true, count: syncDB[code].journeys.length });
+    res.json({ ok: true, count: journeys.length });
 });
 
 // Einzelne Fahrt hinzufügen/updaten
