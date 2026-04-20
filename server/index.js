@@ -330,28 +330,93 @@ app.get('/api/trips/:tripId', async (req, res) => {
         const { line, stopID, tripCode, date, time } = payload || {};
         if (!line || !stopID || tripCode == null || !date || !time)
             return res.status(400).json({ error: 'tripId missing fields' });
-        const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
-            outputFormat: 'rapidJSON', version: EFA_VERSION,
-            mode: 'direct', line, stopID, tripCode, date, time,
-            tStOTType: 'ALL', useRealtime: 1,
-            includeInfoMessages: 1,
-            infoMessages: 1,
+
+        // VRR + Transitous parallel abrufen
+        const [data, transitousData] = await Promise.allSettled([
+            efaGet('XML_TRIPSTOPTIMES_REQUEST', {
+                outputFormat: 'rapidJSON', version: EFA_VERSION,
+                mode: 'direct', line, stopID, tripCode, date, time,
+                tStOTType: 'ALL', useRealtime: 1
+            }),
+            // Transitous für cancelled/additional/remarks: Zugnummer aus line-ID ableiten
+            (async () => {
+                const num = (line.split(':').pop() || line).replace(/^0+/, '').trim();
+                if (!num) return null;
+                const when = new Date(`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}T${time.slice(0,2)}:${time.slice(2,4)}:00`);
+                const params = new URLSearchParams({ stopId: stopID.replace(/^de:/, 'de-DELFI_de:'), time: when.toISOString(), n: '100', window: '7200' });
+                // Versuche direkt über stopID → stoptimes den tripId zu finden
+                const r = await fetch(`${TRANSITOUS}/stoptimes?${params}`, { signal: AbortSignal.timeout(6000), headers: TR_HEADERS });
+                if (!r.ok) return null;
+                const d = await r.json();
+                const times = d.stopTimes || d.departures || [];
+                const match = times.find(t => {
+                    const dn = (t.displayName || t.routeShortName || t.tripShortName || '').toUpperCase().replace(/\s+/g,'');
+                    return dn === num.toUpperCase().replace(/\s+/g,'') || dn.endsWith(num.toUpperCase().replace(/\s+/g,''));
+                });
+                if (!match?.tripId) return null;
+                const tr = await fetch(`${TRANSITOUS}/trip?tripId=${encodeURIComponent(match.tripId)}`, { signal: AbortSignal.timeout(8000), headers: TR_HEADERS });
+                if (!tr.ok) return null;
+                return await tr.json();
+            })()
+        ]);
+
+        const seq = (data.status === 'fulfilled' ? data.value : data)?.transportation?.locationSequence || [];
+
+        // Transitous-Stopdaten als Map für Anreicherung
+        const tStopMap = new Map();
+        if (transitousData.value) {
+            const legs = transitousData.value.legs || [];
+            const leg  = legs.find(l => l.mode && l.mode !== 'WALK') || legs[0];
+            if (leg) {
+                const allS = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
+                allS.forEach(s => tStopMap.set((s.name || '').toLowerCase().trim(), s));
+            }
+        }
+
+        const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
+            const stopName = (s.name || s.parent?.name || '').toLowerCase().trim();
+            const tStop    = tStopMap.get(stopName);
+            const planned  = s.properties?.plannedPlatformName || null;
+            const actual   = s.properties?.platformName        || null;
+            const stopRemarks = [];
+            if (planned && actual && planned !== actual) {
+                stopRemarks.push({ text: 'Platform change', type: 'hint', priority: 70 });
+            }
+            return {
+                stop:             { name: s.name || s.parent?.name || '' },
+                plannedArrival:   toIsoStringOrNull(s.arrivalTimePlanned),
+                arrival:          toIsoStringOrNull(s.arrivalTimeEstimated),
+                plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
+                departure:        toIsoStringOrNull(s.departureTimeEstimated),
+                plannedPlatform:  planned,
+                platform:         actual,
+                cancelled:        tStop?.cancelled  || s.isNotServiced || false,
+                additional:       tStop?.additional || false,
+                remarks:          stopRemarks,
+                // Transitous-Delays übernehmen falls VRR keine Echtzeit hat
+                arrivalDelaySec:   tStop?.arrival && tStop?.scheduledArrival
+                    ? Math.round((new Date(tStop.arrival) - new Date(tStop.scheduledArrival)) / 1000) : null,
+                departureDelaySec: tStop?.departure && tStop?.scheduledDeparture
+                    ? Math.round((new Date(tStop.departure) - new Date(tStop.scheduledDeparture)) / 1000) : null,
+            };
         });
-        const seq = data.transportation?.locationSequence || [];
-        // Debug: log full transportation (minus locationSequence) to find info fields
-        const debugT = Object.fromEntries(Object.entries(data.transportation || {}).filter(([k]) => k !== 'locationSequence'));
-        console.log('[VRR transportation (no seq)]', JSON.stringify(debugT).slice(0, 600));
-        const stopovers = (Array.isArray(seq) ? seq : []).map(s => ({
-            stop:             { name: s.name || s.parent?.name || '' },
-            plannedArrival:   toIsoStringOrNull(s.arrivalTimePlanned),
-            arrival:          toIsoStringOrNull(s.arrivalTimeEstimated),
-            plannedDeparture: toIsoStringOrNull(s.departureTimePlanned),
-            departure:        toIsoStringOrNull(s.departureTimeEstimated),
-            plannedPlatform:  s.properties?.plannedPlatformName || s.properties?.platformName || null,
-            platform:         s.properties?.platformName || null,
-            cancelled: false, additional: false,
-        }));
-        res.json({ stopovers, remarks: [], source: 'VRR OpenService' });
+
+        // Trip-Remarks aus Transitous
+        const tripRemarks = [];
+        if (transitousData.value) {
+            const leg = (transitousData.value.legs || []).find(l => l.mode && l.mode !== 'WALK');
+            if (leg?.interlineWithPreviousLeg) {
+                const fromLine = leg.tripFrom?.displayName || leg.tripFrom?.routeShortName || '';
+                tripRemarks.push({ text: fromLine ? `Wendet aus ${fromLine}` : 'Durchbindung – Fahrzeug kommt von vorheriger Fahrt', type: 'hint', priority: 80 });
+            }
+            if (leg?.tripTo) {
+                const toLine = leg.tripTo.displayName || leg.tripTo.routeShortName || '';
+                const toDest = leg.tripTo.headsign   || '';
+                if (toLine) tripRemarks.push({ text: `Fährt weiter als ${toLine}${toDest ? ` nach ${toDest}` : ''}`, type: 'hint', priority: 80 });
+            }
+        }
+
+        res.json({ stopovers, remarks: tripRemarks, source: 'VRR OpenService' });
     } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
