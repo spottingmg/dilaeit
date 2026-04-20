@@ -298,40 +298,62 @@ app.get('/api/disruptions', async (req, res) => {
         const stop = Array.isArray(locs) ? locs[0] : (locs.locations || locs.results || [])[0];
         if (!stop?.id) return res.json({ disruptions: [] });
 
-        // 2. Abfahrten mit Remarks holen
-        const depR = await fetch(`${DB_REST}/stops/${encodeURIComponent(stop.id)}/departures?results=30&remarks=true&duration=120`,
+        // 2. Mehr Abfahrten holen um auch Züge zu erfassen (nicht nur Busse)
+        const depR = await fetch(`${DB_REST}/stops/${encodeURIComponent(stop.id)}/departures?results=80&remarks=true&duration=180`,
             { signal: AbortSignal.timeout(6000) });
         if (!depR.ok) return res.json({ disruptions: [] });
         const depData = await depR.json();
         const deps = depData.departures || (Array.isArray(depData) ? depData : []);
 
-        // 3. Remarks aggregieren + deduplizieren
-        const seen  = new Set();
+        // 3. Triviale Betriebshinweise herausfiltern (SEV-Bus-Notizen, keine echten Störungen)
+        const trivial = new Set([
+            'sonderfahrt', 'zusatzhalt', 'halt entfällt', 'stop cancelled',
+            'additional stop', 'special service', 'fahrzeuggebundene einstiegshilfe vorhanden.',
+            'rollstuhlgerechtes wc vorhanden.', 'stufenfreier zugang.',
+            'fahrradmitnahme möglich.', 'wlan verfügbar.',
+        ]);
+
+        const seen = new Set();
         const disruptions = [];
-        const keepTypes = new Set(['disruption', 'status', 'hint', 'warning', 'cancelled']);
 
         for (const dep of deps) {
             for (const rem of (dep.remarks || [])) {
                 const text = (rem.text || rem.summary || '').trim();
                 if (!text || seen.has(text)) continue;
+                // Triviale Einzeiler überspringen
+                if (trivial.has(text.toLowerCase())) continue;
+                // Sehr kurze generische Texte überspringen
+                if (text.length < 15) continue;
                 seen.add(text);
-                // Typ bestimmen
-                const type = rem.type || (rem.code ? 'disruption' : 'hint');
-                if (!keepTypes.has(type) && !rem.code) continue;
+                const type = rem.type || 'hint';
                 disruptions.push({
                     text,
                     type,
                     code:     rem.code     || null,
                     summary:  rem.summary  || null,
-                    priority: rem.priority || 50,
+                    priority: rem.priority || (type === 'disruption' ? 80 : 50),
                     line:     dep.line?.name || null,
                 });
             }
         }
 
-        // Wichtigste zuerst
-        disruptions.sort((a, b) => (b.priority || 0) - (a.priority || 0));
-        res.json({ disruptions: disruptions.slice(0, 15), stopName: stop.name });
+        // Wichtigste zuerst, Duplikat-Texte nach Länge priorisieren
+        disruptions.sort((a, b) => {
+            if (b.priority !== a.priority) return b.priority - a.priority;
+            return b.text.length - a.text.length; // längere Texte = mehr Info
+        });
+
+        // Dedupliziere ähnliche Texte (gleicher Anfang)
+        const final = [];
+        for (const d of disruptions) {
+            const prefix = d.text.slice(0, 40).toLowerCase();
+            if (!final.some(f => f.text.slice(0, 40).toLowerCase() === prefix)) {
+                final.push(d);
+            }
+            if (final.length >= 8) break;
+        }
+
+        res.json({ disruptions: final, stopName: stop.name });
     } catch (e) {
         console.error('[disruptions]', e.message);
         res.json({ disruptions: [] });
