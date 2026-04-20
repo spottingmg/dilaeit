@@ -308,6 +308,8 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         }
 
         const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
+        const stopovers = allStops.map(s => {
+            const pA = s.scheduledArrival   || null;
             const aA = s.arrival            || null;
             const pD = s.scheduledDeparture || null;
             const aD = s.departure          || null;
