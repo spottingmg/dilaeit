@@ -349,12 +349,7 @@ app.get('/api/trips/:tripId', async (req, res) => {
         });
         const seq = data.transportation?.locationSequence || [];
 
-        // Debug: VRR transportation keys + stop properties
-        console.log('[VRR transportation keys]', Object.keys(data.transportation || {}));
-        if (seq[0]?.properties) console.log('[VRR stop[0] properties]', JSON.stringify(seq[0].properties).slice(0,400));
-        if (data.transportation?.hints?.length)    console.log('[VRR t.hints]',    JSON.stringify(data.transportation.hints).slice(0,300));
-        if (data.transportation?.infos?.length)    console.log('[VRR t.infos]',    JSON.stringify(data.transportation.infos).slice(0,300));
-        if (data.transportation?.messages?.length) console.log('[VRR t.messages]', JSON.stringify(data.transportation.messages).slice(0,300));
+        // VRR EFA Infotexte aus transportation-Objekt
 
         // VRR EFA Infotexte aus transportation-Objekt
         const tripRemarks = [];
