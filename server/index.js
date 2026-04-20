@@ -372,6 +372,7 @@ app.get('/api/disruptions', async (req, res) => {
         }
 
         res.json({ disruptions: final, stopName: stop.name });
+        console.log(`[disruptions] ${stop.name}: ${final.length} Meldungen, ${trainDeps.length} Zugabf., ${allDeps.length} Gesamtabf.`);
     } catch (e) {
         console.error('[disruptions]', e.message);
         res.json({ disruptions: [] });
