@@ -819,14 +819,14 @@
                             <div class="text-right mono text-xs leading-tight shrink-0">
                                 <div class="flex items-center justify-end gap-1">
                                     <span class="text-gray-600 text-[10px]">AN</span>
-                                    <span class="font-mono">${arrTime}</span>
-                                    ${arrActual ? `<span class="precision-time ${arrDelayClass}">${arrActual}</span>` : ''}
+                                    <span class="font-mono ${arrDelaySec !== null ? 'text-gray-400 line-through' : ''}">${arrTime}</span>
+                                    ${arrDelaySec !== null ? `<span class="precision-time ${arrDelayClass}">${arrActual}</span>` : ''}
                                     ${arrDelayStr ? `<span class="text-[9px] ${arrDelayClass}">${arrDelayStr}</span>` : ''}
                                 </div>
                                 <div class="flex items-center justify-end gap-1">
                                     <span class="text-gray-600 text-[10px]">AB</span>
-                                    <span class="font-mono">${depTime}</span>
-                                    ${depActual ? `<span class="precision-time ${depDelayClass}">${depActual}</span>` : ''}
+                                    <span class="font-mono ${depDelaySec !== null ? 'text-gray-400 line-through' : ''}">${depTime}</span>
+                                    ${depDelaySec !== null ? `<span class="precision-time ${depDelayClass}">${depActual}</span>` : ''}
                                     ${depDelayStr ? `<span class="text-[9px] ${depDelayClass}">${depDelayStr}</span>` : ''}
                                 </div>
                             </div>
