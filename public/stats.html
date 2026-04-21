@@ -95,6 +95,9 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
             <a href="/conv.html" title="Träwelling Import" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
                 <i class="fas fa-file-import"></i>
             </a>
+            <button onclick="clearAllData()" title="Alle Daten löschen" class="text-zinc-500 hover:text-red-500 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
+                <i class="fas fa-trash-alt"></i>
+            </button>
             <label title="Importieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm cursor-pointer">
                 <i class="fas fa-upload"></i>
                 <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
@@ -1137,6 +1140,18 @@ async function exportData() {
     URL.revokeObjectURL(url);
 }
 
+async function clearAllData() {
+    if (!confirm('Möchtest du wirklich ALLE gespeicherten Fahrten unwiderruflich löschen?')) return;
+    const db = await openDB();
+    const tx = db.transaction('journeys', 'readwrite');
+    await tx.store.clear();
+    await tx.done;
+    allJourneys = [];
+    buildYearFilter();
+    updateAll();
+    alert('Alle Daten wurden gelöscht.');
+}
+
 async function importData(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -1144,15 +1159,34 @@ async function importData(e) {
         const text = await file.text();
         const data = JSON.parse(text);
         if (!Array.isArray(data)) throw new Error('Ungültiges Format');
+        
         let count = 0;
         let skipped = 0;
+        
+        const norm = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+        const toMin = (t) => {
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + m;
+        };
+
         for (const j of data) {
             if (j.id && j.date) {
-                // Deduplizierung: ID oder (Datum + Zeit + Linie)
-                const exists = allJourneys.find(x => 
-                    x.id === j.id || 
-                    (x.date === j.date && x.time === j.time && x.line === j.line)
-                );
+                // Erweiterte Deduplizierung: 
+                // Catcht auch Fahrten die z.B. 08:25 vs 08:31 geplant waren (+/- 15 Min Kulanz)
+                const exists = allJourneys.find(x => {
+                    if (x.id === j.id) return true;
+                    if (x.date !== j.date) return false;
+                    if (norm(x.line) !== norm(j.line)) return false;
+                    
+                    // Zeit-Check mit 15 Min Fenster
+                    if (x.time && j.time) {
+                        try {
+                            const diff = Math.abs(toMin(x.time) - toMin(j.time));
+                            if (diff <= 15) return true;
+                        } catch(e) {}
+                    }
+                    return false;
+                });
                 
                 if (!exists) {
                     await saveJourney(j);
