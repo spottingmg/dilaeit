@@ -89,6 +89,9 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
             <button onclick="togglePush()" id="push-btn" title="Push-Benachrichtigungen" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
                 <i class="fas fa-bell"></i>
             </button>
+            <a href="/conv.html" title="Träwelling Import" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
+                <i class="fas fa-file-import"></i>
+            </a>
             <label title="Importieren" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm cursor-pointer">
                 <i class="fas fa-upload"></i>
                 <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
