@@ -2,9 +2,9 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import createHafas from 'db-hafas';
+import { createDbHafas } from 'db-hafas';
 
-const hafas = createHafas('dilaeit-proxy');
+const hafas = createDbHafas('dilaeit-proxy');
 
 
 
