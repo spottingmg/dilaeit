@@ -1575,6 +1575,16 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
+            // Sammle alle Stopover-Remarks für die Trip-Gesamtansicht (DB Gründe)
+            const allRemarks = [...tripRemarks];
+            stopovers.forEach(s => {
+                (s.remarks || []).forEach(r => {
+                    if (!allRemarks.find(ex => ex.text === r.text)) {
+                        allRemarks.push(r);
+                    }
+                });
+            });
+
             // Sekunden + fett für DB-Echtzeitdaten UND Transitous (beide haben echte Sekunden)
             const isDbSource = sourceName.includes('Deutsche Bahn') || sourceName.includes('Transitous');
             console.log('[renderItinerary] sourceName:', sourceName, 'isDbSource:', isDbSource);
@@ -1857,19 +1867,14 @@
                         // Verspätungs-Badge separat und größer darstellen
                         let delayBadgeHtml = '';
                         if (delaySec !== null && delaySec !== undefined) {
-                            if (delaySec === 0) {
+                            if (Math.abs(delaySec) < 60) {
+                                // Unter 60 Sek = pünktlich (±0)
                                 delayBadgeHtml = `<span class="text-[10px] font-bold text-green-400 ml-1">±0</span>`;
                             } else {
-                                const absMin = Math.abs(delaySec) >= 60
-                                    ? (delaySec > 0 ? Math.floor(delaySec/60) : Math.ceil(delaySec/60))
-                                    : null;
-                                const absSec = Math.abs(delaySec) < 60 ? Math.abs(delaySec) : null;
-                                const sign   = delaySec > 0 ? '+' : '−';
-                                const color  = delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-green-400';
-                                const val    = absMin !== null ? `${sign}${Math.abs(absMin)}'` : `${sign}${absSec}s`;
-                                
-                                // Auch kleine Verspätungen zeigen wenn wir RT haben
-                                delayBadgeHtml = `<span class="text-[10px] font-bold ${color} ml-1">${val}</span>`;
+                                const mins = delaySec >= 0 ? Math.floor(delaySec/60) : Math.ceil(delaySec/60);
+                                const sign = mins >= 0 ? '+' : ''; // Minus kommt von Math.ceil
+                                const color = mins >= 1 ? 'text-red-400' : mins <= -1 ? 'text-blue-400' : 'text-green-400';
+                                delayBadgeHtml = `<span class="text-[10px] font-bold ${color} ml-1">${sign}${mins}'</span>`;
                             }
                         }
 
@@ -1933,10 +1938,10 @@
                 container.appendChild(stopItem);
             });
 
-            if (tripRemarks.length > 0) {
+            if (allRemarks.length > 0) {
                 const remarksContainer = document.createElement('div');
                 remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-1.5';
-                tripRemarks.forEach(rem => {
+                allRemarks.forEach(rem => {
                     const rDiv = document.createElement('div');
                     const isDisruption = rem.type === 'disruption' || (rem.priority || 0) >= 80;
                     rDiv.className = `text-[10px] font-medium flex items-start gap-2 ${isDisruption ? 'text-orange-400' : 'text-red-500'}`;
