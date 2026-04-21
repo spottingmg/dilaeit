@@ -603,9 +603,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         const legHasRT = leg.realTime === true || leg.realtime === true;
 
         const stopovers = allStops.map(s => {
-
             const pA = s.scheduledArrival   || null;
-
             const pD = s.scheduledDeparture || null;
 
             const aA = legHasRT ? (s.arrival || pA) : null;
@@ -616,8 +614,8 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                         location: (s.lat && s.lon) ? { latitude: s.lat, longitude: s.lon } : null },
                 plannedArrival:    pA, arrival:   aA || pA,
                 plannedDeparture:  pD, departure: aD || pD,
-                arrivalDelaySec:   (hasRT && pA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-                departureDelaySec: (hasRT && pD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                arrivalDelaySec:   (legHasRT && pA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (legHasRT && pD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
                 platform:        s.track          || null,
                 plannedPlatform: s.scheduledTrack || null,
                 cancelled: s.cancelled || false, additional: false, 
@@ -675,31 +673,19 @@ app.get('/api/trips/:tripId', async (req, res) => {
         });
 
         const seq  = data.transportation?.locationSequence || [];
-        // Trip ist aktiv wenn mindestens ein Stop MONITORED ist
-        const anyMonitored = seq.some(s => {
-            const rt = s.properties?.realtimeStatus || [];
-            return (Array.isArray(rt) ? rt : [rt]).includes('MONITORED');
-        });
 
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
-
             const pA = toIsoStringOrNull(s.arrivalTimePlanned);
-
             const pD = toIsoStringOrNull(s.departureTimePlanned);
-
             const eA = toIsoStringOrNull(s.arrivalTimeEstimated);
-
             const eD = toIsoStringOrNull(s.departureTimeEstimated);
 
             // realtimeStatus als Array prüfen
-
             const rtRaw = s.properties?.realtimeStatus || [];
-
             const rtArr = Array.isArray(rtRaw) ? rtRaw : [rtRaw];
-            
-            const isSoon = (pD || pA) && Math.abs(new Date(pD || pA) - new Date()) < 24 * 3600 * 1000;
-            // Echtzeit wenn monitored, oder wenn trip aktiv ist und dieser stop prediction hat
-            const hasRT = rtArr.includes('MONITORED') || (rtArr.includes('PREDICTION') && (anyMonitored || isSoon));
+
+            // Echtzeit wenn Estimated Zeit da ist (Standard VRR)
+            const hasRT = !!(eA || eD);
             
             const aA    = hasRT ? (eA || pA) : null;
             const aD    = hasRT ? (eD || pD) : null;
