@@ -608,9 +608,8 @@ app.get('/api/train-details/:tripId', async (req, res) => {
 
             const pD = s.scheduledDeparture || null;
 
-            const aA = legHasRT && s.arrival   && s.arrival   !== pA ? s.arrival   : null;
-
-            const aD = legHasRT && s.departure && s.departure !== pD ? s.departure : null;
+            const aA = legHasRT ? (s.arrival || pA) : null;
+            const aD = legHasRT ? (s.departure || pD) : null;
 
             return {
                 stop: { name: s.name || '', id: s.stopId || null,
@@ -694,9 +693,8 @@ app.get('/api/trips/:tripId', async (req, res) => {
             const rtArr = Array.isArray(rtRaw) ? rtRaw : [rtRaw];
             // Nur MONITORED gilt als echtes Echtzeit-Signal (Fahrzeug aktiv)
             const hasRT = rtArr.some(r => r === 'MONITORED');
-            const aA    = hasRT && eA && eA !== pA ? eA : null;
-
-            const aD    = hasRT && eD && eD !== pD ? eD : null;
+            const aA    = hasRT ? (eA || pA) : null;
+            const aD    = hasRT ? (eD || pD) : null;
 
             const isCancelled = s.isCancelled || rtArr.some(r => r?.includes('CANCELLED'));
 
