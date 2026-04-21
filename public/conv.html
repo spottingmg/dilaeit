@@ -242,10 +242,37 @@
 <script>
     let converted = [];
 
+    const params = new URLSearchParams(window.location.search);
+    const modeParam = params.get('mode');
+    
+    if (modeParam === 'travelynx') {
+        document.getElementById('mode-breadcrumb').textContent = '/ travelynx-konverter';
+        document.getElementById('hero-source').textContent = 'Travelynx';
+        document.getElementById('hero-desc').textContent = 'Konvertiere deinen Travelynx-Export ins dilaeit-Format. Deine Daten verlassen dabei nie deinen Browser.';
+        document.getElementById('step-1-title').textContent = 'Export bei Travelynx';
+        document.getElementById('step-1-desc').textContent = 'Verlauf -> CSV/JSON -> JSON-Export (ganzes Jahr oder alle Fahrten)';
+        document.getElementById('drop-zone-text').textContent = 'Travelynx JSON hier ablegen';
+        document.getElementById('drop-zone-filename').textContent = 'travelynx_export.json';
+    }
+
     // ─── Konvertierung ────────────────────────────────────────────────────────
+    function modeFrom(cat, mode) {
+        const c = (cat || '').toLowerCase();
+        const m = (mode || '').toLowerCase();
+        if (c === 'bus' || m.includes('bus')) return 'bus';
+        if (c === 'subway' || m.includes('subway') || m === 'u' || m === 's-bahn') return 'subway';
+        if (c === 'tram' || m.includes('tram') || m === 'str') return 'tram';
+        if (c === 'ferry' || m.includes('ferry')) return 'ferry';
+        return 'train';
+    }
+
+    function delayMin(planned, real) {
+        if (!planned || !real) return null;
+        return Math.round((new Date(real) - new Date(planned)) / 60000);
+    }
+
     function convertTravelynx(parsed) {
         return parsed.map(entry => {
-            // Timestamps sind Sekunden-Floats als Strings
             const depTs = parseFloat(entry.sched_dep_ts) * 1000;
             const arrTs = parseFloat(entry.sched_arr_ts) * 1000;
             const rtDepTs = entry.rt_dep_ts ? parseFloat(entry.rt_dep_ts) * 1000 : depTs;
@@ -257,8 +284,9 @@
                 year: 'numeric', month: '2-digit', day: '2-digit'
             }).split('.').reverse().join('-');
 
-            const line = entry.line || `${entry.type} ${entry.no}`;
-            const mode = entry.type.toLowerCase().includes('bus') ? 'bus' : 'train';
+            const type = (entry.type || '').toUpperCase();
+            const line = entry.line || (entry.no ? `${type} ${entry.no}` : type);
+            const mode = modeFrom(type, type);
 
             return {
                 id:            'tlx-' + entry.id,
