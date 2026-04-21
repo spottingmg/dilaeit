@@ -628,12 +628,17 @@ app.get('/api/train-details/:tripId', async (req, res) => {
 
         });
 
+        const tripRemarks = [];
+        (data.remarks || []).forEach(r => {
+            tripRemarks.push({ text: r.summary || r.text || '', type: r.type || 'hint', priority: r.priority || 50 });
+        });
+        (leg.remarks || []).forEach(r => {
+            tripRemarks.push({ text: r.summary || r.text || '', type: r.type || 'hint', priority: r.priority || 50 });
+        });
+
         res.json({
-
-            stopovers, remarks: [], source: 'Transitous', tripId,
-
+            stopovers, remarks: tripRemarks, source: 'Transitous', tripId,
             line: { name: leg.displayName || leg.routeShortName || leg.tripShortName || '', product: (leg.mode || 'bus').toLowerCase() }
-
         });
 
     } catch (e) {
