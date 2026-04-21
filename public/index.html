@@ -1799,30 +1799,14 @@
                     if (!sched) return '';
                     const isPast  = actual && actual.getTime() < Date.now();
                     
-                    // Delay-Anzeige mit Sekunden-Präzision
-                    let delayStr = '';
-                    if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                        const dc = delaySec > 0 ? 'text-red-500' : 'text-green-500';
-                        const sign = delaySec > 0 ? '+' : ''; // Minus kommt automatisch bei negativen Zahlen
-                        const absDelay = Math.abs(delaySec);
-                        
-                        if (absDelay >= 60) {
-                            // Bei >= 60 Sekunden: Minuten anzeigen (abgerundet für +1 erst ab 60s)
-                            const mins = delaySec >= 0 ? Math.floor(delaySec / 60) : Math.ceil(delaySec / 60);
-                            if (mins !== 0) {
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${mins > 0 ? '+' : ''}${mins}'</span>`;
-                            } else {
-                                // Wenn mins 0 ist (z.B. 59s), zeigen wir Sekunden
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
-                            }
-                        } else {
-                            // Bei < 60 Sekunden: Sekunden anzeigen
-                            delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
-                        }
-                    }
-
+                    // Delay-Anzeige mit Sekunden-Präzision (wird jetzt in fmtRow als separate Badge geliefert,
+                    // aber wir behalten die rtColor Logik hier)
+                    
                     // Keine Echtzeitdaten (kein delaySec vom Server und kein live-Versatz): nur Soll-Zeit
-                    if (!hasLive && (delaySec === null || delaySec === undefined)) {
+                    // delaySec 0 ist NICHT null/undefined!
+                    const hasRTInfo = (delaySec !== null && delaySec !== undefined) || hasLive;
+
+                    if (!hasRTInfo) {
                         return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
 
@@ -1833,20 +1817,8 @@
 
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
 
-                    // Falls wir actual haben, aber kein hasLive und kein delaySec (also pünktlich laut Plan), 
-                    // zeigen wir trotzdem nur Soll-Zeit, außer es ist ausdrücklich bestätigt.
-                    if (!hasLive && (delaySec === null || delaySec === undefined)) {
-                        return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    }
-
-                    // Confirm: delaySec ist da (MONITORED) oder hasLive ist true (Differenz Plan/Echtzeit)
-                    const isConfirmed = (delaySec !== null && delaySec !== undefined) || hasLive;
-                    const rtClass = isConfirmed ? 'text-green-400' : 'text-gray-300';
-
                     // Fett + Sekunden: Halt liegt in der Vergangenheit UND hat RT-Signal
                     // = Bus ist wirklich abgefahren/angekommen, bestätigt
-                    // Vergangener Halt mit RT-Daten = bestätigt
-                    const hasRT = delaySec !== null && delaySec !== undefined;
                     const isConfirmedPast = isPast && actual;
 
                     if (isConfirmedPast && isDbSource) {
@@ -1883,24 +1855,27 @@
                         const timeHtml = formatTime(sched, actual, hasLive, delaySec);
 
                         // Verspätungs-Badge separat und größer darstellen
-                        let delayBadge = '';
-                        if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                            const absMin = Math.abs(delaySec) >= 60
-                                ? (delaySec > 0 ? Math.floor(delaySec/60) : Math.ceil(delaySec/60))
-                                : null;
-                            const absSec = Math.abs(delaySec) < 60 ? Math.abs(delaySec) : null;
-                            const sign   = delaySec > 0 ? '+' : '−';
-                            const color  = delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-gray-400';
-                            const val    = absMin !== null ? `${sign}${Math.abs(absMin)}'` : `${sign}${absSec}s`;
-                            // Nur ab 1 Min anzeigen (unter 60s = pünktlich genug)
-                            if (absMin !== null && Math.abs(absMin) >= 1) {
-                                delayBadge = `<span class="text-[10px] font-bold ${color} ml-1">${val}</span>`;
+                        let delayBadgeHtml = '';
+                        if (delaySec !== null && delaySec !== undefined) {
+                            if (delaySec === 0) {
+                                delayBadgeHtml = `<span class="text-[10px] font-bold text-green-400 ml-1">±0</span>`;
+                            } else {
+                                const absMin = Math.abs(delaySec) >= 60
+                                    ? (delaySec > 0 ? Math.floor(delaySec/60) : Math.ceil(delaySec/60))
+                                    : null;
+                                const absSec = Math.abs(delaySec) < 60 ? Math.abs(delaySec) : null;
+                                const sign   = delaySec > 0 ? '+' : '−';
+                                const color  = delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-green-400';
+                                const val    = absMin !== null ? `${sign}${Math.abs(absMin)}'` : `${sign}${absSec}s`;
+                                
+                                // Auch kleine Verspätungen zeigen wenn wir RT haben
+                                delayBadgeHtml = `<span class="text-[10px] font-bold ${color} ml-1">${val}</span>`;
                             }
                         }
 
                         return `<div class="flex items-center justify-end gap-0.5 leading-tight">
                             <span class="text-gray-600 text-[8px] w-3">${label}</span>
-                            <span class="mono text-[11px]">${timeHtml}</span>${delayBadge}
+                            <span class="mono text-[11px]">${timeHtml}</span>${delayBadgeHtml}
                         </div>`;
                     };
 
