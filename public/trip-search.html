@@ -542,7 +542,11 @@
                     plannedPlatform: s.scheduledTrack || s.track || null,
                     cancelled:  s.cancelled  || false,
                     additional: false,
-                    remarks: []
+                    remarks: (s.remarks || []).map(r => ({
+                        text: r.summary || r.text || '',
+                        type: r.type || 'hint',
+                        priority: r.priority || 50
+                    }))
                 }));
 
                 return {
@@ -783,16 +787,19 @@
                 if (depDelaySec === undefined && actualDep && schedDep) depDelaySec = Math.round((actualDep - schedDep) / 1000);
 
                 const formatDelay = (secs) => {
-                    if (secs === null || secs === undefined || secs === 0) return null;
-                    const sign = secs > 0 ? '+' : '-';
+                    if (secs === null || secs === undefined) return null;
+                    if (secs === 0) return '±0';
+                    const sign = secs > 0 ? '+' : '';
                     const absSecs = Math.abs(secs);
-                    // IMMER Sekunden anzeigen
-                    return `${sign}${absSecs}s`;
+                    if (absSecs >= 60) {
+                        return `${sign}${Math.round(secs / 60)}'`;
+                    }
+                    return `${sign}${secs}s`;
                 };
 
                 const getDelayClass = (secs) => {
                     if (secs === null || secs === undefined) return '';
-                    return secs > 0 ? 'delay-positive' : 'delay-zero'; // zero/negative covers early/green
+                    return secs >= 60 ? 'delay-positive' : 'delay-zero'; // green for < 60s
                 };
                 
                 const arrDelayStr = formatDelay(arrDelaySec);
