@@ -955,13 +955,15 @@
                     : roundedDelay > 0  ? 'text-red-500'
                     : 'text-green-500';
                 const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
-                const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
+                // Auch ±0 anzeigen wenn es vom Server als RT bestätigt ist (delay !== null)
+                const showDelay  = !isCancelled && dep.delay !== null && dep.delay !== undefined;
+                const delayVal   = roundedDelay !== null ? (roundedDelay === 0 && !showSeconds ? '±0' : Math.abs(roundedDelay)) : '';
 
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
                             <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${Math.abs(roundedDelay)}${showSeconds ? 's' : "'"}</span>` : ''}
+                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${delayVal}${showSeconds && roundedDelay !== 0 ? 's' : (roundedDelay === 0 && !showSeconds ? '' : "'")}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -1825,9 +1827,9 @@
                     }
 
                     // Bestimme Farbe basierend auf Verspätung/Verfrühung
-                    const rtColor = delaySec !== null && delaySec !== undefined
-                        ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
-                        : (actual && sched && Math.abs(actual - sched) >= 60000 ? (actual > sched ? 'text-red-400' : 'text-green-400') : 'text-green-400');
+                    const rtColor = (delaySec !== null && delaySec !== undefined)
+                        ? (delaySec >= 60 ? 'text-red-400' : 'text-green-400')
+                        : (actual && sched && hasLive && Math.abs(actual - sched) >= 60000 ? (actual > sched ? 'text-red-400' : 'text-green-400') : 'text-green-400');
 
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
 
@@ -1836,6 +1838,10 @@
                     if (!hasLive && (delaySec === null || delaySec === undefined)) {
                         return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
+
+                    // Confirm: delaySec ist da (MONITORED) oder hasLive ist true (Differenz Plan/Echtzeit)
+                    const isConfirmed = (delaySec !== null && delaySec !== undefined) || hasLive;
+                    const rtClass = isConfirmed ? 'text-green-400' : 'text-gray-300';
 
                     // Fett + Sekunden: Halt liegt in der Vergangenheit UND hat RT-Signal
                     // = Bus ist wirklich abgefahren/angekommen, bestätigt
