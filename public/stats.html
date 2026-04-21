@@ -89,6 +89,9 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
             <button onclick="togglePush()" id="push-btn" title="Push-Benachrichtigungen" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
                 <i class="fas fa-bell"></i>
             </button>
+            <a href="/conv.html?mode=travelynx" title="Travelynx Import" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
+                <i class="fas fa-train"></i>
+            </a>
             <a href="/conv.html" title="Träwelling Import" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm">
                 <i class="fas fa-file-import"></i>
             </a>
@@ -1142,15 +1145,27 @@ async function importData(e) {
         const data = JSON.parse(text);
         if (!Array.isArray(data)) throw new Error('Ungültiges Format');
         let count = 0;
+        let skipped = 0;
         for (const j of data) {
             if (j.id && j.date) {
-                await saveJourney(j);
-                if (!allJourneys.find(x => x.id === j.id)) { allJourneys.push(j); count++; }
+                // Deduplizierung: ID oder (Datum + Zeit + Linie)
+                const exists = allJourneys.find(x => 
+                    x.id === j.id || 
+                    (x.date === j.date && x.time === j.time && x.line === j.line)
+                );
+                
+                if (!exists) {
+                    await saveJourney(j);
+                    allJourneys.push(j);
+                    count++;
+                } else {
+                    skipped++;
+                }
             }
         }
         buildYearFilter();
         updateAll();
-        alert(`${count} Fahrten importiert.`);
+        alert(`${count} Fahrten importiert.${skipped > 0 ? ` (${skipped} Duplikate übersprungen)` : ''}`);
     } catch (err) {
         alert('Import fehlgeschlagen: ' + err.message);
     }
