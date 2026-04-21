@@ -1576,9 +1576,12 @@
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
             // Sammle alle Stopover-Remarks für die Trip-Gesamtansicht (DB Gründe)
+            // Filtert "Gleiswechsel" aus der Zusammenfassung, da diese bereits inline stehen
             const allRemarks = [...tripRemarks];
             stopovers.forEach(s => {
                 (s.remarks || []).forEach(r => {
+                    const translated = translate(r.text);
+                    if (translated.toLowerCase().includes('gleiswechsel') || translated.toLowerCase().includes('bahnsteig')) return;
                     if (!allRemarks.find(ex => ex.text === r.text)) {
                         allRemarks.push(r);
                     }
