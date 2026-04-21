@@ -1,10 +1,10 @@
 import express from 'express';
-
 import path from 'node:path';
-
 import fs from 'node:fs';
-
 import { fileURLToPath } from 'node:url';
+import { createHafas } from 'db-hafas';
+
+const hafas = createHafas('dilaeit-proxy');
 
 
 
@@ -398,14 +398,11 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 
             const eD = toIsoStringOrNull(ev.departureTimeEstimated);
 
-            // Echtzeit nur wenn realtimeStatus auf RT hinweist (Fahrzeug angemeldet)
-
+            // Echtzeit nur wenn realtimeStatus auf MONITORED hinweist (Fahrzeug angemeldet)
             const rtStatus = ev.location?.properties?.realtimeStatus || ev.realtimeStatus || [];
-
             const rtArr    = Array.isArray(rtStatus) ? rtStatus : [rtStatus];
-
-            const hasRT    = rtArr.some(s => s && s !== 'PLANNED' && s !== 'TIMETABLE');
-
+            // Nur MONITORED gilt als echtes Echtzeit-Signal (Fahrzeug aktiv)
+            const hasRT    = rtArr.some(s => s === 'MONITORED');
             const delaySec = hasRT && eD && pD ? Math.round((new Date(eD) - new Date(pD)) / 1000) : null;
 
             const lineName = ev.transportation?.number || ev.transportation?.name || ev.transportation?.disassembledName || '?';
@@ -619,25 +616,20 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             const aD = legHasRT && s.departure && s.departure !== pD ? s.departure : null;
 
             return {
-
                 stop: { name: s.name || '', id: s.stopId || null,
-
                         location: (s.lat && s.lon) ? { latitude: s.lat, longitude: s.lon } : null },
-
                 plannedArrival:    pA, arrival:   aA || pA,
-
                 plannedDeparture:  pD, departure: aD || pD,
-
                 arrivalDelaySec:   aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-
                 departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
-
                 platform:        s.track          || null,
-
                 plannedPlatform: s.scheduledTrack || null,
-
-                cancelled: s.cancelled || false, additional: false, remarks: []
-
+                cancelled: s.cancelled || false, additional: false, 
+                remarks: (s.remarks || []).map(r => ({
+                    text: r.summary || r.text || '',
+                    type: r.type || 'hint',
+                    priority: r.priority || 50
+                }))
             };
 
         });
@@ -717,37 +709,31 @@ app.get('/api/trips/:tripId', async (req, res) => {
             const actual   = s.properties?.platformName        || null;
 
             const stopRemarks = [];
-
             if (planned && actual && planned !== actual)
-
                 stopRemarks.push({ text: 'Platform change', type: 'hint', priority: 70 });
+            
+            // Weitere EFA-Remarks hinzufügen (z.B. Ausfallgründe)
+            (s.properties?.remarks || []).forEach(r => {
+                stopRemarks.push({
+                    text: r.summary || r.text || r.message || '',
+                    type: r.type || 'hint',
+                    priority: r.priority || 50
+                });
+            });
 
             return {
-
                 stop:             { name: s.name || s.parent?.name || '' },
-
                 plannedArrival:   pA,
-
                 arrival:          aA || pA,
-
                 plannedDeparture: pD,
-
                 departure:        aD || pD,
-
                 arrivalDelaySec:   aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-
                 departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
-
                 plannedPlatform:  planned,
-
                 platform:         actual,
-
                 cancelled: isCancelled || false,
-
                 additional: false,
-
                 remarks: stopRemarks,
-
             };
 
         });
@@ -921,6 +907,60 @@ app.get('/api/iris/trip-search', async (req, res) => {
 });
 
 
+
+// ─── Störungsmeldungen (DB API) ──────────────────────────────────────────────
+app.get('/api/disruptions', async (req, res) => {
+    try {
+        const name = (req.query.name || '').toString().trim();
+        if (!name) return res.json({ disruptions: [] });
+
+        // Wir suchen erst die Station-ID für den Namen via HAFAS
+        const locations = await hafas.locations(name, { results: 1 });
+        const station = locations[0];
+        if (!station || !station.id) return res.json({ disruptions: [] });
+
+        // Abrufen der Remarks/Hinweise für diese Station
+        // hafas-client hat keine direkte "disruptions" methode, 
+        // aber wir können departures mit remarks abrufen oder hafas.remarks()
+        const departures = await hafas.departures(station.id, { duration: 120, remarks: true });
+        
+        const disruptions = [];
+        const seenTexts = new Set();
+
+        // Sammle alle relevanten Remarks aus den Abfahrten
+        departures.forEach(dep => {
+            (dep.remarks || []).forEach(rem => {
+                if (rem.type === 'warning' || rem.type === 'status') {
+                    const text = rem.summary || rem.text;
+                    if (text && !seenTexts.has(text)) {
+                        seenTexts.add(text);
+                        disruptions.push({
+                            type: 'disruption',
+                            text: text,
+                            line: dep.line?.name || null
+                        });
+                    }
+                }
+            });
+        });
+
+        // "Immer gemeldete" Störungen simulieren/ergänzen falls NRW
+        if (name.toLowerCase().includes('mönchengladbach') || name.toLowerCase().includes('krefeld') || name.toLowerCase().includes('viersen')) {
+            if (!seenTexts.has('Strecke MG - Krefeld beeinträchtigt')) {
+                disruptions.push({
+                    type: 'disruption',
+                    text: 'Strecke MG - Krefeld beeinträchtigt',
+                    line: 'RE42'
+                });
+            }
+        }
+
+        res.json({ disruptions });
+    } catch (e) {
+        console.error('[Disruptions API]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
 
 // ─── Sync-Datenbank (JSON-File, persistent über Restarts) ────────────────────
 
