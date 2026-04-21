@@ -1173,16 +1173,19 @@ async function importData(e) {
             return h * 60 + m;
         };
 
+        const db = await openDB();
+        // Wir nutzen eine einzige Transaction für alle Inserts (Performance!)
+        const tx = db.transaction(STORE, 'readwrite');
+        const os = tx.objectStore(STORE);
+
         for (const j of data) {
             if (j.id && j.date) {
-                // Erweiterte Deduplizierung: 
-                // Catcht auch Fahrten die z.B. 08:25 vs 08:31 geplant waren (+/- 15 Min Kulanz)
-                const exists = allJourneys.find(x => {
+                // Checke ob bereits in allJourneys (entweder aus DB oder bereits in diesem Import-Lauf hinzugefügt)
+                const isDuplicate = allJourneys.some(x => {
                     if (x.id === j.id) return true;
                     if (x.date !== j.date) return false;
                     if (norm(x.line) !== norm(j.line)) return false;
                     
-                    // Zeit-Check mit 15 Min Fenster
                     if (x.time && j.time) {
                         try {
                             const diff = Math.abs(toMin(x.time) - toMin(j.time));
@@ -1192,8 +1195,8 @@ async function importData(e) {
                     return false;
                 });
                 
-                if (!exists) {
-                    await saveJourney(j);
+                if (!isDuplicate) {
+                    os.put(j);
                     allJourneys.push(j);
                     count++;
                 } else {
@@ -1201,9 +1204,19 @@ async function importData(e) {
                 }
             }
         }
+
+        await new Promise((res, rej) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+        });
+
         buildYearFilter();
         updateAll();
-        alert(`${count} Fahrten importiert.${skipped > 0 ? ` (${skipped} Duplikate übersprungen)` : ''}`);
+        
+        // Kleine Verzögerung für Repaint vor Alert
+        setTimeout(() => {
+            alert(`${count} Fahrten importiert.${skipped > 0 ? ` (${skipped} Duplikate übersprungen)` : ''}`);
+        }, 50);
     } catch (err) {
         alert('Import fehlgeschlagen: ' + err.message);
     }
