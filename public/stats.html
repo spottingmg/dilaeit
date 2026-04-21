@@ -1143,9 +1143,13 @@ async function exportData() {
 async function clearAllData() {
     if (!confirm('Möchtest du wirklich ALLE gespeicherten Fahrten unwiderruflich löschen?')) return;
     const db = await openDB();
-    const tx = db.transaction('journeys', 'readwrite');
-    await tx.store.clear();
-    await tx.done;
+    await new Promise((res, rej) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        const os = tx.objectStore(STORE);
+        const req = os.clear();
+        req.onsuccess = () => res();
+        req.onerror = () => rej(req.error);
+    });
     allJourneys = [];
     buildYearFilter();
     updateAll();
