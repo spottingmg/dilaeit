@@ -398,12 +398,12 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 
             const eD = toIsoStringOrNull(ev.departureTimeEstimated);
 
-            // Echtzeit nur wenn realtimeStatus auf MONITORED hinweist (Fahrzeug angemeldet)
+            // Echtzeit wenn monitored oder prediction (falls zeitlich plausibel)
             const rtStatus = ev.location?.properties?.realtimeStatus || ev.realtimeStatus || [];
             const rtArr    = Array.isArray(rtStatus) ? rtStatus : [rtStatus];
-            // Nur MONITORED gilt als echtes Echtzeit-Signal (Fahrzeug aktiv)
-            const hasRT    = rtArr.some(s => s === 'MONITORED');
-            const delaySec = hasRT && eD && pD ? Math.round((new Date(eD) - new Date(pD)) / 1000) : null;
+            const isSoon   = pD && Math.abs(new Date(pD) - new Date()) < 24 * 3600 * 1000;
+            const hasRT    = rtArr.includes('MONITORED') || (rtArr.includes('PREDICTION') && isSoon);
+            const delaySec = hasRT && eD && pD ? Math.round((new Date(eD) - new Date(pD)) / 1000) : (hasRT ? 0 : null);
 
             const lineName = ev.transportation?.number || ev.transportation?.name || ev.transportation?.disassembledName || '?';
 
@@ -510,8 +510,8 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
             const place   = t.place || {};
 
             const planned = place.scheduledDeparture || place.scheduledArrival || null;
-            // Echtzeit nur wenn Transitous realTime-Flag gesetzt UND wir eine Abweichung oder Bestätigung haben
-            const hasRT   = (t.realTime === true || t.realtime === true) && !!(place.departure || place.arrival);
+            // Echtzeit nur wenn Transitous realTime-Flag gesetzt (wir vertrauen dem Flag)
+            const hasRT   = t.realTime === true || t.realtime === true;
             const rawActual = (place.departure !== place.scheduledDeparture ? place.departure : null)
 
                            || (place.arrival   !== place.scheduledArrival   ? place.arrival   : null)
@@ -675,6 +675,11 @@ app.get('/api/trips/:tripId', async (req, res) => {
         });
 
         const seq  = data.transportation?.locationSequence || [];
+        // Trip ist aktiv wenn mindestens ein Stop MONITORED ist
+        const anyMonitored = seq.some(s => {
+            const rt = s.properties?.realtimeStatus || [];
+            return (Array.isArray(rt) ? rt : [rt]).includes('MONITORED');
+        });
 
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
 
@@ -691,11 +696,13 @@ app.get('/api/trips/:tripId', async (req, res) => {
             const rtRaw = s.properties?.realtimeStatus || [];
 
             const rtArr = Array.isArray(rtRaw) ? rtRaw : [rtRaw];
-            // Nur MONITORED gilt als echtes Echtzeit-Signal (Fahrzeug aktiv)
-            const hasRT = rtArr.some(r => r === 'MONITORED');
+            
+            const isSoon = (pD || pA) && Math.abs(new Date(pD || pA) - new Date()) < 24 * 3600 * 1000;
+            // Echtzeit wenn monitored, oder wenn trip aktiv ist und dieser stop prediction hat
+            const hasRT = rtArr.includes('MONITORED') || (rtArr.includes('PREDICTION') && (anyMonitored || isSoon));
+            
             const aA    = hasRT ? (eA || pA) : null;
             const aD    = hasRT ? (eD || pD) : null;
-
             const isCancelled = s.isCancelled || rtArr.some(r => r?.includes('CANCELLED'));
 
             const planned  = s.properties?.plannedPlatformName || null;
