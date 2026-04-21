@@ -269,14 +269,18 @@
                         const display    = d.displayName    || '';
                         const tripShort  = d.tripShortName  || '';
                         const routeShort = d.routeShortName || '';
-                        const showName   = display || routeShort;
+                        const showName   = (display && tripShort && display !== tripShort) ? `${display} (${tripShort})` : (display || tripShort || routeShort);
                         if (!showName) return;
                         const nameUp = showName.toUpperCase().replace(/\s+/g, '');
                         const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
+                        const routeUp = routeShort.toUpperCase().replace(/\s+/g, '');
+                        const displayUp = display.toUpperCase().replace(/\s+/g, '');
+                        
                         // Für reine Zahlen: nur exakt oder endsWith auf tripShortName
                         // Für Text: auch includes auf displayName erlaubt
                         const matches = tripUp === q || tripUp.endsWith(q)
-                                     || nameUp === q || nameUp.endsWith(q)
+                                     || routeUp === q || routeUp.endsWith(q)
+                                     || displayUp === q || displayUp.endsWith(q)
                                      || (!isNumericQ && nameUp.includes(q));
                         if (matches && !seen.has(showName)) {
                             seen.add(showName);
@@ -593,6 +597,149 @@
         }
 
         // ─── Anzeige ─────────────────────────────────────────────────────────────────
+        // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
+        const translationMap = {
+            "no delay reason":                                   "keine Verspätungsbegründung",
+            "further information shortly":                       "nähere Informationen in Kürze",
+            "Delay due to a police operation":                   "Polizeieinsatz",
+            "fire brigade operation":                            "Feuerwehreinsatz auf der Strecke",
+            "Delay due to a medical emergency":                  "ärztliche Versorgung eines Fahrgastes",
+            "emergency brake activated":                         "unbefugtes Ziehen der Notbremse",
+            "persons on the track":                              "unbefugte Personen auf der Strecke",
+            "emergency doctor on track":                         "Notarzteinsatz auf der Strecke",
+            "Delay due to a strike":                             "Streikauswirkungen",
+            "animals on the track":                              "Tiere auf der Strecke",
+            "Delay due to storm damage":                         "Unwetter",
+            "waiting for a delayed ferry":                       "Warten auf ein verspätetes Schiff",
+            "passport and customs control":                      "Pass- und Zollkontrolle",
+            "technical defect at the station":                   "technischer Defekt am Bahnhof",
+            "Delay caused by vandalism":                         "Beeinträchtigung durch Vandalismus",
+            "bomb disposal":                                     "Entschärfung einer Fliegerbombe",
+            "bridge damage":                                     "Beschädigung einer Brücke",
+            "fallen tree on the track":                          "umgestürzter Baum auf der Strecke",
+            "level crossing accident":                           "Unfall an einem Bahnübergang",
+            "Delay due to waiting for connecting passengers":    "Warten auf Anschlussreisende",
+            "weather-related disruption":                        "Witterungsbedingte Beeinträchtigungen",
+            "delay abroad":                                      "Verspätung im Ausland",
+            "waiting for additional coaches":                    "Bereitstellung weiterer Wagen",
+            "decoupling of coaches":                             "Abhängen von Wagen",
+            "objects on the track":                              "Gegenstände auf der Strecke",
+            "Replacement service":                               "Ersatzverkehr mit Bus ist eingerichtet",
+            "Delay due to construction work":                    "Bauarbeiten",
+            "boarding assistance":                               "Unterstützung beim Ein- und Ausstieg",
+            "overhead line fault":                               "Reparatur an der Oberleitung",
+            "Delay due to a track obstruction":                  "Streckensperrung",
+            "signal fault":                                      "Reparatur an einem Signal",
+            "Delay due to a technical defect":                   "Reparatur am Zug",
+            "technical defect on the route":                     "Reparatur an der Strecke",
+            "points failure":                                    "defektes Stellwerk",
+            "level crossing fault":                              "technischer Defekt an einem Bahnübergang",
+            "temporary speed restriction":                       "vorübergehend verminderte Geschwindigkeit auf der Strecke",
+            "Delay due to a broken down train":                  "Verspätung eines vorausfahrenden Zuges",
+            "Delay of previous train":                           "Verspätung eines vorausfahrenden Zuges",
+            "waiting for an oncoming train":                     "Warten auf einen entgegenkommenden Zug",
+            "train overtaken":                                   "Vorfahrt eines anderen Zuges",
+            "waiting for free entry":                            "Vorfahrt eines anderen Zuges",
+            "delayed provision of the train":                    "verspätete Bereitstellung des Zuges",
+            "Delay from previous journey":                       "Verspätung aus vorheriger Fahrt",
+            "short-term staff shortage":                         "kurzfristiger Personalausfall",
+            "short-term illness of staff":                       "kurzfristige Erkrankung von Personal",
+            "delayed staff from previous journey":               "verspätetes Personal aus vorheriger Fahrt",
+            "strike":                                            "Streik",
+            "storm effects":                                     "Unwetterauswirkungen",
+            "track availability currently restricted":           "Verfügbarkeit der Gleise derzeit eingeschränkt",
+            "technical defect on another train":                 "technischer Defekt an einem anderen Zug",
+            "additional stop for boarding and alighting":        "zusätzlicher Halt zum Ein- und Ausstieg",
+            "Train is diverted":                                 "Umleitung des Zuges",
+            "Train is diverted. Stops are omitted.":             "Umleitung des Zuges. Einige Halte entfallen.",
+            "snow and ice":                                      "Schnee und Eis",
+            "weather-related reduced speed":                     "witterungsbedingt verminderte Geschwindigkeit",
+            "defective door":                                    "defekte Tür",
+            "technical defect resolved":                         "behobener technischer Defekt am Zug",
+            "technical inspection of the train":                 "technische Untersuchung am Zug",
+            "switch failure":                                    "Reparatur an der Weiche",
+            "landslide":                                         "Erdrutsch",
+            "flooding":                                          "Hochwasser",
+            "official measure":                                  "behördliche Maßnahme",
+            "high passenger volume":                             "hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
+            "train running at reduced speed":                    "Zug verkehrt mit verminderter Geschwindigkeit",
+            "Stops are omitted":                                 "Einige Halte entfallen.",
+            "Enter only, no exiting allowed" : "Hält nur zum Einsteigen.",
+            "Platform change":                                   "Gleiswechsel.",
+            "Change of platform":                                "Gleiswechsel.",
+            "Track change":                                      "Gleiswechsel.",
+            "Stop cancelled":                                    "Halt entfällt.",
+            "Additional stop":                                   "Zusatzhalt.",
+            "Special service":                                   "Sonderfahrt.",
+            "Train is cancelled":                                "Zug fällt aus.",
+            "Unfortunately, the train is cancelled.":            "Zug fällt aus.",
+            "The train is cancelled due to a technical defect.": "Reparatur am Zug.",
+            "The train is cancelled due to construction work.":  "Bauarbeiten.",
+            "The train is cancelled due to a staff shortage.":   "kurzfristiger Personalausfall.",
+            "On-board restaurant":                               "Bordrestaurant.",
+            "Bicycles conveyed - not possible":                  "Fahrradmitnahme nicht möglich.",
+            "Number of bicycles conveyed limited":               "Eingeschränkte Fahrradbeförderung.",
+            "Bicycles conveyed":                                 "Fahrradmitnahme möglich.",
+            "Bicycles conveyed - subject to reservation":        "Fahrradmitnahme – Reservierung erforderlich.",
+            "Bicycles conveyed - subject to availability":       "Fahrradmitnahme – je nach Verfügbarkeit.",
+            "Step-free access":                                  "Stufenfreier Zugang.",
+            "Power sockets available":                           "Steckdosen verfügbar.",
+            "Quiet zone":                                        "Ruhebereich.",
+            "Air conditioning":                                  "Klimaanlage vorhanden.",
+            "Area for people with reduced mobility":             "Bereich für mobilitätseingeschränkte Personen.",
+        };
+
+        const regexTranslations = [
+            {
+                pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i,
+                replace: (_, line, dest) =>
+                    `Durchbindung: Kommt als Linie ${line.trim()} aus Richtung ${dest.trim()}.`
+            },
+            {
+                pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,
+                replace: (_, line, dest) =>
+                    `Durchbindung: Fährt weiter als Linie ${line.trim()} Richtung ${dest.trim()}.`
+            },
+            {
+                pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,
+                replace: (_, line) => `Durchbindung von Linie ${line.trim()}.`
+            },
+            {
+                pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i,
+                replace: (_, line) => `Durchbindung auf Linie ${line.trim()}.`
+            },
+            {
+                pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,
+                replace: (_, line) => `Fährt weiter als Linie ${line.trim()}.`
+            },
+            {
+                pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,
+                replace: (_, line) => `Kommt als Linie ${line.trim()}.`
+            },
+            {
+                pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i,
+                replace: (_, min) => `Verspätung von ca. ${min} Minuten.`
+            },
+            {
+                pattern: /^cancelled\s+due\s+to\s+(.+)$/i,
+                replace: (_, reason) => `Fällt aus wegen ${reason.trim()}.`
+            },
+            {
+                pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,
+                replace: (_, stop) => `Halt ${stop.trim()} entfällt.`
+            },
+        ];
+
+        const translate = (text) => {
+            if (!text) return '';
+            if (translationMap[text]) return translationMap[text];
+            for (const { pattern, replace } of regexTranslations) {
+                const m = text.match(pattern);
+                if (m) return text.replace(pattern, replace);
+            }
+            return text;
+        };
+
         function showTripResults(tripData, source) {
             showMessage('', 'info'); // Suchmeldung löschen
             document.getElementById('trip-navigation').classList.remove('hidden');
@@ -662,6 +809,12 @@
                                 <div class="text-xs text-gray-500 mt-1">
                                     Gleis: ${stop.platform || '---'}
                                 </div>
+                                ${(stop.remarks || []).map(r => `
+                                    <div class="text-[10px] text-red-400 mt-1 flex items-start gap-1">
+                                        <i class="fas fa-exclamation-triangle mt-0.5"></i>
+                                        <span>${translate(r.text)}</span>
+                                    </div>
+                                `).join('')}
                             </div>
                             <div class="text-right mono text-xs leading-tight shrink-0">
                                 <div class="flex items-center justify-end gap-1">
