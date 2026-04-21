@@ -1819,17 +1819,23 @@
                         }
                     }
 
-                    // Keine Echtzeitdaten: nur Soll-Zeit
-                    if (!hasLive && !actual) {
+                    // Keine Echtzeitdaten (kein delaySec vom Server und kein live-Versatz): nur Soll-Zeit
+                    if (!hasLive && (delaySec === null || delaySec === undefined)) {
                         return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     }
 
                     // Bestimme Farbe basierend auf Verspätung/Verfrühung
                     const rtColor = delaySec !== null && delaySec !== undefined
                         ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
-                        : (actual && sched ? (Math.round((actual - sched) / 60000) >= 1 ? 'text-red-400' : 'text-green-400') : 'text-green-400');
+                        : (actual && sched && Math.abs(actual - sched) >= 60000 ? (actual > sched ? 'text-red-400' : 'text-green-400') : 'text-green-400');
 
                     const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+
+                    // Falls wir actual haben, aber kein hasLive und kein delaySec (also pünktlich laut Plan), 
+                    // zeigen wir trotzdem nur Soll-Zeit, außer es ist ausdrücklich bestätigt.
+                    if (!hasLive && (delaySec === null || delaySec === undefined)) {
+                        return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                    }
 
                     // Fett + Sekunden: Halt liegt in der Vergangenheit UND hat RT-Signal
                     // = Bus ist wirklich abgefahren/angekommen, bestätigt
@@ -1929,7 +1935,11 @@
                         <div class="flex flex-wrap gap-x-2 items-center mt-0.5">
                             ${platformHtml}
                             ${isCancelled ? '<span class="text-red-500 text-[10px] font-bold">ENTFÄLLT</span>' : ''}
-                            ${stop.remarks?.length > 0 ? `<span class="text-red-400 text-[10px]"><i class="fas fa-exclamation-triangle mr-0.5"></i>${translate(stop.remarks[0].text)}</span>` : ''}
+                            ${(stop.remarks || []).map(r => `
+                                <span class="text-red-400 text-[10px] block w-full">
+                                    <i class="fas fa-exclamation-triangle mr-0.5"></i>${translate(r.text)}
+                                </span>
+                            `).join('')}
                         </div>
                     </div>
                     <!-- Check-In Button (sichtbar wenn checkinDep gesetzt) -->
