@@ -96,7 +96,7 @@
     <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
         <a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <span class="text-red-600 font-black text-xl italic tracking-tight">dilaeit</span>
-            <span class="text-zinc-600 text-xs mono">/ träwelling-konverter</span>
+            <span class="text-zinc-600 text-xs mono" id="mode-breadcrumb">/ träwelling-konverter</span>
         </a>
         <div class="flex items-center gap-3">
             <a href="/stats.html" class="text-zinc-500 hover:text-zinc-300 px-2 py-2 rounded-lg hover:bg-zinc-900 transition-colors text-sm" title="Statistiken">
@@ -114,11 +114,11 @@
     <!-- Hero -->
     <div class="mb-10">
         <h1 class="text-3xl font-black tracking-tight mb-2">
-            <span class="text-zinc-300">Träwelling</span>
+            <span class="text-zinc-300" id="hero-source">Träwelling</span>
             <span class="text-zinc-600 mx-3">→</span>
             <span class="text-red-600 italic">dilaeit</span>
         </h1>
-        <p class="text-zinc-400 text-sm max-w-lg">
+        <p class="text-zinc-400 text-sm max-w-lg" id="hero-desc">
             Konvertiere deinen Träwelling-Export ins dilaeit-Format und importiere alle deine Fahrten mit einem Klick.
             Deine Daten verlassen dabei nie deinen Browser.
         </p>
@@ -129,8 +129,8 @@
         <div class="flex items-start gap-3 bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
             <div class="step-num">1</div>
             <div>
-                <p class="font-semibold text-sm text-zinc-200 mb-1">Export bei Träwelling</p>
-                <p class="text-zinc-500 text-xs">Einstellungen → Daten exportieren → JSON-Datei herunterladen</p>
+                <p class="font-semibold text-sm text-zinc-200 mb-1" id="step-1-title">Export bei Träwelling</p>
+                <p class="text-zinc-500 text-xs" id="step-1-desc">Einstellungen → Daten exportieren → JSON-Datei herunterladen</p>
             </div>
         </div>
         <div class="flex items-start gap-3 bg-zinc-900/50 rounded-2xl p-4 border border-zinc-800">
@@ -153,9 +153,9 @@
     <div id="drop-zone" onclick="document.getElementById('file-input').click()">
         <input type="file" id="file-input" accept=".json" class="hidden">
         <div class="text-5xl mb-4 text-zinc-600"><i class="fas fa-file-import"></i></div>
-        <p class="text-zinc-300 font-semibold text-lg mb-1">Träwelling JSON hier ablegen</p>
+        <p class="text-zinc-300 font-semibold text-lg mb-1" id="drop-zone-text">Träwelling JSON hier ablegen</p>
         <p class="text-zinc-600 text-sm">oder klicken zum Auswählen</p>
-        <p class="text-zinc-700 text-xs mt-3 mono">Träwelling_export_*.json</p>
+        <p class="text-zinc-700 text-xs mt-3 mono" id="drop-zone-filename">Träwelling_export_*.json</p>
     </div>
 
     <!-- Fehler -->
@@ -243,35 +243,58 @@
     let converted = [];
 
     // ─── Konvertierung ────────────────────────────────────────────────────────
-    function modeFrom(cat, mode) {
-        const c = (cat || '').toLowerCase();
-        const m = (mode || '').toLowerCase();
-        if (c === 'bus') return 'bus';
-        if (c === 'subway' || m.includes('subway')) return 'subway';
-        if (c === 'tram' || m.includes('tram')) return 'tram';
-        if (c === 'ferry' || m.includes('ferry')) return 'ferry';
-        return 'train';
-    }
+    function convertTravelynx(parsed) {
+        return parsed.map(entry => {
+            // Timestamps sind Sekunden-Floats als Strings
+            const depTs = parseFloat(entry.sched_dep_ts) * 1000;
+            const arrTs = parseFloat(entry.sched_arr_ts) * 1000;
+            const rtDepTs = entry.rt_dep_ts ? parseFloat(entry.rt_dep_ts) * 1000 : depTs;
+            const rtArrTs = entry.rt_arr_ts ? parseFloat(entry.rt_arr_ts) * 1000 : arrTs;
 
-    function fmt(iso) {
-        if (!iso) return null;
-        return new Date(iso).toLocaleTimeString('de-DE', {
-            hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin'
+            const dateObj = new Date(depTs);
+            const date = dateObj.toLocaleDateString('de-DE', {
+                timeZone: 'Europe/Berlin',
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            }).split('.').reverse().join('-');
+
+            const line = entry.line || `${entry.type} ${entry.no}`;
+            const mode = entry.type.toLowerCase().includes('bus') ? 'bus' : 'train';
+
+            return {
+                id:            'tlx-' + entry.id,
+                date,
+                time:          new Date(depTs).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
+                line,
+                from:          entry.from_name,
+                to:            entry.to_name,
+                mode,
+                km:            null,
+                depDelay:      Math.round((rtDepTs - depTs) / 60000),
+                delay:         Math.round((rtArrTs - arrTs) / 60000),
+                depReal:       new Date(rtDepTs).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
+                arrReal:       new Date(rtArrTs).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
+                arrivePlanned: new Date(arrTs).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
+                note:          entry.user_data?.comment || null,
+                fromCoords:    entry.from_latlon ? { lat: entry.from_latlon[0], lon: entry.from_latlon[1] } : null,
+                toCoords:      entry.to_latlon ? { lat: entry.to_latlon[0], lon: entry.to_latlon[1] } : null,
+            };
         });
-    }
-
-    function delayMin(planned, real) {
-        if (!planned || !real) return null;
-        return Math.round((new Date(real) - new Date(planned)) / 60000);
     }
 
     function convert(raw) {
         let parsed;
         try { parsed = JSON.parse(raw); } catch {
-            throw new Error('Ungültige JSON-Datei – bitte prüfe ob die Datei vollständig heruntergeladen wurde.');
+            throw new Error('Ungültige JSON-Datei.');
         }
+
+        // Travelynx Erkennung (Array von Objekten mit backend_id oder sched_dep_ts)
+        if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].sched_dep_ts || parsed[0].backend_id)) {
+            return convertTravelynx(parsed);
+        }
+
+        // Träwelling Erkennung
         if (!parsed.data || !Array.isArray(parsed.data)) {
-            throw new Error('Kein gültiger Träwelling-Export. Erwartet wird eine Datei mit einem "data"-Array.');
+            throw new Error('Kein gültiger Export (Träwelling oder Travelynx erkannt).');
         }
         if (parsed.data.length === 0) {
             throw new Error('Die Export-Datei enthält keine Fahrten.');
@@ -293,7 +316,7 @@
             return {
                 id:            'trw-' + s.id,
                 date,
-                time:          fmt(depISO),
+                time:          new Date(depISO).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
                 line:          ci.lineName || ci.number || '?',
                 from:          ci.origin.name,
                 to:            ci.destination.name,
@@ -301,11 +324,9 @@
                 km:            ci.distance ? Math.round(ci.distance / 100) / 10 : null,
                 depDelay:      delayMin(ci.origin.departurePlanned, ci.origin.departureReal),
                 delay:         delayMin(ci.destination.arrivalPlanned, ci.destination.arrivalReal),
-                depReal:       fmt(depRealISO),
-                arrReal:       fmt(arrRealISO),
-                arrivePlanned: fmt(arrISO),
-                depManual:     !!ci.manualDeparture,
-                arrManual:     !!ci.manualArrival,
+                depReal:       new Date(depRealISO).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
+                arrReal:       new Date(arrRealISO).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
+                arrivePlanned: new Date(arrISO).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
                 note:          s.body || null,
                 tripId:        ci.hafasId || null,
                 fromCoords:    null,
@@ -313,6 +334,42 @@
             };
         });
     }
+
+    function modeFrom(cat, mode) {
+        const c = (cat || '').toLowerCase();
+        const m = (mode || '').toLowerCase();
+        if (c === 'bus') return 'bus';
+        if (c === 'subway' || m.includes('subway')) return 'subway';
+        if (c === 'tram' || m.includes('tram')) return 'tram';
+        if (c === 'ferry' || m.includes('ferry')) return 'ferry';
+        return 'train';
+    }
+
+    function delayMin(planned, real) {
+        if (!planned || !real) return null;
+        return Math.round((new Date(real) - new Date(planned)) / 60000);
+    }
+
+    // ─── UI Anpassung ─────────────────────────────────────────────────────────
+    function updateUI() {
+        const params = new URLSearchParams(location.search);
+        const isTravelynx = params.get('mode') === 'travelynx';
+        
+        if (isTravelynx) {
+            document.title = 'dilaeit · Travelynx Konverter';
+            document.getElementById('mode-title-export').textContent = 'Travelynx';
+            document.getElementById('mode-breadcrumb').textContent = '/ travelynx-konverter';
+            document.getElementById('hero-source').textContent = 'Travelynx';
+            document.getElementById('hero-desc').textContent = 'Konvertiere deinen Travelynx-Export ins dilaeit-Format.';
+            
+            document.getElementById('step-1-title').textContent = 'Export bei Travelynx';
+            document.getElementById('step-1-desc').textContent = 'Profil -> Rohdaten -> JSON-Export';
+            document.getElementById('drop-zone-text').textContent = 'Travelynx JSON hier ablegen';
+            document.getElementById('drop-zone-filename').textContent = 'travelynx_export.json';
+        }
+    }
+
+    window.addEventListener('DOMContentLoaded', updateUI);
 
     // ─── Render ───────────────────────────────────────────────────────────────
     function delayBadge(min) {
