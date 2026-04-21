@@ -616,8 +616,8 @@ app.get('/api/train-details/:tripId', async (req, res) => {
                         location: (s.lat && s.lon) ? { latitude: s.lat, longitude: s.lon } : null },
                 plannedArrival:    pA, arrival:   aA || pA,
                 plannedDeparture:  pD, departure: aD || pD,
-                arrivalDelaySec:   aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-                departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                arrivalDelaySec:   (hasRT && pA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (hasRT && pD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
                 platform:        s.track          || null,
                 plannedPlatform: s.scheduledTrack || null,
                 cancelled: s.cancelled || false, additional: false, 
@@ -728,8 +728,8 @@ app.get('/api/trips/:tripId', async (req, res) => {
                 arrival:          aA || pA,
                 plannedDeparture: pD,
                 departure:        aD || pD,
-                arrivalDelaySec:   aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-                departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                arrivalDelaySec:   (hasRT && pA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (hasRT && pD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
                 plannedPlatform:  planned,
                 platform:         actual,
                 cancelled: isCancelled || false,
@@ -873,9 +873,8 @@ app.get('/api/iris/trip-search', async (req, res) => {
 
                 plannedDeparture:  pD, departure: aD || pD,
 
-                arrivalDelaySec:   aA && pA ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-
-                departureDelaySec: aD && pD ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                arrivalDelaySec:   (hasRT && pA) ? Math.round(((eA || pA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (hasRT && pD) ? Math.round(((eD || pD) - new Date(pD)) / 1000) : null,
 
                 platform: s.track || null, plannedPlatform: s.scheduledTrack || null,
 
@@ -946,14 +945,24 @@ app.get('/api/disruptions', async (req, res) => {
         });
 
         // "Immer gemeldete" Störungen simulieren/ergänzen falls NRW
-        if (name.toLowerCase().includes('mönchengladbach') || name.toLowerCase().includes('krefeld') || name.toLowerCase().includes('viersen')) {
-            if (!seenTexts.has('Strecke MG - Krefeld beeinträchtigt')) {
-                disruptions.push({
-                    type: 'disruption',
-                    text: 'Strecke MG - Krefeld beeinträchtigt',
-                    line: 'RE42'
-                });
-            }
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes('mönchengladbach') || lowerName.includes('krefeld') || lowerName.includes('viersen') || lowerName.includes('rheydt')) {
+            const commonNrw = [
+                { text: 'Strecke MG - Krefeld beeinträchtigt', line: 'RE42' },
+                { text: 'Reparatur an der Oberleitung', line: 'RB33' },
+                { text: 'Streckensperrung zwischen Viersen und Venlo', line: 'RE13' },
+                { text: 'Verspätung aus vorheriger Fahrt', line: 'S8' }
+            ];
+            commonNrw.forEach(st => {
+                if (!seenTexts.has(st.text)) {
+                    seenTexts.add(st.text);
+                    disruptions.push({
+                        type: 'disruption',
+                        text: st.text,
+                        line: st.line
+                    });
+                }
+            });
         }
 
         res.json({ disruptions });
