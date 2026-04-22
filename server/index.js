@@ -1153,6 +1153,79 @@ app.get('/api/push/vapid-public', (_req, res) => {
 
 });
 
+// ─── DB Timetables API Proxy ──────────────────────────────────────────────────
+
+// DB Timetables API credentials
+const DB_CLIENT_ID = process.env.DB_CLIENT_ID || 'your-client-id';
+const DB_API_KEY = process.env.DB_API_KEY || 'your-api-key';
+
+// Helper to fetch from DB Timetables API
+async function fetchDBTimetables(endpoint, params = {}) {
+    const url = new URL(`https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1${endpoint}`);
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    
+    const response = await fetch(url.toString(), {
+        headers: {
+            'DB-Client-ID': DB_CLIENT_ID,
+            'DB-Api-Key': DB_API_KEY,
+            'Accept': 'application/xml'
+        }
+    });
+    
+    if (!response.ok) {
+        throw new Error(`DB Timetables API error: ${response.status}`);
+    }
+    
+    const text = await response.text();
+    // Convert XML to JSON (simple conversion for messages)
+    const messages = [];
+    const msgRegex = /<m[^>]*>([\s\S]*?)<\/m>/g;
+    let match;
+    while ((match = msgRegex.exec(text)) !== null) {
+        const m = match[1];
+        const id = m.match(/id="([^"]+)"/)?.[1] || '';
+        const type = m.match(/t="([^"]+)"/)?.[1] || '';
+        const int = m.match(/int="([^"]+)"/)?.[1] || '';
+        const ext = m.match(/ext="([^"]+)"/)?.[1] || '';
+        const cat = m.match(/cat="([^"]+)"/)?.[1] || '';
+        const pr = m.match(/pr="([^"]+)"/)?.[1] || '';
+        const from = m.match(/from="([^"]+)"/)?.[1] || '';
+        const to = m.match(/to="([^"]+)"/)?.[1] || '';
+        const ts = m.match(/ts="([^"]+)"/)?.[1] || '';
+        
+        if (id) {
+            messages.push({
+                id, type, int, ext, cat, pr, from, to, ts
+            });
+        }
+    }
+    return { messages };
+}
+
+// Proxy endpoint for DB Timetables changes
+app.get('/api/db/timetable-changes/:evaNo', async (req, res) => {
+    try {
+        const { evaNo } = req.params;
+        const data = await fetchDBTimetables(`/fchg/${evaNo}`);
+        res.json(data);
+    } catch (e) {
+        console.error('DB Timetables proxy error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Proxy endpoint for DB Timetables recent changes
+app.get('/api/db/timetable-recent/:evaNo', async (req, res) => {
+    try {
+        const { evaNo } = req.params;
+        const data = await fetchDBTimetables(`/rchg/${evaNo}`);
+        res.json(data);
+    } catch (e) {
+        console.error('DB Timetables recent proxy error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 
 // ─── Push senden (intern, von Live-Tracking aufgerufen) ───────────────────────
