@@ -971,23 +971,43 @@
             const count = $('disruptions-count');
             
             try {
-                // Lade Störungen von DB API und VRR API (falls VRR Quelle)
+                // Lade Störungen von DB Timetables API (falls verfügbar) und VRR API (falls VRR Quelle)
                 const items = [];
                 const seenTexts = new Set();
                 
-                // 1. DB/Allgemeine Störungen laden
-                try {
-                    const res = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(state.currentStation.name)}`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        (data.disruptions || []).forEach(d => {
-                            if (!seenTexts.has(d.text)) {
-                                seenTexts.add(d.text);
-                                items.push({ ...d, source: 'db' });
+                // 1. DB Timetables API für aktuelle Verkehrslage (z.B. Strecke beeinträchtigt)
+                if (state.currentSource === 'db') {
+                    try {
+                        // EVA-Nummer aus Station ermitteln (wenn vorhanden)
+                        const evaNo = state.currentStation.id || '';
+                        if (evaNo) {
+                            const res = await fetch(`${API_BASE}/api/db/timetable-changes/${encodeURIComponent(evaNo)}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                (data.messages || []).forEach(m => {
+                                    const text = m.int || m.ext || '';
+                                    if (text && !seenTexts.has(text)) {
+                                        seenTexts.add(text);
+                                        // Prüfe ob es eine Störung oder Info ist
+                                        const isDisruption = m.type === 'r' || m.type === 'd' || 
+                                            text.toLowerCase().includes('beeinträchtigt') ||
+                                            text.toLowerCase().includes('strecke') ||
+                                            text.toLowerCase().includes('sperrung') ||
+                                            text.toLowerCase().includes('störung') ||
+                                            text.toLowerCase().includes('ausfall');
+                                        
+                                        items.push({
+                                            text: text,
+                                            type: isDisruption ? 'disruption' : 'info',
+                                            line: m.cat || null,
+                                            source: 'db'
+                                        });
+                                    }
+                                });
                             }
-                        });
-                    }
-                } catch(e) {}
+                        }
+                    } catch(e) {}
+                }
                 
                 // 2. VRR Störungen laden (wenn VRR Quelle ausgewählt)
                 if (state.currentSource === 'vrr') {
