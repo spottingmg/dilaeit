@@ -424,7 +424,11 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
                 remarks: [
                     ...(Array.isArray(ev.hints) ? ev.hints : []).map(h => ({ text: h.content, type: 'hint' })),
                     ...(Array.isArray(ev.transportation?.hints) ? ev.transportation.hints : []).map(h => ({ text: h.content, type: 'hint' })),
-                    ...(Array.isArray(ev.infos) ? ev.infos : []).map(i => ({ text: i.urlText || i.content || i.title || i.subtitle, type: 'info', url: i.url }))
+                    ...(Array.isArray(ev.infos) ? ev.infos : []).map(i => {
+                        let txt = i.urlText || i.content || i.title || i.subtitle;
+                        if (i.additionalText && txt) txt += ` (${i.additionalText})`;
+                        return { text: txt, type: 'info', url: i.url };
+                    })
                 ].filter(r => r.text && r.text !== 'null'),
 
                 _source: 'VRR OpenService'
@@ -642,13 +646,17 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
         const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
             outputFormat: 'rapidJSON', version: EFA_VERSION,
-            mode: 'direct', line, stopID, tripCode, itdDate: date, itdTime: time,
+            mode: 'direct', line, stopID, tripCode, date, time,
             tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
         });
 
         const seq = data.transportation?.locationSequence || [];
         const tripRemarks = [];
-        (Array.isArray(data.infos) ? data.infos : []).forEach(i => { const txt = i.urlText || i.content || i.title || i.subtitle; if (txt && txt !== 'null') tripRemarks.push({ text: txt, type: 'info', priority: 60, url: i.url }); });
+        (Array.isArray(data.infos) ? data.infos : []).forEach(i => { 
+            let txt = i.urlText || i.content || i.title || i.subtitle; 
+            if (i.additionalText && txt) txt += ` (${i.additionalText})`;
+            if (txt && txt !== 'null') tripRemarks.push({ text: txt, type: 'info', priority: 60, url: i.url }); 
+        });
         (Array.isArray(data.hints) ? data.hints : []).forEach(h => { if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); });
         (Array.isArray(data.transportation?.hints) ? data.transportation.hints : []).forEach(h => { if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); });
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
