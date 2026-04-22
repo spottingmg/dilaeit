@@ -710,6 +710,10 @@
                 const stops = data?.stopovers || [];
                 const remarks = data?.remarks || [];
                 const finalSourceName = data?.source || sourceName;
+
+                if (data.operator) $('detail-operator').textContent = data.operator;
+                else if (data.line?.operator?.name) $('detail-operator').textContent = data.line.operator.name;
+
                 currentDetailStopovers = stops;
                 renderItinerary(stops, remarks, finalSourceName);
 
@@ -833,7 +837,8 @@
                 allRemarks.forEach(r => {
                     const d = document.createElement('div');
                     d.className = 'text-[10px] text-red-400 bg-red-400/5 p-2 rounded-lg border border-red-400/20 flex items-start gap-2';
-                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div class="flex-1 whitespace-pre-wrap">${translate(r.text)}</div>`;
+                    const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted">${translate(r.text)}</a>` : translate(r.text);
+                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div class="flex-1 whitespace-pre-wrap">${content}</div>`;
                     remDiv.appendChild(d);
                 });
                 container.appendChild(remDiv);
@@ -857,8 +862,49 @@
         }
         function toggleArchive() {}
         function clearArchive() {}
-        function toggleDisruptions() {}
-        function loadDisruptions() {}
+        function toggleDisruptions() {
+            const list = $('disruptions-list');
+            const chevron = $('disruptions-chevron');
+            const isHidden = list.classList.toggle('hidden');
+            chevron.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+
+        async function loadDisruptions() {
+            if (!state.currentStation || state.disruptionsLoaded) return;
+            const panel = $('disruptions-panel');
+            const list = $('disruptions-list');
+            const count = $('disruptions-count');
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(state.currentStation.name)}`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                const items = data.disruptions || [];
+                
+                state.disruptionsLoaded = true;
+                if (items.length === 0) {
+                    panel.classList.add('hidden');
+                    return;
+                }
+                
+                panel.classList.remove('hidden');
+                count.textContent = `(${items.length})`;
+                list.innerHTML = '';
+                
+                items.forEach(d => {
+                    const div = document.createElement('div');
+                    div.className = 'p-3 rounded-xl bg-orange-400/10 border border-orange-500/20 text-[11px] text-orange-200 leading-relaxed';
+                    div.innerHTML = `
+                        <div class="font-bold mb-1 flex items-center gap-2 text-orange-300">
+                            <i class="fas fa-exclamation-triangle text-orange-500 text-[10px]"></i>
+                            ${d.type || 'Meldung'}
+                        </div>
+                        <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
+                    `;
+                    list.appendChild(div);
+                });
+            } catch (e) { panel.classList.add('hidden'); }
+        }
         function startRouteSearch() {}
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
