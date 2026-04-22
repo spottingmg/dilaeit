@@ -792,17 +792,14 @@ app.get('/api/iris/trip-search', async (req, res) => {
 
 
         const allDeps = results.flat();
-
         const match   = allDeps.find(t => {
-
             const ts = (t.tripShortName || '').toUpperCase().replace(/\s+/g, '');
-
             const dn = (t.displayName   || '').toUpperCase().replace(/\s+/g, '');
-
             const rs = (t.routeShortName|| '').toUpperCase().replace(/\s+/g, '');
-
-            return ts === q || dn === q || rs === q || ts.endsWith(q) || dn.endsWith(q);
-
+            // Suche auch nach (10612) -> Match auf 10612
+            return ts === q || dn === q || rs === q || 
+                   ts.endsWith(q) || dn.endsWith(q) ||
+                   dn.includes(`(${q})`) || ts.includes(`(${q})`);
         });
 
 
