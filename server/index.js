@@ -605,7 +605,7 @@ app.get('/api/train-details/:tripId', async (req, res) => {
         });
 
         res.json({
-            stopovers, remarks: tripRemarks, source: 'Transitous', tripId,
+            stopovers, remarks: tripRemarks, source: 'Transitous', tripId, operator: leg.agencyName || null,
             line: { name: leg.displayName || leg.routeShortName || leg.tripShortName || '', product: (leg.mode || 'bus').toLowerCase() }
         });
 
@@ -641,8 +641,10 @@ app.get('/api/trips/:tripId', async (req, res) => {
             tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
         });
 
-        const seq  = data.transportation?.locationSequence || [];
-
+        const seq = data.transportation?.locationSequence || [];
+        const tripRemarks = [];
+        (data.infos || []).forEach(i => { const txt = i.urlText || i.content || i.title || i.subtitle; if (txt) tripRemarks.push({ text: txt, type: "info", priority: 60, url: i.url }); });
+        (data.hints || []).forEach(h => { if (h.content) tripRemarks.push({ text: h.content, type: "hint", priority: 50 }); });
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
             const pA = toIsoStringOrNull(s.arrivalTimePlanned);
             const pD = toIsoStringOrNull(s.departureTimePlanned);
@@ -694,7 +696,16 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
         });
 
-        res.json({ stopovers, remarks: [], source: 'VRR OpenService' });
+        res.json({ 
+            stopovers, 
+            remarks: tripRemarks, 
+            source: "VRR OpenService",
+            operator: data.transportation?.operator?.name || null,
+            line: { 
+                name: data.transportation?.number || data.transportation?.name || "", 
+                product: data.transportation?.product?.name || "" 
+            }
+        });
 
     } catch (e) { res.status(502).json({ error: e.message }); }
 
@@ -1435,4 +1446,5 @@ setInterval(async () => {
 const port = Number(process.env.PORT || 8787);
 
 app.listen(port, '0.0.0.0', () => console.log(`🚀 dilaeit läuft auf Port ${port}`));
+
 
