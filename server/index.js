@@ -223,19 +223,21 @@ async function efaGet(endpoint, params) {
 
 
 function encodeTripId(dep) {
-    // EFA braucht für den Trip-Verlauf die exakte Kombination. 
-    // transportation.id ist oft die GlobalID (z.B. vrr:20009: :H:j26:1)
-    const lineId = dep.transportation?.id || dep.line?.id || dep.line?.name || '';
-    const stopID = dep.location?.id || dep.stopPoint?.id || dep.stop?.id || '';
-    const tripCode = dep.transportation?.properties?.tripCode || dep.tripCode || '0';
+    // EFA braucht für den Trip-Verlauf die exakte Kombination.
+    const lineId   = dep.transportation?.id || dep.line?.id || '';
+    const stopID   = dep.location?.id || dep.stopPoint?.id || dep.stop?.id || '';
+    const tripCode = dep.transportation?.properties?.tripCode || dep.tripCode || '';
     
-    return Buffer.from(JSON.stringify({
+    const payload = {
         line:     lineId,
         stopID:   stopID,
-        tripCode: tripCode,
         date:     toYyyymmddLocal(dep.plannedWhen || dep.departureTimePlanned || new Date().toISOString()),
         time:     toHmmLocal(dep.plannedWhen      || dep.departureTimePlanned || new Date().toISOString()),
-    })).toString('base64url');
+    };
+    
+    if (tripCode) payload.tripCode = tripCode;
+
+    return Buffer.from(JSON.stringify(payload)).toString('base64url');
 }
 
 
@@ -647,54 +649,53 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
             return res.status(400).json({ error: 'tripId missing fields' });
 
-        const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
+        const params = {
             outputFormat: 'rapidJSON', version: EFA_VERSION,
-            mode: 'direct', line, stopID, tripCode: tripCode || '0', itdDate: date, itdTime: time,
+            mode: 'direct', line, stopID, itdDate: date, itdTime: time,
             tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
-        });
+        };
+        // tripCode nur senden wenn vorhanden, manche EFA Versionen mögen '0' nicht
+        if (tripCode && tripCode !== 'null' && tripCode !== 'undefined') params.tripCode = tripCode;
+
+        const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', params);
 
         const seq = data.transportation?.locationSequence || [];
         const tripRemarks = [];
-        (Array.isArray(data.infos) ? data.infos : []).forEach(i => { 
+
+        // Globale Trip-Infos (Störungen/Hinweise)
+        const gInfos = Array.isArray(data.infos) ? data.infos : [];
+        const gHints = Array.isArray(data.hints) ? data.hints : [];
+        const tHints = Array.isArray(data.transportation?.hints) ? data.transportation.hints : [];
+
+        gInfos.forEach(i => { 
             let txt = i.urlText || i.content || i.title || i.subtitle; 
             if (i.additionalText && txt) txt += ` (${i.additionalText})`;
             if (txt && txt !== 'null') tripRemarks.push({ text: txt, type: 'info', priority: 60, url: i.url }); 
         });
-        (Array.isArray(data.hints) ? data.hints : []).forEach(h => { if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); });
-        (Array.isArray(data.transportation?.hints) ? data.transportation.hints : []).forEach(h => { if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); });
+        gHints.concat(tHints).forEach(h => { 
+            if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); 
+        });
         
-        const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
+        const stopovers = seq.map(s => {
             const pA = toIsoStringOrNull(s.arrivalTimePlanned);
             const pD = toIsoStringOrNull(s.departureTimePlanned);
             const eA = toIsoStringOrNull(s.arrivalTimeEstimated);
             const eD = toIsoStringOrNull(s.departureTimeEstimated);
 
-            // realtimeStatus als Array prüfen
-            const rtRaw = s.properties?.realtimeStatus || [];
-            const rtArr = Array.isArray(rtRaw) ? rtRaw : [rtRaw];
-
-            // Echtzeit wenn Estimated Zeit da ist (Standard VRR)
             const hasRT = !!(eA || eD);
-            
-            const aA    = hasRT ? (eA || pA) : pA;
-            const aD    = hasRT ? (eD || pD) : pD;
-            const isCancelled = s.isCancelled || rtArr.some(r => typeof r === 'string' && r.includes('CANCELLED'));
-
-            const planned  = s.properties?.plannedPlatformName || null;
-
-            const actual   = s.properties?.platformName        || null;
+            const aA = eA || pA;
+            const aD = eD || pD;
 
             const stopRemarks = [];
-            if (planned && actual && planned !== actual)
-                stopRemarks.push({ text: 'Platform change', type: 'hint', priority: 70 });
-            
-            // Weitere EFA-Remarks hinzufügen (z.B. Ausfallgründe)
-            (s.properties?.remarks || []).forEach(r => {
-                stopRemarks.push({
-                    text: r.summary || r.text || r.message || '',
-                    type: r.type || 'hint',
-                    priority: r.priority || 50
-                });
+            // Stop-spezifische Hints und Infos
+            const sHints = Array.isArray(s.properties?.hints) ? s.properties.hints : [];
+            const sInfos = Array.isArray(s.properties?.infos) ? s.properties.infos : [];
+
+            sHints.forEach(h => { if (h.content && h.content !== 'null') stopRemarks.push({ text: h.content, type: 'hint' }); });
+            sInfos.forEach(i => {
+                let txt = i.urlText || i.content || i.title || i.subtitle;
+                if (i.additionalText && txt) txt += ` (${i.additionalText})`;
+                if (txt && txt !== 'null') stopRemarks.push({ text: txt, type: 'info', url: i.url });
             });
 
             return {
@@ -705,17 +706,11 @@ app.get('/api/trips/:tripId', async (req, res) => {
                 departure:        aD,
                 arrivalDelaySec:   (hasRT && pA && eA) ? Math.round((new Date(eA) - new Date(pA)) / 1000) : null,
                 departureDelaySec: (hasRT && pD && eD) ? Math.round((new Date(eD) - new Date(pD)) / 1000) : null,
-                plannedPlatform:  planned,
-                platform:         actual,
-                cancelled: isCancelled || false,
-                additional: false,
-                remarks: [
-                    ...stopRemarks,
-                    ...(Array.isArray(s.properties?.hints) ? s.properties.hints : []).map(h => ({ text: h.content, type: 'hint' })),
-                    ...(Array.isArray(s.properties?.infos) ? s.properties.infos : []).map(i => ({ text: i.urlText || i.content || i.title || i.subtitle, type: 'info', url: i.url }))
-                ].filter(r => r.text && r.text !== 'null'),
+                plannedPlatform:  s.properties?.plannedPlatformName || null,
+                platform:         s.properties?.platformName || null,
+                cancelled:        s.isCancelled || false,
+                remarks:          stopRemarks
             };
-
         });
 
         res.json({ 
@@ -760,6 +755,9 @@ app.get('/api/iris/trip-search', async (req, res) => {
             'de:05314:8000044', // Bonn Hbf
             'de:07135:8000206', // Koblenz Hbf
             'de:05124:8000191', // Essen Hbf
+            'de:05112:8000086', // Duisburg Hbf
+            'de:05711:8000036', // Bielefeld Hbf
+            'de:05515:8000263', // Münster Hbf
         ];
 
 
@@ -774,7 +772,7 @@ app.get('/api/iris/trip-search', async (req, res) => {
 
             try {
 
-                const params = new URLSearchParams({ stopId, time: when.toISOString(), n: '200', window: '86400' });
+                const params = new URLSearchParams({ stopId, time: when.toISOString(), n: '500', window: '86400' });
 
                 const r = await fetch(`${TRANSITOUS}/stoptimes?${params}`, {
 
@@ -870,13 +868,12 @@ app.get('/api/iris/trip-search', async (req, res) => {
 
 
         res.json({
-
-            stopovers, remarks: [], source: 'Transitous',
-
-            tripId: match.tripId, dbTripId: match.tripId,
-
+            stopovers, 
+            remarks: (data.remarks || []).map(r => ({ text: r.text || r, type: 'info' })), 
+            source: 'Transitous',
+            operator: leg.operator?.name || data.operator?.name || null,
+            tripId: match.tripId, 
             line: { name: match.displayName || match.routeShortName || number, product: (match.mode || 'bus').toLowerCase() }
-
         });
 
     } catch (e) {
