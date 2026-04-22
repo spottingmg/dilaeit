@@ -744,19 +744,13 @@ app.get('/api/iris/trip-search', async (req, res) => {
         // Transitous stoptimes an mehreren Hubs parallel – nach Zugnummer suchen
 
         const HUBS = [
-
-            'de:05166:8000248', // Mönchengladbach Hbf
-
+            'de:05116:8000250', // Mönchengladbach Hbf
             'de:05315:8000207', // Köln Hbf
-
             'de:05111:8000085', // Düsseldorf Hbf
-
             'de:05913:8000096', // Dortmund Hbf
-
-            'de:05315:8005556', // Troisdorf
-
+            'de:05314:8000044', // Bonn Hbf
+            'de:07135:8000206', // Koblenz Hbf
             'de:05124:8000191', // Essen Hbf
-
         ];
 
 
