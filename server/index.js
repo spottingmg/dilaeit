@@ -888,50 +888,135 @@ app.get('/api/iris/trip-search', async (req, res) => {
 
 
 
-// ─── Störungsmeldungen (DB API) ──────────────────────────────────────────────
+// ─── DB Timetables API ───────────────────────────────────────────────────────
+// Offizielle DB Timetables API: https://api.deutschebahn.com/timetables/v1/
+// API-Key benötigt Registrierung unter: https://data.deutschebahn.com/
+const DB_TIMETABLES_TOKEN = process.env.DB_TIMETABLES_TOKEN || '';
+const DB_TIMETABLES_BASE = 'https://api.deutschebahn.com/timetables/v1';
+
+// Helper für DB Timetables API Requests
+async function dbTimetablesFetch(path, options = {}) {
+    if (!DB_TIMETABLES_TOKEN) {
+        throw new Error('DB_TIMETABLES_TOKEN nicht konfiguriert');
+    }
+    const url = `${DB_TIMETABLES_BASE}${path}`;
+    const headers = {
+        'DB-Client-Token': DB_TIMETABLES_TOKEN,
+        'Content-Type': 'application/json',
+    };
+    const r = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+    if (!r.ok) throw new Error(`DB Timetables ${r.status}: ${await r.text().catch(() => '')}`);
+    return r.json();
+}
+
+// ─── Störungsmeldungen (DB Timetables API) ───────────────────────────────────
 app.get('/api/disruptions', async (req, res) => {
     try {
         const name = (req.query.name || '').toString().trim();
         if (!name) return res.json({ disruptions: [] });
 
-        // Wir suchen erst die Station-ID für den Namen via HAFAS
-        if (!hafas) return res.json({ disruptions: [] });
-        const locations = await hafas.locations(name, { results: 1 }).catch(() => []);
-        const station = locations[0];
-        if (!station || !station.id) return res.json({ disruptions: [] });
-
-        // Abrufen der Remarks/Hinweise für diese Station
-        // Wir rufen sowohl Abfahrten als auch allgemeine Remarks ab
-        const [departures, remarks] = await Promise.all([
-            hafas.departures(station.id, { duration: 180, remarks: true }).catch(() => ({ departures: [] })),
-            hafas.remarks({ results: 10 }).catch(() => [])
-        ]);
-        
         const disruptions = [];
         const seenTexts = new Set();
 
-        const processRemark = (rem, lineName = null) => {
-            if (rem.type === 'warning' || rem.type === 'status') {
-                const text = rem.text || rem.summary; // Bevorzuge den Langtext
-                if (text && !seenTexts.has(text)) {
-                    seenTexts.add(text);
-                    disruptions.push({
-                        type: 'disruption',
-                        text: text,
-                        line: lineName || (rem.lines && rem.lines[0]?.name) || rem.line?.name || null
-                    });
+        // Zuerst versuchen wir die DB Timetables API
+        if (DB_TIMETABLES_TOKEN) {
+            try {
+                // 1. Stationssuche via DB Timetables
+                const locations = await dbTimetablesFetch(`/locations?name=${encodeURIComponent(name)}&limit=1`).catch(() => null);
+                
+                if (locations && locations.length > 0) {
+                    const station = locations[0];
+                    const evasId = station.evaNumber || station.id;
+                    
+                    if (evasId) {
+                        // 2. Betriebsstelleninformationen abrufen
+                        const stationInfo = await dbTimetablesFetch(`/stations/${evasId}`).catch(() => null);
+                        
+                        // 3. Störungsmeldungen für die Station
+                        // DB Timetables bietet /messages endpoint für Störungen
+                        const messages = await dbTimetablesFetch(`/messages?station=${evasId}`).catch(() => null);
+                        
+                        if (messages && Array.isArray(messages)) {
+                            messages.forEach(msg => {
+                                const text = msg.title || msg.description || msg.text || '';
+                                if (text && !seenTexts.has(text)) {
+                                    seenTexts.add(text);
+                                    disruptions.push({
+                                        type: 'disruption',
+                                        text: text,
+                                        line: msg.line || msg.route || null,
+                                        category: msg.category || 'unknown',
+                                        validFrom: msg.validFrom || null,
+                                        validUntil: msg.validUntil || null
+                                    });
+                                }
+                            });
+                        }
+                        
+                        // 4. Alternative: Über Abfahrten Störungen erkennen
+                        if (disruptions.length === 0) {
+                            const departures = await dbTimetablesFetch(`/departures?station=${evasId}&limit=20`).catch(() => null);
+                            if (departures && departures.stopVisits) {
+                                departures.stopVisits.forEach(dep => {
+                                    if (dep.messages) {
+                                        dep.messages.forEach(msg => {
+                                            const text = msg.text || msg.title || '';
+                                            if (text && !seenTexts.has(text) && (msg.type === 'WARNING' || msg.type === 'INFO')) {
+                                                seenTexts.add(text);
+                                                disruptions.push({
+                                                    type: 'disruption',
+                                                    text: text,
+                                                    line: dep.line || dep.routeNumber || null
+                                                });
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        }
+                    }
                 }
+            } catch (e) {
+                console.warn('[DB Timetables disruptions]', e.message);
             }
-        };
+        }
 
-        // Sammle alle relevanten Remarks aus den Abfahrten
-        const deps = Array.isArray(departures) ? departures : (departures.departures || []);
-        deps.forEach(dep => {
-            (dep.remarks || []).forEach(rem => processRemark(rem, dep.line?.name));
-        });
+        // Fallback zu db-hafas wenn DB Timetables nicht verfügbar oder keine Ergebnisse
+        if (disruptions.length === 0 && hafas) {
+            try {
+                const locations = await hafas.locations(name, { results: 1 }).catch(() => []);
+                const station = locations[0];
+                if (station && station.id) {
+                    const [departures, remarks] = await Promise.all([
+                        hafas.departures(station.id, { duration: 180, remarks: true }).catch(() => ({ departures: [] })),
+                        hafas.remarks({ results: 10 }).catch(() => [])
+                    ]);
+                    
+                    const processRemark = (rem, lineName = null) => {
+                        if (rem.type === 'warning' || rem.type === 'status') {
+                            const text = rem.text || rem.summary;
+                            if (text && !seenTexts.has(text)) {
+                                seenTexts.add(text);
+                                disruptions.push({
+                                    type: 'disruption',
+                                    text: text,
+                                    line: lineName || (rem.lines && rem.lines[0]?.name) || rem.line?.name || null
+                                });
+                            }
+                        }
+                    };
 
-        // Sammle allgemeine Remarks (Streckensperrungen etc.)
-        (remarks || []).forEach(rem => processRemark(rem));
+                    const deps = Array.isArray(departures) ? departures : (departures.departures || []);
+                    deps.forEach(dep => {
+                        (dep.remarks || []).forEach(rem => processRemark(rem, dep.line?.name));
+                    });
+
+                    (remarks || []).forEach(rem => processRemark(rem));
+                }
+            } catch (e) {
+                console.warn('[HAFAS fallback disruptions]', e.message);
+            }
+        }
 
         // "Immer gemeldete" Störungen simulieren/ergänzen falls NRW
         const lowerName = name.toLowerCase();
