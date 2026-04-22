@@ -1,4 +1,11 @@
-import 'dotenv/config';
+// dotenv laden (optional, für lokale Entwicklung)
+try {
+    const dotenv = await import('dotenv');
+    dotenv.config();
+} catch (e) {
+    // dotenv nicht installiert - Umgebungsvariablen werden trotzdem geladen
+}
+
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
