@@ -124,8 +124,8 @@
                         Fahrt: <span id="current-trip-number-display" class="font-bold text-gray-200">--</span>
                     </div>
                 </div>
-                <div id="trip-itinerary" class="space-y-6 relative">
-                    <div class="itinerary-line"></div>
+                <div id="trip-itinerary" class="space-y-0 relative">
+                    <!-- Itinerary line is handled by stop items -->
                 </div>
             </div>
         </div>
@@ -133,11 +133,7 @@
 
     <script>
         // ─── Konfiguration ───────────────────────────────────────────────────────────
-        const API_BASE = (() => {
-            const saved = localStorage.getItem('dilaeit_api_base');
-            if (saved) return saved;
-            return '';
-        })();
+        const API_BASE = window.location.hostname === 'localhost' ? '' : 'https://dilaeit.onrender.com';
 
         // ─── Globale Variablen ───────────────────────────────────────────────────────
         let currentTripData = {
@@ -146,23 +142,46 @@
             results: []
         };
 
-        // ─── Zug-Erkennung ───────────────────────────────────────────────────────────
-        function isTrain(lineName) {
-            if (!lineName) return false;
-            const name = (lineName || '').toUpperCase();
-            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
-            const prefixMatches = (p) => {
-                if (name === p) return true;
-                if (name.startsWith(p + ' ') || name.startsWith(p + '-')) return true;
-                // Handles patterns like "RS1" / "RE4" where there is no delimiter.
-                if (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1))) return true;
-                return false;
-            };
-            if (trainPrefixes.some(prefixMatches)) return true;
-            // S-Bahn in den NRW-APIs kommt oft als "S 8" oder "S8"
-            if (/^S\s*\d+/.test(name)) return true;
-            return false;
-        }
+        const TRANSITOUS_HUBS = [
+            'de:05116:8000250',  // Mönchengladbach Hbf
+            'de:05315:8000207',  // Köln Hbf
+            'de:05111:8000085',  // Düsseldorf Hbf
+            'de:05913:8000096',  // Dortmund Hbf
+            'de:05113:8000105',  // Duisburg Hbf
+            'de:05124:8000191',  // Essen Hbf
+            'de:05314:8000044',  // Bonn Hbf
+            'de:07135:8000206',  // Koblenz Hbf
+            'de:02000:8600282',  // Hamburg Hbf
+            'de:11000:900003201', // Berlin Hbf
+        ];
+
+        const translationMap = {
+            "technical defect on the route": "Reparatur an der Strecke",
+            "repair to the line": "Reparatur an der Strecke",
+            "repair to the track": "Reparatur an der Strecke",
+            "repair at the track": "Reparatur an der Strecke",
+            "repair on the line": "Reparatur an der Strecke",
+            "repair at the overhead line": "Reparatur an der Oberleitung",
+            "repair on the overhead line": "Reparatur an der Oberleitung",
+            "person on the track": "Personen auf der Strecke",
+            "unauthorized persons on the track": "unbefugte Personen auf der Strecke",
+            "delay of a preceding train": "Verspätung eines vorausfahrenden Zuges",
+            "delayed staff from previous journey": "verspätetes Personal aus vorheriger Fahrt",
+            "technical defect on another train": "technischer Defekt an einem anderen Zug",
+            "technical defect on the train": "technischer Defekt am Zug",
+            "operational delays": "Verzögerungen im Betriebsablauf",
+            "delay from previous trip": "Verspätung aus vorheriger Fahrt",
+            "Platform change": "Gleiswechsel.",
+            "Stop cancelled": "Halt entfällt.",
+            "Train is cancelled": "Zug fällt aus."
+        };
+
+        const translate = (text) => {
+            if (!text) return text;
+            let out = translationMap[text] || text;
+            out = out.replace(/Continues as line (.*)/i, "Fährt weiter als Linie $1");
+            return out;
+        };
 
         // ─── Init ────────────────────────────────────────────────────────────────────
         function init() {
@@ -189,7 +208,7 @@
             const input = document.getElementById('trip-number-input');
             const dropdown = document.getElementById('trip-dropdown');
 
-            input.addEventListener('input', (e) => handleTripInput(e.target.value));
+            input.addEventListener('input', debounce((e) => handleTripInput(e.target.value), 300));
             input.addEventListener('focus', () => {
                 if (dropdown.children.length > 0) dropdown.classList.remove('hidden');
             });
@@ -207,693 +226,278 @@
                 }
             });
             
-            // Zeitreise-Buttons
             document.getElementById('prev-day-btn').addEventListener('click', () => changeTripDate(-1));
             document.getElementById('next-day-btn').addEventListener('click', () => changeTripDate(1));
         }
 
         // ─── Autocomplete für Fahrten ────────────────────────────────────────────────
-        let tripSearchTimer = null;
         async function handleTripInput(val) {
             const query = val.trim();
             const dropdown = document.getElementById('trip-dropdown');
             const date = document.getElementById('trip-date-input').value;
+            const when = date ? `${date}T12:00:00` : new Date().toISOString();
 
             if (query.length < 2) {
                 dropdown.classList.add('hidden');
                 return;
             }
 
-            // Lade-Indikator anzeigen
             dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-gray-500 italic flex items-center gap-3"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche nach Fahrten...</div>';
             dropdown.classList.remove('hidden');
 
-            clearTimeout(tripSearchTimer);
-            tripSearchTimer = setTimeout(async () => {
-                try {
-                    // DB via IRIS-Backend
-                    const dbRes = await fetch(
-                        `${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`,
-                        { signal: AbortSignal.timeout(15000) }
-                    ).then(r => r.ok ? r.json() : null).catch(() => null);
+            try {
+                // Transitous: mehrere Hubs parallel
+                const tResults = await Promise.all(
+                    TRANSITOUS_HUBS.slice(0, 6).map(async stopId => {
+                        try {
+                            const r = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${stopId}&time=${encodeURIComponent(when)}&n=200`,
+                                { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(6000) });
+                            if (!r.ok) return [];
+                            const d = await r.json();
+                            return d.departures || d.stopTimes || (Array.isArray(d) ? d : []);
+                        } catch { return []; }
+                    })
+                );
+                
+                const q = query.toUpperCase().replace(/\s+/g, '');
+                const isNumericQ = /^\d+$/.test(q);
+                const seen = new Set();
+                const trips = [];
 
-                    const q = query.trim().toUpperCase().replace(/\s+/g, '');
-                    const seen = new Set();
-                    const trips = [];
+                tResults.flat().forEach(d => {
+                    const display    = d.displayName    || '';
+                    const tripShort  = d.tripShortName  || '';
+                    const routeShort = d.routeShortName || '';
+                    const showName   = (display && tripShort && display !== tripShort) ? `${display} (${tripShort})` : (display || tripShort || routeShort);
+                    if (!showName) return;
+                    
+                    const nameUp = showName.toUpperCase().replace(/\s+/g, '');
+                    const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
+                    const displayUp = display.toUpperCase().replace(/\s+/g, '');
+                    
+                    const matches = tripUp === q || tripUp.endsWith(q) || tripUp.includes("(" + q + ")")
+                                 || displayUp === q || displayUp.endsWith(q) || displayUp.includes("(" + q + ")")
+                                 || (!isNumericQ && nameUp.includes(q));
 
-                    if (dbRes?.line?.name && !seen.has(dbRes.line.name)) {
-                        seen.add(dbRes.line.name);
+                    if (matches && !seen.has(showName)) {
+                        seen.add(showName);
                         trips.push({
-                            id: dbRes.dbTripId || dbRes.tripId,
-                            name: dbRes.line.name,
+                            id: d.tripId || d.trip?.tripId,
+                            name: showName,
+                            direction: d.headsign || '',
+                            plannedDeparture: d.scheduledDeparture || d.departure || null
+                        });
+                    }
+                });
+
+                // Auch DB IRIS checken (nur 1 Resultat meistens)
+                try {
+                    const dbRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(5000) }).then(r=>r.json());
+                    if (dbRes?.tripId && !seen.has(dbRes.line?.name)) {
+                        trips.unshift({
+                            id: dbRes.tripId,
+                            name: dbRes.line?.name || query,
                             direction: dbRes.stopovers?.[dbRes.stopovers.length-1]?.stop?.name || '',
                             plannedDeparture: dbRes.stopovers?.[0]?.plannedDeparture || null
                         });
                     }
+                } catch {}
 
-                    // Transitous: mehrere Hubs parallel
-                    const tResults = await Promise.all(
-                        TRANSITOUS_HUBS.slice(0, 5).map(async stopId => { // nur 5 für Autocomplete
-                            try {
-                                const r = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${stopId}&time=${encodeURIComponent(when)}&n=200`,
-                                    { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(5000) });
-                                if (!r.ok) return [];
-                                const d = await r.json();
-                                return d.departures || d.stopTimes || (Array.isArray(d) ? d : []);
-                            } catch { return []; }
-                        })
-                    );
-                    const tDeps = tResults.flat();
-                    const isNumericQ = /^\d+$/.test(q);
-                    tDeps.forEach(d => {
-                        const display    = d.displayName    || '';
-                        const tripShort  = d.tripShortName  || '';
-                        const routeShort = d.routeShortName || '';
-                        const showName   = (display && tripShort && display !== tripShort) ? `${display} (${tripShort})` : (display || tripShort || routeShort);
-                        if (!showName) return;
-                        const nameUp = showName.toUpperCase().replace(/\s+/g, '');
-                        const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
-                        const routeUp = routeShort.toUpperCase().replace(/\s+/g, '');
-                        const displayUp = display.toUpperCase().replace(/\s+/g, '');
-                        
-                        // Für reine Zahlen: nur exakt oder endsWith auf tripShortName
-                        // Für Text: auch includes auf displayName erlaubt
-                        const matches = tripUp === q || tripUp.endsWith(q) || tripUp.includes("(" + q + ")")
-                                     || routeUp === q || routeUp.endsWith(q)
-                                     || displayUp === q || displayUp.endsWith(q) || displayUp.includes("(" + q + ")")
-                                     || (!isNumericQ && nameUp.includes(q));
-                        if (matches && !seen.has(showName)) {
-                            seen.add(showName);
-                            trips.push({
-                                id: d.tripId || d.trip?.tripId,
-                                name: showName,
-                                direction: d.headsign || '',
-                                plannedDeparture: d.scheduledDeparture || d.departure || null
-                            });
-                        }
-                    });
-
-                    renderTripDropdown(trips);
-                } catch (e) {
-                    console.error('Autocomplete error:', e);
-                    dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium">Netzwerkfehler bei der Suche.</div>';
-                }
-            }, 300);
+                renderTripDropdown(trips);
+            } catch (e) {
+                dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium">Netzwerkfehler.</div>';
+            }
         }
 
         function renderTripDropdown(trips) {
             const dropdown = document.getElementById('trip-dropdown');
             dropdown.innerHTML = '';
-
             if (trips.length === 0) {
                 dropdown.innerHTML = '<div class="px-4 py-3 text-sm text-gray-500 italic">Keine Fahrten gefunden.</div>';
-                dropdown.classList.remove('hidden');
                 return;
             }
-
             trips.forEach(trip => {
                 const item = document.createElement('div');
                 item.className = 'px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center justify-between group/item';
-                
                 const time = trip.plannedDeparture ? new Date(trip.plannedDeparture).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
-                
                 item.innerHTML = `
                     <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm font-black text-red-600 italic group-hover/item:text-red-500">${trip.name}</span>
-                            <span class="text-gray-400 text-xs">→</span>
-                        </div>
-                        <div class="text-sm font-bold truncate text-gray-700 dark:text-gray-200">${trip.direction || 'Unbekannt'}</div>
+                        <div class="text-sm font-bold text-gray-900 dark:text-white truncate group-hover/item:text-red-500 transition-colors">${trip.name}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-widest truncate">${trip.direction || 'Unbekanntes Ziel'}</div>
                     </div>
-                    <div class="text-right ml-4">
-                        <div class="text-sm font-mono font-bold text-gray-800 dark:text-gray-100">${time}</div>
-                        <div class="text-[9px] text-gray-500 uppercase tracking-widest">Start</div>
-                    </div>
-                `;
-
+                    <div class="text-xs font-mono text-gray-400 bg-gray-100 dark:bg-zinc-800 px-2 py-1 rounded-lg ml-3">${time}</div>`;
                 item.onclick = () => {
                     document.getElementById('trip-number-input').value = trip.name;
                     dropdown.classList.add('hidden');
-                    handleTripSearch(trip.id); // Suche direkt mit der ID auslösen
+                    loadTripDetails(trip.id, document.getElementById('trip-date-input').value);
                 };
                 dropdown.appendChild(item);
             });
-
-            dropdown.classList.remove('hidden');
         }
 
-        // ─── Suche nach Fahrt ───────────────────────────────────────────────────────
-        async function handleTripSearch(explicitTripId = null) {
+        // ─── Suche Ausführen ─────────────────────────────────────────────────────────
+        async function handleTripSearch() {
             const number = document.getElementById('trip-number-input').value.trim();
             const date = document.getElementById('trip-date-input').value;
-            
-            if (!number && !explicitTripId) {
-                showMessage('Bitte gib eine Zug-/Busnummer ein (z.B. IC2201, 722)', 'error');
-                return;
-            }
+            if (!number) return;
+            loadTripDetails(number, date);
+        }
 
-            currentTripData.number = number;
-            currentTripData.date = date;
-
-            showMessage('Suche nach Fahrt...', 'info');
+        async function loadTripDetails(idOrNumber, date) {
+            const results = document.getElementById('trip-search-results');
+            const container = document.getElementById('trip-itinerary-container');
+            const itinerary = document.getElementById('trip-itinerary');
             
+            results.innerHTML = `<div class="flex items-center gap-3 py-4"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Fahrtverlauf...</div>`;
+            container.classList.remove('hidden');
+            itinerary.innerHTML = '<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-2xl text-red-600"></i></div>';
+
             try {
-                // Wenn wir eine explizite ID haben, nutzen wir diese direkt
-                if (explicitTripId) {
-                    const dbResult = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(explicitTripId)}`, {
-                        signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
-                    }).then(r => r.ok ? r.json() : null);
-                    if (dbResult) {
-                        showTripResults(dbResult, dbResult.source || 'Transitous');
-                        return;
-                    }
-                }
-
-                // Ansonsten normale Suche – DB, VRR und Transitous parallel
-                const [dbResult, vrrResult, transitousResult] = await Promise.all([
-                    searchDbTrip(number, date),
-                    searchVrrTrip(number, date),
-                    searchTransitousTrip(number, date)
-                ]);
-
-                // Priorität: DB IRIS → Transitous → VRR
-                if (dbResult?.stopovers?.length > 0) {
-                    showTripResults(dbResult, 'DB IRIS');
-                    return;
-                } else if (transitousResult?.stopovers?.length > 0) {
-                    showTripResults(transitousResult, 'Transitous');
-                    return;
-                } else if (vrrResult?.stopovers?.length > 0) {
-                    showTripResults(vrrResult, 'VRR OpenService');
-                    return;
+                let data = null;
+                // Wenn es eine Transitous ID ist (z.B. mit ":")
+                if (idOrNumber.includes(':') || idOrNumber.length > 25) {
+                    data = await fetchTransitousDetails(idOrNumber);
                 } else {
-                    showMessage('Keine Fahrt mit dieser Nummer gefunden.', 'error');
-                    document.getElementById('trip-itinerary-container').classList.add('hidden');
-                    return;
-                }
-            } catch (e) {
-                console.error('Trip search error:', e);
-                showMessage('Fehler bei der Suche.', 'error');
-                document.getElementById('trip-itinerary-container').classList.add('hidden');
-            }
-        }
-
-        // ─── VRR Suche ───────────────────────────────────────────────────────────────
-        async function searchVrrTrip(number, date) {
-            try {
-                // VRR Suche: Wir suchen nach der Nummer in den Abfahrten einer zentralen Station
-                // Um die Trefferquote zu erhöhen, probieren wir mehrere große Knotenpunkte
-                const hubs = ['Düsseldorf Hbf', 'Essen Hbf', 'Dortmund Hbf', 'Duisburg Hbf', 'Aachen Hbf'];
-                
-                for (const hub of hubs) {
-                    const stations = await searchVrrStations(hub);
-                    if (!stations || stations.length === 0) continue;
-
-                    const departures = await getVrrDepartures(stations[0].id, date);
-                    const matchingTrip = departures.find(d => 
-                        d.line?.name === number || 
-                        String(d.line?.name).toUpperCase() === String(number).toUpperCase() ||
-                        String(d.line?.name).includes(number)
-                    );
-
-                    if (matchingTrip && matchingTrip.tripId) {
-                        return await getVrrTripDetails(matchingTrip.tripId);
+                    // Erst DB IRIS probieren
+                    try {
+                        const res = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(idOrNumber)}&date=${encodeURIComponent(date)}`).then(r=>r.json());
+                        if (res?.stopovers?.length) data = res;
+                    } catch {}
+                    // Falls nicht gefunden, Transitous probieren
+                    if (!data) {
+                        const match = await searchTransitousTrip(idOrNumber, date);
+                        if (match) data = await fetchTransitousDetails(match.tripId);
                     }
                 }
-                return null;
+
+                if (!data || !data.stopovers) {
+                    results.innerHTML = '<span class="text-red-500 font-bold">Keine Fahrt gefunden.</span>';
+                    itinerary.innerHTML = '<div class="py-10 text-center text-zinc-500">Kein Verlauf verfügbar.</div>';
+                    return;
+                }
+
+                results.innerHTML = `<span class="text-green-500 font-bold">Fahrt gefunden!</span>`;
+                document.getElementById('trip-source-display').textContent = `QUELLE: ${data.source || 'API'}`;
+                document.getElementById('current-trip-date-display').textContent = date;
+                document.getElementById('current-trip-number-display').textContent = data.line?.name || idOrNumber;
+                currentTripData = { number: idOrNumber, date: date, results: data };
+                renderItinerary(data.stopovers, data.remarks || []);
             } catch (e) {
-                console.warn('VRR trip search failed:', e);
-                return null;
+                results.innerHTML = '<span class="text-red-500">Fehler beim Laden.</span>';
             }
         }
-
-        // ─── Transitous Suche ─────────────────────────────────────────────────────────
-        // Mehrere große Bahnhöfe parallel durchsuchen für maximale Trefferquote
-                const TRANSITOUS_HUBS = [
-            'de:05116:8000250',  // Mönchengladbach Hbf
-            'de:05315:8000207',  // Köln Hbf
-            'de:05111:8000085',  // Düsseldorf Hbf
-            'de:05913:8000096',  // Dortmund Hbf
-            'de:05113:8000105',  // Duisburg Hbf
-            'de:05124:8000191',  // Essen Hbf
-            'de:05314:8000044',  // Bonn Hbf
-            'de:07135:8000206',  // Koblenz Hbf
-            'de:02000:8600282',  // Hamburg Hbf
-            'de:11000:900003201', // Berlin Hbf
-        ];
 
         async function searchTransitousTrip(number, date) {
-            try {
-                const when = date ? `${date}T08:00:00` : new Date().toISOString();
-                const q    = number.trim().toUpperCase().replace(/\s+/g, '');
-                const isNumeric = /^\d+$/.test(q); // reine Zahl = Fahrtnummer
-
-                // Alle Hubs parallel anfragen
-                const results = await Promise.all(TRANSITOUS_HUBS.map(async stopId => {
-                    try {
-                        const url = `https://api.transitous.org/api/v1/stoptimes?stopId=${stopId}&time=${encodeURIComponent(when)}&n=200`;
-                        const res = await fetch(url, { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(8000) });
-                        if (!res.ok) return [];
-                        const data = await res.json();
-                        return data.departures || data.stopTimes || (Array.isArray(data) ? data : []);
-                    } catch { return []; }
-                }));
-
-                const allDeps = results.flat();
-
-                // Matching mit Priorität:
-                // 1. Exakter tripShortName (Fahrtnummer "10613" == "10613")
-                // 2. Exakter routeShortName ("RB27" == "RB27")
-                // 3. displayName endet mit Zahl ("IC1549" endsWith "1549")
-                // 4. displayName enthält ("IC2202" includes "2202")
-                // Busse/Trams bei reiner Zahlsuche ausschließen
-                const findMatch = (deps) => {
-                    // Priorität 1: exakte Fahrtnummer
-                    let m = deps.find(d => {
+            const when = date ? `${date}T12:00:00` : new Date().toISOString();
+            const q = number.toUpperCase().replace(/\s+/g, '');
+            for (const hub of TRANSITOUS_HUBS.slice(0, 8)) {
+                try {
+                    const res = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${hub}&time=${encodeURIComponent(when)}&n=200`, { headers: { 'Referer': 'https://dilaeit.onrender.com' } }).then(r=>r.json());
+                    const match = (res.departures || res.stopTimes || []).find(d => {
                         const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
-                        return ts === q;
-                    });
-                    if (m) return m;
-
-                    // Priorität 2: exakter Linienname
-                    m = deps.find(d => {
-                        const rs = (d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
-                        return rs === q;
-                    });
-                    if (m) return m;
-
-                    // Priorität 3: displayName endet mit Eingabe (z.B. "IC 1549" → "1549")
-                    m = deps.find(d => {
                         const dn = (d.displayName || '').toUpperCase().replace(/\s+/g, '');
-                        const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
-                        return dn.endsWith(q) || ts.endsWith(q) || dn.includes("(" + q + ")") || ts.includes("(" + q + ")")
+                        return ts === q || dn === q || ts.includes("(" + q + ")") || dn.includes("(" + q + ")");
                     });
-                    if (m) return m;
-
-                    // Priorität 4: nur wenn KEIN reiner Zahleingabe → Linien wie "106" würden sonst "10613" matchen
-                    if (!isNumeric) {
-                        m = deps.find(d => {
-                            const dn = (d.displayName || d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
-                            return dn.includes(q);
-                        });
-                    }
-                    return m || null;
-                };
-
-                const match = findMatch(allDeps);
-                const tripId = match?.tripId || match?.trip?.tripId;
-                if (!tripId) return null;
-
-                // Fahrtverlauf über Transitous /trip holen
-                // v1/trip gibt ein Itinerary zurück mit legs[]
-                const tripUrl = `https://api.transitous.org/api/v1/trip?tripId=${encodeURIComponent(tripId)}`;
-                const tripRes = await fetch(tripUrl, { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(10000) });
-                if (!tripRes.ok) {
-                    console.warn('Transitous /trip failed:', tripRes.status, await tripRes.text().catch(()=>''));
-                    return null;
-                }
-                const tripData = await tripRes.json();
-
-                // Transitous /trip gibt entweder { legs: [...] } oder direkt ein Itinerary
-                const legs = tripData.legs || tripData.itinerary?.legs || (Array.isArray(tripData) ? tripData : []);
-                // Transit-Leg finden (nicht WALK)
-                const transitLeg = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
-                if (!transitLeg) {
-                    console.warn('Transitous: kein Transit-Leg gefunden', JSON.stringify(tripData).slice(0,200));
-                    return null;
-                }
-
-                // from + intermediateStops + to zusammenführen
-                const allStops = [
-                    transitLeg.from,
-                    ...(transitLeg.intermediateStops || []),
-                    transitLeg.to
-                ].filter(Boolean);
-
-                const stopovers = allStops.map(s => ({
-                    stop: { name: s.name || '' },
-                    plannedArrival:    s.scheduledArrival   || null,
-                    arrival:           s.arrival            || null,
-                    plannedDeparture:  s.scheduledDeparture || null,
-                    departure:         s.departure          || null,
-                    arrivalDelaySec:   s.arrival   && s.scheduledArrival   ? Math.round((new Date(s.arrival)   - new Date(s.scheduledArrival))   / 1000) : null,
-                    departureDelaySec: s.departure && s.scheduledDeparture ? Math.round((new Date(s.departure) - new Date(s.scheduledDeparture)) / 1000) : null,
-                    platform:        s.track          || null,
-                    plannedPlatform: s.scheduledTrack || s.track || null,
-                    cancelled:  s.cancelled  || false,
-                    additional: false,
-                    remarks: (s.remarks || []).map(r => ({
-                        text: r.summary || r.text || '',
-                        type: r.type || 'hint',
-                        priority: r.priority || 50
-                    }))
-                }));
-
-                return {
-                    stopovers,
-                    line: { name: match.displayName || match.tripShortName || match.routeShortName || match.trip?.displayName || number },
-                    source: 'Transitous',
-                    remarks: []
-                };
-            } catch (e) {
-                console.warn('Transitous trip search failed:', e);
-                return null;
+                    if (match) return match;
+                } catch {}
             }
+            return null;
         }
 
-        // ─── DB IRIS Suche (Fahrtnummer → Fahrtverlauf) ──────────────────────────────
-        async function searchDbTrip(number, date) {
-            try {
-                const d = date || new Date().toISOString().slice(0, 10);
-                const res = await fetch(
-                    `${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(d)}`,
-                    { signal: AbortSignal.timeout(30000) } // IRIS braucht etwas länger
-                );
-                if (!res.ok) return null;
-                const data = await res.json();
-                return data?.stopovers?.length ? data : null;
-            } catch (e) {
-                console.warn('IRIS trip search failed:', e.message);
-                return null;
-            }
+        async function fetchTransitousDetails(tripId) {
+            const res = await fetch(`https://api.transitous.org/api/v1/trip?tripId=${encodeURIComponent(tripId)}`, { headers: { 'Referer': 'https://dilaeit.onrender.com' } }).then(r=>r.json());
+            const legs = res.legs || res.itinerary?.legs || (Array.isArray(res) ? res : []);
+            const leg = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
+            const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
+            return {
+                source: 'Transitous',
+                line: { name: leg.routeShortName || leg.tripShortName },
+                stopovers: allStops.map(s => ({
+                    stop: { name: s.name },
+                    plannedArrival: s.scheduledArrival,
+                    arrival: s.arrival,
+                    plannedDeparture: s.scheduledDeparture,
+                    departure: s.departure,
+                    platform: s.track,
+                    cancelled: s.cancelled,
+                    remarks: (s.remarks || []).map(r => ({ text: r.summary || r.text }))
+                }))
+            };
         }
 
-        // ─── Hilfsfunktionen für VRR ─────────────────────────────────────────────────
-        async function searchVrrStations(query) {
-            const res = await fetch(`${API_BASE}/api/locations?query=${encodeURIComponent(query)}`);
-            if (!res.ok) return [];
-            const data = await res.json();
-            return data?.locations || [];
-        }
-
-        async function getVrrDepartures(stopId, date) {
-            const res = await fetch(`${API_BASE}/api/stops/${encodeURIComponent(stopId)}/departures?when=${encodeURIComponent(date)}T12:00:00&duration=120&results=40`);
-            if (!res.ok) return [];
-            const data = await res.json();
-            return data?.departures || [];
-        }
-
-        async function getVrrTripDetails(tripId) {
-            const res = await fetch(`${API_BASE}/api/trips/${encodeURIComponent(tripId)}`);
-            if (!res.ok) return null;
-            const data = await res.json();
-            return data;
-        }
-
-        // ─── Anzeige ─────────────────────────────────────────────────────────────────
-        // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
-        const translationMap = {
-            "no delay reason":                                   "keine Verspätungsbegründung",
-            "further information shortly":                       "nähere Informationen in Kürze",
-            "Delay due to a police operation":                   "Polizeieinsatz",
-            "fire brigade operation":                            "Feuerwehreinsatz auf der Strecke",
-            "Delay due to a medical emergency":                  "ärztliche Versorgung eines Fahrgastes",
-            "emergency brake activated":                         "unbefugtes Ziehen der Notbremse",
-            "persons on the track":                              "unbefugte Personen auf der Strecke",
-            "emergency doctor on track":                         "Notarzteinsatz auf der Strecke",
-            "Delay due to a strike":                             "Streikauswirkungen",
-            "animals on the track":                              "Tiere auf der Strecke",
-            "Delay due to storm damage":                         "Unwetter",
-            "waiting for a delayed ferry":                       "Warten auf ein verspätetes Schiff",
-            "passport and customs control":                      "Pass- und Zollkontrolle",
-            "technical defect at the station":                   "technischer Defekt am Bahnhof",
-            "Delay caused by vandalism":                         "Beeinträchtigung durch Vandalismus",
-            "bomb disposal":                                     "Entschärfung einer Fliegerbombe",
-            "bridge damage":                                     "Beschädigung einer Brücke",
-            "fallen tree on the track":                          "umgestürzter Baum auf der Strecke",
-            "level crossing accident":                           "Unfall an einem Bahnübergang",
-            "Delay due to waiting for connecting passengers":    "Warten auf Anschlussreisende",
-            "weather-related disruption":                        "Witterungsbedingte Beeinträchtigungen",
-            "delay abroad":                                      "Verspätung im Ausland",
-            "waiting for additional coaches":                    "Bereitstellung weiterer Wagen",
-            "decoupling of coaches":                             "Abhängen von Wagen",
-            "objects on the track":                              "Gegenstände auf der Strecke",
-            "Replacement service":                               "Ersatzverkehr mit Bus ist eingerichtet",
-            "Delay due to construction work":                    "Bauarbeiten",
-            "boarding assistance":                               "Unterstützung beim Ein- und Ausstieg",
-            "overhead line fault":                               "Reparatur an der Oberleitung",
-            "Delay due to a track obstruction":                  "Streckensperrung",
-            "signal fault":                                      "Reparatur an einem Signal",
-            "Delay due to a technical defect":                   "Reparatur am Zug",
-            "technical defect on the route":                     "Reparatur an der Strecke",
-            "points failure":                                    "defektes Stellwerk",
-            "level crossing fault":                              "technischer Defekt an einem Bahnübergang",
-            "temporary speed restriction":                       "vorübergehend verminderte Geschwindigkeit auf der Strecke",
-            "Delay due to a broken down train":                  "Verspätung eines vorausfahrenden Zuges",
-            "Delay of previous train":                           "Verspätung eines vorausfahrenden Zuges",
-            "waiting for an oncoming train":                     "Warten auf einen entgegenkommenden Zug",
-            "train overtaken":                                   "Vorfahrt eines anderen Zuges",
-            "waiting for free entry":                            "Vorfahrt eines anderen Zuges",
-            "delayed provision of the train":                    "verspätete Bereitstellung des Zuges",
-            "Delay from previous journey":                       "Verspätung aus vorheriger Fahrt",
-            "short-term staff shortage":                         "kurzfristiger Personalausfall",
-            "short-term illness of staff":                       "kurzfristige Erkrankung von Personal",
-            "delayed staff from previous journey":               "verspätetes Personal aus vorheriger Fahrt",
-            "strike":                                            "Streik",
-            "storm effects":                                     "Unwetterauswirkungen",
-            "track availability currently restricted":           "Verfügbarkeit der Gleise derzeit eingeschränkt",
-            "technical defect on another train":                 "technischer Defekt an einem anderen Zug",
-            "technical defect on the train":                     "technischer Defekt am Zug",
-            "technical defect at the train":                     "technischer Defekt am Zug",
-            "repair to the line":                                "Reparatur an der Strecke",
-            "repair to the track":                               "Reparatur an der Strecke",
-            "repair at the track":                               "Reparatur an der Strecke",
-            "repair on the line":                                "Reparatur an der Strecke",
-            "repair at the overhead line":                       "Reparatur an der Oberleitung",
-            "repair on the overhead line":                       "Reparatur an der Oberleitung",
-            "person on the track":                               "Personen auf der Strecke",
-            "unauthorized persons on the track":                 "unbefugte Personen auf der Strecke",
-            "delay of a preceding train":                        "Verspätung eines vorausfahrenden Zuges",
-            "additional stop for boarding and alighting":        "zusätzlicher Halt zum Ein- und Ausstieg",
-            "Train is diverted":                                 "Umleitung des Zuges",
-            "Train is diverted. Stops are omitted.":             "Umleitung des Zuges. Einige Halte entfallen.",
-            "snow and ice":                                      "Schnee und Eis",
-            "weather-related reduced speed":                     "witterungsbedingt verminderte Geschwindigkeit",
-            "defective door":                                    "defekte Tür",
-            "technical defect resolved":                         "behobener technischer Defekt am Zug",
-            "technical inspection of the train":                 "technische Untersuchung am Zug",
-            "switch failure":                                    "Reparatur an der Weiche",
-            "landslide":                                         "Erdrutsch",
-            "flooding":                                          "Hochwasser",
-            "official measure":                                  "behördliche Maßnahme",
-            "high passenger volume":                             "hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
-            "train running at reduced speed":                    "Zug verkehrt mit verminderter Geschwindigkeit",
-            "Stops are omitted":                                 "Einige Halte entfallen.",
-            "Enter only, no exiting allowed" : "Hält nur zum Einsteigen.",
-            "Platform change":                                   "Gleiswechsel.",
-            "Change of platform":                                "Gleiswechsel.",
-            "Track change":                                      "Gleiswechsel.",
-            "Stop cancelled":                                    "Halt entfällt.",
-            "Additional stop":                                   "Zusatzhalt.",
-            "Special service":                                   "Sonderfahrt.",
-            "Train is cancelled":                                "Zug fällt aus.",
-            "Unfortunately, the train is cancelled.":            "Zug fällt aus.",
-            "The train is cancelled due to a technical defect.": "Reparatur am Zug.",
-            "The train is cancelled due to construction work.":  "Bauarbeiten.",
-            "The train is cancelled due to a staff shortage.":   "kurzfristiger Personalausfall.",
-            "On-board restaurant":                               "Bordrestaurant.",
-            "Bicycles conveyed - not possible":                  "Fahrradmitnahme nicht möglich.",
-            "Number of bicycles conveyed limited":               "Eingeschränkte Fahrradbeförderung.",
-            "Bicycles conveyed":                                 "Fahrradmitnahme möglich.",
-            "Bicycles conveyed - subject to reservation":        "Fahrradmitnahme – Reservierung erforderlich.",
-            "Bicycles conveyed - subject to availability":       "Fahrradmitnahme – je nach Verfügbarkeit.",
-            "Step-free access":                                  "Stufenfreier Zugang.",
-            "Power sockets available":                           "Steckdosen verfügbar.",
-            "Quiet zone":                                        "Ruhebereich.",
-            "Air conditioning":                                  "Klimaanlage vorhanden.",
-            "Area for people with reduced mobility":             "Bereich für mobilitätseingeschränkte Personen.",
-        };
-
-        const regexTranslations = [
-            {
-                pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i,
-                replace: (_, line, dest) =>
-                    `Durchbindung: Kommt als Linie ${line.trim()} aus Richtung ${dest.trim()}.`
-            },
-            {
-                pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,
-                replace: (_, line, dest) =>
-                    `Durchbindung: Fährt weiter als Linie ${line.trim()} Richtung ${dest.trim()}.`
-            },
-            {
-                pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,
-                replace: (_, line) => `Durchbindung von Linie ${line.trim()}.`
-            },
-            {
-                pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i,
-                replace: (_, line) => `Durchbindung auf Linie ${line.trim()}.`
-            },
-            {
-                pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,
-                replace: (_, line) => `Fährt weiter als Linie ${line.trim()}.`
-            },
-            {
-                pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,
-                replace: (_, line) => `Kommt als Linie ${line.trim()}.`
-            },
-            {
-                pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i,
-                replace: (_, min) => `Verspätung von ca. ${min} Minuten.`
-            },
-            {
-                pattern: /^cancelled\s+due\s+to\s+(.+)$/i,
-                replace: (_, reason) => `Fällt aus wegen ${reason.trim()}.`
-            },
-            {
-                pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,
-                replace: (_, stop) => `Halt ${stop.trim()} entfällt.`
-            },
-        ];
-
-        const translate = (text) => {
-            if (!text) return '';
-            if (translationMap[text]) return translationMap[text];
-            for (const { pattern, replace } of regexTranslations) {
-                const m = text.match(pattern);
-                if (m) return text.replace(pattern, replace);
-            }
-            return text;
-        };
-
-        function showTripResults(tripData, source) {
-            showMessage('', 'info'); // Suchmeldung löschen
-            document.getElementById('trip-navigation').classList.remove('hidden');
-            document.getElementById('trip-itinerary-container').classList.remove('hidden');
-            
-            // Falls der Name im tripData steht, nutzen wir diesen
-            const displayName = tripData.line?.name || currentTripData.number;
-            document.getElementById('current-trip-number-display').textContent = displayName;
-            document.getElementById('current-trip-date-display').textContent = formatDate(currentTripData.date);
-            document.getElementById('trip-source-display').textContent = `Quelle: ${source}`;
-            
-            renderTripItinerary(tripData);
-        }
-
-        function renderTripItinerary(tripData) {
+        function renderItinerary(stopovers, tripRemarks = []) {
             const container = document.getElementById('trip-itinerary');
-            container.innerHTML = '';
+            container.innerHTML = '<div class="itinerary-line"></div>';
             
-            const stopovers = tripData.stopovers || [];
+            const now = Date.now();
+            const sorted = [...stopovers].sort((a,b) => new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
             
-            stopovers.forEach((stop, index) => {
-                const item = document.createElement('div');
-                item.className = 'relative itinerary-item';
-                
+            sorted.forEach(stop => {
                 const schedArr = stop.plannedArrival ? new Date(stop.plannedArrival) : null;
                 const actualArr = stop.arrival ? new Date(stop.arrival) : null;
                 const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
                 const actualDep = stop.departure ? new Date(stop.departure) : null;
-                
-                const arrTime = schedArr ? schedArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
-                const depTime = schedDep ? schedDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
-                
-                // IMMER Sekundenanzeige (2-digit) für actual times
-                const arrActual = actualArr ? actualArr.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-                const depActual = actualDep ? actualDep.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-                
-                // delaySec kommt vom Server (oder berechnen wenn fehlt)
-                let arrDelaySec = stop.arrivalDelaySec;
-                if (arrDelaySec === undefined && actualArr && schedArr) arrDelaySec = Math.round((actualArr - schedArr) / 1000);
-                let depDelaySec = stop.departureDelaySec;
-                if (depDelaySec === undefined && actualDep && schedDep) depDelaySec = Math.round((actualDep - schedDep) / 1000);
+                const isCancelled = stop.cancelled;
 
-                const formatDelay = (secs) => {
-                    if (secs === null || secs === undefined) return null;
-                    if (Math.abs(secs) < 60) return '±0';
-                    const sign = secs >= 60 ? '+' : '-';
-                    const mins = Math.abs(Math.round(secs / 60));
-                    return sign + mins + "'";
+                const formatTime = (sched, actual, isPast) => {
+                    if (!sched) return '';
+                    const planStr = `<span class="text-gray-500 text-[9px] mr-1">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                    if (!actual) return `<span class="text-gray-300 font-mono">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                    const timeStr = actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: isPast ? '2-digit' : undefined });
+                    const color = actual > sched ? 'text-red-400' : 'text-green-400';
+                    return `${planStr}<span class="${color} font-bold mono">${timeStr}</span>`;
                 };
 
-                const getDelayClass = (secs) => {
-                    if (secs === null || secs === undefined) return '';
-                    return secs >= 60 ? 'delay-positive' : 'delay-zero'; // green for < 60s
-                };
-                
-                const arrDelayStr = formatDelay(arrDelaySec);
-                const depDelayStr = formatDelay(depDelaySec);
-                const arrDelayClass = getDelayClass(arrDelaySec);
-                const depDelayClass = getDelayClass(depDelaySec);
-                
-                item.innerHTML = `
-                    <div class="absolute left-2 top-2 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-950 z-10 bg-red-600"></div>
-                    <div class="itinerary-item-content">
-                        <div class="flex justify-between items-start gap-2">
-                            <div class="min-w-0">
-                                <h4 class="font-semibold text-sm">${stop.stop.name}</h4>
-                                <div class="text-xs text-gray-500 mt-1">
-                                    Gleis: ${stop.platform || '---'}
-                                </div>
-                                ${(stop.remarks || []).map(r => `
-                                    <div class="text-[10px] text-red-400 mt-1.5 flex items-start gap-1.5 bg-red-400/5 p-2 rounded-lg border border-red-400/20">
-                                        <i class="fas fa-info-circle mt-0.5 shrink-0"></i>
-                                        <div class="flex-1 whitespace-pre-wrap leading-normal font-medium">${translate(r.text)}</div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                            <div class="text-right mono text-xs leading-tight shrink-0">
-                                <div class="flex items-center justify-end gap-1">
-                                    <span class="text-gray-600 text-[10px]">AN</span>
-                                    <span class="font-mono ${arrDelaySec !== null ? 'text-gray-400 line-through' : ''}">${arrTime}</span>
-                                    ${arrDelaySec !== null ? `<span class="precision-time ${arrDelayClass}">${arrActual}</span>` : ''}
-                                    ${arrDelayStr ? `<span class="text-[9px] ${arrDelayClass}">${arrDelayStr}</span>` : ''}
-                                </div>
-                                <div class="flex items-center justify-end gap-1">
-                                    <span class="text-gray-600 text-[10px]">AB</span>
-                                    <span class="font-mono ${depDelaySec !== null ? 'text-gray-400 line-through' : ''}">${depTime}</span>
-                                    ${depDelaySec !== null ? `<span class="precision-time ${depDelayClass}">${depActual}</span>` : ''}
-                                    ${depDelayStr ? `<span class="text-[9px] ${depDelayClass}">${depDelayStr}</span>` : ''}
-                                </div>
-                            </div>
+                const isPast = (actualDep && actualDep < now) || (actualArr && actualArr < now);
+                const stopItem = document.createElement('div');
+                stopItem.className = `itinerary-item relative ${isCancelled ? 'opacity-40' : ''}`;
+                stopItem.innerHTML = `
+                    <div class="absolute left-[11px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${isCancelled ? 'bg-gray-600' : 'bg-red-600'} z-10"></div>
+                    <div class="flex items-center justify-between w-full">
+                        <div class="itinerary-item-content">
+                            <div class="text-sm font-bold ${isCancelled ? 'line-through' : ''}">${stop.stop.name}</div>
+                            <div class="text-[10px] text-gray-500 font-mono uppercase tracking-widest">${stop.platform || '---'}</div>
+                        </div>
+                        <div class="text-right text-[10px]">
+                            ${schedArr ? `<div><span class="text-gray-600 mr-1">AN</span>${formatTime(schedArr, actualArr, isPast)}</div>` : ''}
+                            ${schedDep ? `<div><span class="text-gray-600 mr-1">AB</span>${formatTime(schedDep, actualDep, isPast)}</div>` : ''}
                         </div>
                     </div>
-                `;
-                container.appendChild(item);
+                    ${(stop.remarks || []).map(r => `<div class="text-[9px] text-red-400 mt-1 ml-12 bg-red-400/5 p-1 rounded border border-red-400/10">${translate(r.text)}</div>`).join('')}`;
+                container.appendChild(stopItem);
             });
-        }
 
-        // ─── Zeitreise ───────────────────────────────────────────────────────────────
-        function changeTripDate(days) {
-            if (!currentTripData.number) return;
-            
-            const currentDate = new Date(currentTripData.date);
-            const newDate = new Date(currentDate);
-            newDate.setDate(currentDate.getDate() + days);
-            
-            const y = newDate.getFullYear();
-            const m = String(newDate.getMonth() + 1).padStart(2, '0');
-            const d = String(newDate.getDate()).padStart(2, '0');
-            const newDateString = `${y}-${m}-${d}`;
-            
-            currentTripData.date = newDateString;
-            document.getElementById('trip-date-input').value = newDateString;
-            document.getElementById('current-trip-date-display').textContent = formatDate(newDateString);
-            
-            // Neue Suche für das geänderte Datum
-            handleTripSearch();
-        }
-
-        // ─── UI-Hilfsfunktionen ─────────────────────────────────────────────────────
-        function showMessage(text, type = 'info') {
-            const container = document.getElementById('trip-search-results');
-            container.innerHTML = `<div class="text-${type === 'error' ? 'red' : 'gray'}-500">${text}</div>`;
-        }
-
-        function formatDate(dateString) {
-            const d = new Date(dateString);
-            return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            if (tripRemarks.length > 0) {
+                const remDiv = document.createElement('div');
+                remDiv.className = 'mt-6 pt-4 border-t border-zinc-800 space-y-2';
+                tripRemarks.forEach(r => {
+                    const d = document.createElement('div');
+                    d.className = 'text-[10px] text-red-400 bg-red-400/5 p-2 rounded-lg border border-red-400/20 flex items-start gap-2';
+                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div>${translate(r.text)}</div>`;
+                    remDiv.appendChild(d);
+                });
+                container.appendChild(remDiv);
+            }
         }
 
         function clearTripSearch() {
             document.getElementById('trip-number-input').value = '';
-            document.getElementById('trip-date-input').value = '';
-            document.getElementById('trip-navigation').classList.add('hidden');
-            document.getElementById('trip-itinerary-container').classList.add('hidden');
             document.getElementById('trip-search-results').innerHTML = '';
-            currentTripData = { number: null, date: null, results: [] };
+            document.getElementById('trip-itinerary-container').classList.add('hidden');
+            document.getElementById('trip-dropdown').classList.add('hidden');
         }
 
-        // ─── Init ────────────────────────────────────────────────────────────────────
+        function changeTripDate(days) {
+            const dInput = document.getElementById('trip-date-input');
+            const d = new Date(dInput.value);
+            d.setDate(d.getDate() + days);
+            const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+            dInput.value = `${y}-${m}-${dd}`;
+            if (currentTripData.number) loadTripDetails(currentTripData.number, dInput.value);
+        }
+
+        function debounce(f, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f.apply(this, a), ms); }; }
+
         init();
     </script>
 </body>
