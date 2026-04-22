@@ -775,22 +775,32 @@
                 const actualDep = stop.departure ? new Date(stop.departure) : null;
                 const isCancelled = stop.cancelled;
 
-                const formatTime = (sched, actual, isPast) => {
+                const formatTime = (sched, actual, hasDeparted) => {
                     if (!sched) return '';
                     const planStr = `<span class="text-gray-500 text-[9px] mr-1">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
                     if (!actual) return `<span class="text-gray-300 font-mono">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
-                    const timeStr = actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: isPast ? '2-digit' : undefined });
-                    const color = actual > sched ? 'text-red-400' : 'text-green-400';
+                    
+                    const timeStr = actual.toLocaleTimeString('de-DE', { 
+                        hour: '2-digit', 
+                        minute: '2-digit', 
+                        second: hasDeparted ? '2-digit' : undefined 
+                    });
+                    
+                    const diffSec = Math.round((actual - sched) / 1000);
+                    // Rot erst ab +60s, sonst grün
+                    const color = diffSec >= 60 ? 'text-red-400' : 'text-green-400';
                     return `${planStr}<span class="${color} font-bold mono">${timeStr}</span>`;
                 };
 
                 const isPast = (actualDep && actualDep < Date.now()) || (actualArr && actualArr < Date.now());
+                const hasDeparted = (actualDep && actualDep < Date.now());
+                
                 const stopItem = document.createElement('div');
                 stopItem.className = `relative flex items-stretch py-1 ${isCancelled ? 'opacity-40' : ''}`;
                 stopItem.innerHTML = `
                     <div class="w-24 text-right pr-2 text-[10px]">
                         ${schedArr ? `<div><span class="text-gray-600 mr-1">AN</span>${formatTime(schedArr, actualArr, isPast)}</div>` : ''}
-                        ${schedDep ? `<div><span class="text-gray-600 mr-1">AB</span>${formatTime(schedDep, actualDep, isPast)}</div>` : ''}
+                        ${schedDep ? `<div><span class="text-gray-600 mr-1">AB</span>${formatTime(schedDep, actualDep, hasDeparted)}</div>` : ''}
                     </div>
                     <div class="w-4 flex flex-col items-center">
                         <div class="w-0.5 flex-1 bg-gray-700"></div>
