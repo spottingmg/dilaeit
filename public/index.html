@@ -640,8 +640,13 @@
             state.lastRequestTime = now;
             const dateVal = $('query-date').value;
             const timeVal = $('query-time').value;
+            
+            // Timezone offset berechnen
+            const offset = -new Date().getTimezoneOffset();
+            const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
+
             try {
-                const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00&duration=120`;
+                const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
                 const res = await fetch(url);
                 const data = await res.json();
                 state.departures = data.departures || [];
@@ -787,9 +792,12 @@
                     });
                     
                     const diffSec = Math.round((actual - sched) / 1000);
-                    // Rot erst ab +60s, sonst grün
-                    const color = diffSec >= 60 ? 'text-red-400' : 'text-green-400';
-                    return `${planStr}<span class="${color} font-bold mono">${timeStr}</span>`;
+                    // Rot erst ab +60s, sonst grün (±0)
+                    const isDelayed = diffSec >= 60;
+                    const color = isDelayed ? 'text-red-400' : 'text-green-400';
+                    const delayText = isDelayed ? ` +${Math.floor(diffSec/60)}'` : (Math.abs(diffSec) < 60 ? ' ±0' : ` ${Math.ceil(diffSec/60)}'`);
+                    
+                    return `${planStr}<span class="${color} font-bold mono">${timeStr}${delayText}</span>`;
                 };
 
                 const isPast = (actualDep && actualDep < Date.now()) || (actualArr && actualArr < Date.now());
