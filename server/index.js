@@ -217,21 +217,16 @@ async function efaGet(endpoint, params) {
 
 
 function encodeTripId(dep) {
-
+    // EFA braucht für den Trip-Verlauf die exakte Kombination. 
+    // transportation.id ist oft die GlobalID (z.B. vrr:20009: :H:j26:1)
+    const lineId = dep.transportation?.id || dep.line?.id || '';
     return Buffer.from(JSON.stringify({
-
-        line:     dep.transportation?.id || dep.line?.id || '',
-
+        line:     lineId,
         stopID:   dep.location?.id || dep.stopPoint?.id || dep.stop?.id || '',
-
         tripCode: dep.transportation?.properties?.tripCode || dep.tripCode || '',
-
         date:     toYyyymmddLocal(dep.plannedWhen || dep.departureTimePlanned || new Date().toISOString()),
-
         time:     toHmmLocal(dep.plannedWhen      || dep.departureTimePlanned || new Date().toISOString()),
-
     })).toString('base64url');
-
 }
 
 
@@ -668,13 +663,9 @@ app.get('/api/trips/:tripId', async (req, res) => {
             return res.status(400).json({ error: 'tripId missing fields' });
 
         const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
-
             outputFormat: 'rapidJSON', version: EFA_VERSION,
-
             mode: 'direct', line, stopID, tripCode, date, time,
-
-            tStOTType: 'ALL', useRealtime: 1
-
+            tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
         });
 
         const seq  = data.transportation?.locationSequence || [];
