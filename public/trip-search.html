@@ -72,6 +72,7 @@
         <header class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
             <div class="flex items-center gap-6">
+                <a href="/" class="text-sm font-bold text-gray-500 hover:text-red-500 transition-colors"><i class="fas fa-arrow-left mr-2"></i>Abfahrtsmonitor</a>
                 <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform">
                     <i class="fas fa-moon dark:hidden"></i>
                     <i class="fas fa-sun hidden dark:block text-yellow-500"></i>
@@ -85,7 +86,7 @@
                 <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-4">Fahrtensuche</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="relative group">
-                        <input id="trip-number-input" type="text" placeholder="Zug-/Busnummer (z.B. IC2201, 722)" autocomplete="off" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-lg focus:ring-2 focus:ring-red-500/50 outline-none transition-all" />
+                        <input id="trip-number-input" type="text" placeholder="Zug-/Busnummer (z.B. IC2201, 10612)" autocomplete="off" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-lg focus:ring-2 focus:ring-red-500/50 outline-none transition-all" />
                         <i class="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 transition-colors"></i>
                         <!-- Dropdown für Ergebnisse -->
                         <div id="trip-dropdown" class="absolute top-full left-0 w-full mt-2 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl overflow-hidden hidden z-[100] border border-gray-100 dark:border-zinc-800 max-h-80 overflow-y-auto ring-1 ring-black/5"></div>
@@ -290,7 +291,7 @@
                     }
                 });
 
-                // Auch DB IRIS checken (nur 1 Resultat meistens)
+                // Auch DB IRIS checken
                 try {
                     const dbRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(5000) }).then(r=>r.json());
                     if (dbRes?.tripId && !seen.has(dbRes.line?.name)) {
@@ -354,9 +355,10 @@
 
             try {
                 let data = null;
-                // Wenn es eine Transitous ID ist (z.B. mit ":")
-                if (idOrNumber.includes(':') || idOrNumber.length > 25) {
-                    data = await fetchTransitousDetails(idOrNumber);
+                // Wenn es eine Transitous ID ist (enthält ":")
+                if (idOrNumber.includes(':')) {
+                    const res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(idOrNumber)}`);
+                    if (res.ok) data = await res.json();
                 } else {
                     // Erst DB IRIS probieren
                     try {
@@ -366,7 +368,10 @@
                     // Falls nicht gefunden, Transitous probieren
                     if (!data) {
                         const match = await searchTransitousTrip(idOrNumber, date);
-                        if (match) data = await fetchTransitousDetails(match.tripId);
+                        if (match) {
+                            const res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(match.tripId)}`);
+                            if (res.ok) data = await res.json();
+                        }
                     }
                 }
 
@@ -384,6 +389,7 @@
                 renderItinerary(data.stopovers, data.remarks || []);
             } catch (e) {
                 results.innerHTML = '<span class="text-red-500">Fehler beim Laden.</span>';
+                itinerary.innerHTML = '<div class="py-10 text-center text-red-500">Ein Fehler ist aufgetreten.</div>';
             }
         }
 
@@ -402,27 +408,6 @@
                 } catch {}
             }
             return null;
-        }
-
-        async function fetchTransitousDetails(tripId) {
-            const res = await fetch(`https://api.transitous.org/api/v1/trip?tripId=${encodeURIComponent(tripId)}`, { headers: { 'Referer': 'https://dilaeit.onrender.com' } }).then(r=>r.json());
-            const legs = res.legs || res.itinerary?.legs || (Array.isArray(res) ? res : []);
-            const leg = legs.find(l => l.mode && l.mode !== 'WALK' && l.mode !== 'FOOT') || legs[0];
-            const allStops = [leg.from, ...(leg.intermediateStops || []), leg.to].filter(Boolean);
-            return {
-                source: 'Transitous',
-                line: { name: leg.routeShortName || leg.tripShortName },
-                stopovers: allStops.map(s => ({
-                    stop: { name: s.name },
-                    plannedArrival: s.scheduledArrival,
-                    arrival: s.arrival,
-                    plannedDeparture: s.scheduledDeparture,
-                    departure: s.departure,
-                    platform: s.track,
-                    cancelled: s.cancelled,
-                    remarks: (s.remarks || []).map(r => ({ text: r.summary || r.text }))
-                }))
-            };
         }
 
         function renderItinerary(stopovers, tripRemarks = []) {
@@ -473,7 +458,7 @@
                 tripRemarks.forEach(r => {
                     const d = document.createElement('div');
                     d.className = 'text-[10px] text-red-400 bg-red-400/5 p-2 rounded-lg border border-red-400/20 flex items-start gap-2';
-                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div>${translate(r.text)}</div>`;
+                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div class="flex-1">${translate(r.text)}</div>`;
                     remDiv.appendChild(d);
                 });
                 container.appendChild(remDiv);
