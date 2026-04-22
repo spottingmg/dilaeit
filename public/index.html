@@ -683,18 +683,32 @@
                 let url = '';
                 let sourceName = source;
                 
-                if (source === 'Transitous') { 
+                // Source-Erkennung basierend auf currentSource State, nicht auf tripId-Format
+                if (state.currentSource === 'db' || source === 'Transitous') { 
                     url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId || vrrTripId)}`; 
-                } else if (source === 'VRR OpenService') {
+                } else {
+                    // VRR Quelle - immer VRR API nutzen
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                } else if (dbTripId) { 
+                    sourceName = 'VRR OpenService';
+                }
+                
+                // Fallback versuchen falls keine URL
+                if (!url && vrrTripId) { 
+                    url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`; 
+                    sourceName = 'VRR OpenService'; 
+                }
+                
+                if (!url && dbTripId) { 
                     url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`; 
                     sourceName = 'Deutsche Bahn'; 
-                } else {
+                }
+                
+                // Letzter Fallback: DB IRIS Suche für Zugnummern
+                if (!url) {
                     const isTrainLine = ['ice','ic','ec','re','rb','s'].includes((dep.line?.product || '').toLowerCase());
                     if (isTrainLine) {
                         const number = dep.line?.name || dep.line?.id || '';
-                        const date   = $('query-date').value || new Date().toISOString().slice(0, 10);
+                        const date = $('query-date').value || new Date().toLocaleDateString('en-CA');
                         try {
                             const searchRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(6000) });
                             if (searchRes.ok) { const sd = await searchRes.json(); if (sd?.tripId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(sd.tripId)}`; sourceName = 'Deutsche Bahn'; } }
@@ -702,7 +716,6 @@
                     }
                 }
                 
-                if (!url && vrrTripId) { url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`; sourceName = 'VRR OpenService'; }
                 if (!url) { itinerary.innerHTML = `<div class="py-10 text-center text-zinc-500 text-sm">Kein Fahrtverlauf verfügbar.</div>`; return; }
 
                 const res  = await fetch(url);
@@ -808,7 +821,9 @@
                 const formatTime = (sched, actual, hasDeparted) => {
                     if (!sched) return '';
                     const planStr = `<span class="text-gray-500 text-[9px] mr-1">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
-                    if (!actual) return `<span class="text-gray-300 font-mono">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                    
+                    // Wenn keine Echtzeit da ist, nur Planzeit (nicht fett)
+                    if (!actual) return `<span class="text-gray-300 font-mono font-normal">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
                     
                     const timeStr = actual.toLocaleTimeString('de-DE', { 
                         hour: '2-digit', 
@@ -820,9 +835,11 @@
                     // Rot erst ab +60s, sonst grün (±0)
                     const isDelayed = diffSec >= 60;
                     const color = isDelayed ? 'text-red-400' : 'text-green-400';
-                    const delayText = isDelayed ? ` +${Math.floor(diffSec/60)}'` : (Math.abs(diffSec) < 60 ? ' ±0' : ` ${Math.ceil(diffSec/60)}'`);
+                    const delayText = (Math.abs(diffSec) < 60) ? ' ±0' : (diffSec > 0 ? ` +${Math.floor(diffSec/60)}'` : ` ${Math.ceil(diffSec/60)}'`);
                     
-                    return `${planStr}<span class="${color} ${hasDeparted ? 'font-bold' : ''} mono">${timeStr}${delayText}</span>`;
+                    // Prognose für Zukunft NICHT fett (hasDeparted ist false)
+                    const weightClass = hasDeparted ? 'font-bold' : 'font-normal';
+                    return `${planStr}<span class="${color} ${weightClass} mono">${timeStr}${delayText}</span>`;
                 };
 
                 const isPast = (actualDep && actualDep < Date.now()) || (actualArr && actualArr < Date.now());
@@ -848,15 +865,46 @@
                 container.appendChild(stopItem);
             });
 
+            // Störungsmeldungen und Hinweise unterhalb des Fahrtverlaufs anzeigen
             if (allRemarks.length > 0) {
                 const remDiv = document.createElement('div');
                 remDiv.className = 'mt-4 pt-4 border-t border-zinc-800 space-y-2';
+                
+                // Titel für den Abschnitt
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'text-xs font-bold uppercase tracking-wider text-gray-500 mb-2';
+                titleDiv.textContent = 'Hinweise & Störungen';
+                remDiv.appendChild(titleDiv);
+                
                 allRemarks.forEach(r => {
                     const d = document.createElement('div');
-                    d.className = 'text-[10px] text-red-400 bg-red-400/5 p-2 rounded-lg border border-red-400/20 flex items-start gap-2';
-                    const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted">${translate(r.text)}</a>` : translate(r.text);
-                    const contentStoerung = dep.line?.hints?.content.name;
-                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div class="flex-1 whitespace-pre-wrap">${content}</div> <div class="flex-1 whitespace-pre-wrap">${contentStoerung}</div>`;
+                    const remarkType = (r.type || '').toLowerCase();
+                    
+                    // Unterscheidung: Info-Meldungen (weiß/grau) vs Störungen (rot)
+                    // "info" Typ = weiße/grau Hintergrund, "hint"/"disruption" = rot
+                    const isDisruption = remarkType === 'disruption' || remarkType === 'warning' || 
+                                        remarkType === 'hint' || 
+                                        (r.text && (
+                                            r.text.toLowerCase().includes('verspätung') ||
+                                            r.text.toLowerCase().includes('störung') ||
+                                            r.text.toLowerCase().includes('ausfall') ||
+                                            r.text.toLowerCase().includes('entfällt') ||
+                                            r.text.toLowerCase().includes('umleitung') ||
+                                            r.text.toLowerCase().includes('sperrung') ||
+                                            r.text.toLowerCase().includes('beeinträchtigt') ||
+                                            r.text.toLowerCase().includes('verzögerung')
+                                        ));
+                    
+                    if (isDisruption) {
+                        // Rote Störungsmeldung
+                        d.className = 'text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';
+                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-red-500'></i> <div class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</div>`;
+                    } else {
+                        // Weiße/grau Info-Meldung
+                        d.className = 'text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';
+                        const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted text-blue-400">${translate(r.text)}</a>` : translate(r.text);
+                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400'></i> <div class='flex-1 whitespace-pre-wrap'>${content}</div>`;
+                    }
                     remDiv.appendChild(d);
                 });
                 container.appendChild(remDiv);
@@ -894,10 +942,71 @@
             const count = $('disruptions-count');
             
             try {
-                const res = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(state.currentStation.name)}`);
-                if (!res.ok) throw new Error();
-                const data = await res.json();
-                const items = data.disruptions || [];
+                // Lade Störungen von DB API und VRR API (falls VRR Quelle)
+                const items = [];
+                const seenTexts = new Set();
+                
+                // 1. DB/Allgemeine Störungen laden
+                try {
+                    const res = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(state.currentStation.name)}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        (data.disruptions || []).forEach(d => {
+                            if (!seenTexts.has(d.text)) {
+                                seenTexts.add(d.text);
+                                items.push({ ...d, source: 'db' });
+                            }
+                        });
+                    }
+                } catch(e) {}
+                
+                // 2. VRR Störungen laden (wenn VRR Quelle ausgewählt)
+                if (state.currentSource === 'vrr') {
+                    try {
+                        // Nutze die Abfahrtsdaten um hints/Störungen zu extrahieren
+                        const dateVal = $('query-date').value;
+                        const timeVal = $('query-time').value;
+                        const offset = -new Date().getTimezoneOffset();
+                        const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
+                        
+                        const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
+                        const res = await fetch(url);
+                        if (res.ok) {
+                            const data = await res.json();
+                            const departures = data.departures || [];
+                            
+                            // Sammle alle hints und infos von den Abfahrten
+                            departures.forEach(dep => {
+                                // Hinweise von der Abfahrt selbst
+                                (dep.remarks || []).forEach(r => {
+                                    const text = r.text || '';
+                                    if (text && !seenTexts.has(text)) {
+                                        seenTexts.add(text);
+                                        // Prüfe ob es eine Störung oder Info ist
+                                        const isDisruption = r.type === 'hint' || 
+                                            text.toLowerCase().includes('verspätung') ||
+                                            text.toLowerCase().includes('störung') ||
+                                            text.toLowerCase().includes('ausfall') ||
+                                            text.toLowerCase().includes('entfällt') ||
+                                            text.toLowerCase().includes('umleitung') ||
+                                            text.toLowerCase().includes('sperrung') ||
+                                            text.toLowerCase().includes('beeinträchtigt') ||
+                                            text.toLowerCase().includes('verzögerung') ||
+                                            text.toLowerCase().includes('seV') ||
+                                            text.toLowerCase().includes('ersatzverkehr');
+                                        
+                                        items.push({
+                                            text: text,
+                                            type: isDisruption ? 'disruption' : 'info',
+                                            line: dep.line?.name || null,
+                                            source: 'vrr'
+                                        });
+                                    }
+                                });
+                            });
+                        }
+                    } catch(e) {}
+                }
                 
                 state.disruptionsLoaded = true;
                 if (items.length === 0) {
@@ -911,17 +1020,35 @@
                 
                 items.forEach(d => {
                     const div = document.createElement('div');
-                    div.className = 'p-3 rounded-xl bg-orange-400/10 border border-orange-500/20 text-[11px] text-orange-200 leading-relaxed';
-                    div.innerHTML = `
-                        <div class="font-bold mb-1 flex items-center gap-2 text-orange-300">
-                            <i class="fas fa-exclamation-triangle text-orange-500 text-[10px]"></i>
-                            ${d.type || 'Meldung'}
-                        </div>
-                        <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
-                    `;
+                    const isDisruption = d.type === 'disruption' || d.type === 'warning';
+                    
+                    if (isDisruption) {
+                        // Rote Störungsmeldung
+                        div.className = 'p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 leading-relaxed';
+                        div.innerHTML = `
+                            <div class="font-bold mb-1 flex items-center gap-2 text-red-400">
+                                <i class="fas fa-exclamation-triangle text-red-500 text-[10px]"></i>
+                                ${d.type === 'disruption' ? 'Störung' : d.type || 'Meldung'}${d.line ? ` · ${d.line}` : ''}
+                            </div>
+                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
+                        `;
+                    } else {
+                        // Weiße Info-Meldung
+                        div.className = 'p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-[11px] text-gray-300 leading-relaxed';
+                        div.innerHTML = `
+                            <div class="font-bold mb-1 flex items-center gap-2 text-gray-400">
+                                <i class="fas fa-info-circle text-gray-500 text-[10px]"></i>
+                                Info${d.line ? ` · ${d.line}` : ''}
+                            </div>
+                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
+                        `;
+                    }
                     list.appendChild(div);
                 });
-            } catch (e) { panel.classList.add('hidden'); }
+            } catch (e) { 
+                console.error('Disruptions load failed:', e);
+                panel.classList.add('hidden'); 
+            }
         }
         function startRouteSearch() {}
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
