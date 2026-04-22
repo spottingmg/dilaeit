@@ -407,6 +407,7 @@
         let state = {
             currentStation: null,
             currentRegion: 'DEUTSCHLAND',
+            currentSource: 'vrr',
             departures: [],
             lastRequestTime: 0,
             refreshTimer: null,
@@ -481,6 +482,7 @@
         }
 
         function switchSource(s) {
+            state.currentSource = s;
             const vrr = $('source-vrr');
             const db  = $('source-db');
             if (s === 'vrr') {
@@ -499,8 +501,9 @@
             const query = $('station-search').value.trim();
             if (query.length < 2) { $('search-results').classList.add('hidden'); return; }
 
+            const endpoint = state.currentSource === 'db' ? '/api/db/locations' : '/api/locations';
             try {
-                const res = await fetch(`${API_BASE}/api/locations?query=${encodeURIComponent(query)}`);
+                const res = await fetch(`${API_BASE}${endpoint}?query=${encodeURIComponent(query)}`);
                 const data = await res.json();
                 renderSearchResults(data.locations || []);
             } catch (e) { console.error('Search failed', e); }
@@ -520,10 +523,10 @@
                     <i class="fas ${icon} text-gray-400 w-5"></i>
                     <div class="flex-1 min-w-0">
                         <div class="text-sm font-semibold truncate">${res.name}</div>
-                        <div class="text-[10px] text-gray-500 uppercase tracking-wider">${res.sourceRegion || 'DEUTSCHLAND'}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-wider">${res.sourceRegion || res.source || 'DEUTSCHLAND'}</div>
                     </div>`;
                 item.onclick = () => {
-                    state.currentStation = res;
+                    state.currentStation = { ...res, source: state.currentSource };
                     state.currentRegion  = detectRegion(res.name);
                     state.disruptionsLoaded = false;
                     activeLineFilter = null;   // Filter bei neuer Station zurücksetzen
@@ -646,7 +649,8 @@
             const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
 
             try {
-                const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
+                const apiPath = state.currentStation.source === 'db' ? '/api/db/stops' : '/api/stops';
+                const url = `${API_BASE}${apiPath}/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
                 const res = await fetch(url);
                 const data = await res.json();
                 state.departures = data.departures || [];
