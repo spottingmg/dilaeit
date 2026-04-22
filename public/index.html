@@ -188,11 +188,11 @@
                         <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
                         <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results"></div>
                     </div>
-                    <a href="trip-search.html" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2 shadow-lg shadow-red-600/20">
+                    <button onclick="toggleTripSearch()" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2 shadow-lg shadow-red-600/20">
                         <i class="fas fa-train"></i>
-                        <span class="hidden md:inline">Zugnummer suchen (WIP)</span>
+                        <span class="hidden md:inline">Zugnummer suchen</span>
                         <span class="md:hidden">Nummer</span>
-                    </a>
+                    </button>
                 </div>
             </div>
 
@@ -233,6 +233,41 @@
                 <input id="route-time" type="time" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
             </div>
             <div id="route-results" class="mt-2 text-sm text-gray-600 dark:text-gray-300"></div>
+        </div>
+
+        <!-- Zugnummernsuche Panel (inline) -->
+        <div id="trip-search-panel" class="hidden mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Zugnummer suchen</h3>
+                <button onclick="toggleTripSearch()" class="text-gray-400 hover:text-red-500 transition-colors">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="relative group md:col-span-2">
+                    <input id="trip-number-input" type="text" placeholder="Zug-/Busnummer (z.B. IC2201, 10612)" autocomplete="off" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-lg focus:ring-2 focus:ring-red-500/50 outline-none transition-all" />
+                    <i class="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 transition-colors"></i>
+                    <div id="trip-dropdown" class="absolute top-full left-0 w-full mt-2 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl overflow-hidden hidden z-[100] border border-gray-100 dark:border-zinc-800 max-h-80 overflow-y-auto"></div>
+                </div>
+                <div class="relative">
+                    <input id="trip-date-input" type="date" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 outline-none focus:ring-2 focus:ring-red-500/50 transition-all" />
+                </div>
+            </div>
+            <div id="trip-search-results" class="mt-4 text-sm text-gray-600 dark:text-gray-300 min-h-[24px]"></div>
+            
+            <!-- Fahrtverlauf Ergebnis -->
+            <div id="trip-itinerary-container" class="hidden mt-4 pt-4 border-t border-gray-200 dark:border-zinc-700">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h4 class="font-bold">Fahrtverlauf</h4>
+                        <div id="trip-operator-display" class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5"></div>
+                    </div>
+                    <div class="text-sm text-gray-500 text-right">
+                        <span id="trip-source-display">QUELLE: --</span>
+                    </div>
+                </div>
+                <div id="trip-itinerary" class="space-y-0 relative"></div>
+            </div>
         </div>
 
         <div id="trip-archive" class="mt-6 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden">
@@ -737,29 +772,23 @@
                 currentDetailStopovers = stops;
                 renderItinerary(stops, mergedRemarks, finalSourceName);
 
-                // Dynamisch DB/VRR Störungen nachladen (auch für Transitous)
-                if (finalSourceName === 'Transitous' || finalSourceName === 'VRR OpenService') {
-                    const stName = state.currentStation?.name || '';
-                    const lineName = dep.line?.name || '';
-                    if (stName) {
-                        fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stName)}`)
-                            .then(r => r.ok ? r.json() : null)
-                            .then(d => {
-                                let finalRemarks = [...mergedRemarks];
-                                if (d?.disruptions?.length) {
-                                    const dbRemarks = d.disruptions.map(dr => ({ text: dr.text, type: dr.type || 'hint', priority: dr.priority || 50 }));
-                                    dbRemarks.forEach(dr => { if (!finalRemarks.some(fr => fr.text === dr.text)) finalRemarks.push(dr); });
-                                }
-                                
-                                // Wenn Transitous, probiere VRR-Linien-Meldungen falls wir die Linie kennen
-                                if (finalSourceName === 'Transitous' && lineName) {
-                                    // Wir könnten hier einen spezifischen Endpunkt für Linien-Meldungen haben oder die disruptions filtern
-                                    // Aktuell gibt /api/disruptions bereits linienbezogene Meldungen zurück falls vorhanden
-                                }
-                                
-                                renderItinerary(stops, finalRemarks, finalSourceName);
-                            }).catch(()=>{});
-                    }
+                // Störungen und Hinweise IMMER vom VRR laden, unabhängig von der gewählten API-Quelle
+                // (VRR oder DB/Transitous für die Fahrtensuche)
+                const stName = state.currentStation?.name || '';
+                if (stName) {
+                    fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stName)}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            let finalRemarks = [...mergedRemarks];
+                            if (d?.disruptions?.length) {
+                                // VRR-Störungen zu den vorhandenen Bemerkungen hinzufügen
+                                const vrrRemarks = d.disruptions.map(dr => ({ text: dr.text, type: dr.type || 'hint', priority: dr.priority || 50 }));
+                                vrrRemarks.forEach(dr => { if (!finalRemarks.some(fr => fr.text === dr.text)) finalRemarks.push(dr); });
+                            }
+                            renderItinerary(stops, finalRemarks, finalSourceName);
+                        }).catch(()=>{});
+                } else {
+                    renderItinerary(stops, mergedRemarks, finalSourceName);
                 }
             } catch (e) { itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden.</div>`; }
         }
@@ -1050,6 +1079,340 @@
                 panel.classList.add('hidden'); 
             }
         }
+        // ─── Zugnummernsuche ───────────────────────────────────────────────────────────
+        const TRANSITOUS_HUBS = [
+            'de:05116:8000250',  // Mönchengladbach Hbf
+            'de:05315:8000207',  // Köln Hbf
+            'de:05111:8000085',  // Düsseldorf Hbf
+            'de:05913:8000096',  // Dortmund Hbf
+            'de:05113:8000105',  // Duisburg Hbf
+            'de:05124:8000191',  // Essen Hbf
+            'de:05314:8000044',  // Bonn Hbf
+            'de:07135:8000206',  // Koblenz Hbf
+            'de:02000:8600282',  // Hamburg Hbf
+            'de:11000:900003201', // Berlin Hbf
+        ];
+
+        function toggleTripSearch() {
+            const panel = $('trip-search-panel');
+            const isHidden = panel.classList.toggle('hidden');
+            if (!isHidden) {
+                // Set default date
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                $('trip-date-input').value = `${y}-${m}-${d}`;
+                
+                // Setup event listeners
+                setupTripSearchListeners();
+            }
+        }
+
+        let tripSearchListenersSetup = false;
+
+        function setupTripSearchListeners() {
+            if (tripSearchListenersSetup) return;
+            tripSearchListenersSetup = true;
+
+            const input = $('trip-number-input');
+            const dropdown = $('trip-dropdown');
+
+            input.addEventListener('input', debounce((e) => handleTripInput(e.target.value), 300));
+            input.addEventListener('focus', () => {
+                if (dropdown.children.length > 0) dropdown.classList.remove('hidden');
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('#trip-number-input')) dropdown.classList.add('hidden');
+            });
+
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    dropdown.classList.add('hidden');
+                    handleTripSearch();
+                }
+            });
+        }
+
+        async function handleTripInput(val) {
+            const query = val.trim();
+            const dropdown = $('trip-dropdown');
+            const date = $('trip-date-input').value;
+            
+            if (query.length < 2) {
+                dropdown.classList.add('hidden');
+                return;
+            }
+
+            dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-gray-500 italic flex items-center gap-3"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche nach Fahrten...</div>';
+            dropdown.classList.remove('hidden');
+
+            try {
+                // Transitous: mehrere Hubs parallel durchsuchen
+                const tResults = await Promise.all(
+                    TRANSITOUS_HUBS.map(async stopId => {
+                        try {
+                            const r = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${stopId}&time=${encodeURIComponent(date ? date + 'T12:00:00' : new Date().toISOString())}&n=500`,
+                                { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(6000) });
+                            if (!r.ok) return [];
+                            const d = await r.json();
+                            return d.departures || d.stopTimes || (Array.isArray(d) ? d : []);
+                        } catch { return []; }
+                    })
+                );
+                
+                const q = query.toUpperCase().replace(/\s+/g, '');
+                const seen = new Set();
+                const trips = [];
+
+                tResults.flat().forEach(d => {
+                    const display    = d.displayName    || '';
+                    const tripShort  = d.tripShortName  || '';
+                    const routeShort = d.routeShortName || '';
+                    const showName   = (display && tripShort && display !== tripShort) ? `${display} (${tripShort})` : (display || tripShort || routeShort);
+                    if (!showName) return;
+                    
+                    const nameUp = showName.toUpperCase().replace(/\s+/g, '');
+                    const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
+                    const displayUp = display.toUpperCase().replace(/\s+/g, '');
+                    const routeUp = routeShort.toUpperCase().replace(/\s+/g, '');
+                    
+                    const matches = q.length >= 3 && (
+                                tripUp === q || tripUp.endsWith(q) || tripUp.includes(q)
+                             || displayUp === q || displayUp.includes("(" + q + ")") || displayUp.includes(q)
+                             || routeUp === q || routeUp.includes(q)
+                             || nameUp.includes(q)
+                             || nameUp.includes("(" + q + ")")
+                             );
+
+                    if (matches && !seen.has(showName)) {
+                        seen.add(showName);
+                        trips.push({
+                            id: d.tripId || d.trip?.tripId,
+                            name: showName,
+                            direction: d.headsign || '',
+                            plannedDeparture: d.scheduledDeparture || d.departure || null
+                        });
+                    }
+                });
+
+                // Auch DB IRIS checken als Fallback
+                try {
+                    const dbRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(5000) }).then(r=>r.json());
+                    if (dbRes?.tripId && !seen.has(dbRes.line?.name)) {
+                        trips.unshift({
+                            id: dbRes.tripId,
+                            name: dbRes.line?.name || query,
+                            direction: dbRes.stopovers?.[dbRes.stopovers.length-1]?.stop?.name || '',
+                            plannedDeparture: dbRes.stopovers?.[0]?.plannedDeparture || null
+                        });
+                    }
+                } catch {}
+
+                renderTripDropdown(trips);
+            } catch (e) {
+                dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium">Netzwerkfehler.</div>';
+            }
+        }
+
+        function renderTripDropdown(trips) {
+            const dropdown = $('trip-dropdown');
+            dropdown.innerHTML = '';
+            if (trips.length === 0) {
+                dropdown.innerHTML = '<div class="px-4 py-3 text-sm text-gray-500 italic">Keine Fahrten gefunden.</div>';
+                return;
+            }
+            trips.forEach(trip => {
+                const item = document.createElement('div');
+                item.className = 'px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center justify-between group/item';
+                const time = trip.plannedDeparture ? new Date(trip.plannedDeparture).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                item.innerHTML = `
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-bold text-gray-900 dark:text-white truncate group-hover/item:text-red-500 transition-colors">${trip.name}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-widest truncate">${trip.direction || 'Unbekanntes Ziel'}</div>
+                    </div>
+                    <div class="text-xs font-mono text-gray-400 bg-gray-100 dark:bg-zinc-800 px-2 py-1 rounded-lg ml-3">${time}</div>`;
+                item.onclick = () => {
+                    $('trip-number-input').value = trip.name;
+                    dropdown.classList.add('hidden');
+                    loadTripDetails(trip.id, $('trip-date-input').value);
+                };
+                dropdown.appendChild(item);
+            });
+        }
+
+        async function handleTripSearch() {
+            const number = $('trip-number-input').value.trim();
+            const date = $('trip-date-input').value;
+            if (!number) return;
+            loadTripDetails(number, date);
+        }
+
+        async function loadTripDetails(idOrNumber, date) {
+            const results = $('trip-search-results');
+            const container = $('trip-itinerary-container');
+            const itinerary = $('trip-itinerary');
+            
+            results.innerHTML = `<div class="flex items-center gap-3 py-4"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Fahrtverlauf...</div>`;
+            container.classList.remove('hidden');
+            itinerary.innerHTML = '<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-2xl text-red-600"></i></div>';
+
+            try {
+                let data = null;
+                // Wenn es eine Transitous ID ist (enthält ":")
+                if (idOrNumber.includes(':')) {
+                    const res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(idOrNumber)}`);
+                    if (res.ok) data = await res.json();
+                } else {
+                    // Erst DB IRIS probieren
+                    try {
+                        const res = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(idOrNumber)}&date=${encodeURIComponent(date)}`).then(r=>r.json());
+                        if (res?.stopovers?.length) data = res;
+                    } catch {}
+                    // Falls nicht gefunden, Transitous probieren
+                    if (!data) {
+                        const match = await searchTransitousTrip(idOrNumber, date);
+                        if (match) {
+                            const res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(match.tripId)}`);
+                            if (res.ok) data = await res.json();
+                        }
+                    }
+                }
+
+                if (!data || !data.stopovers) {
+                    results.innerHTML = '<span class="text-red-500 font-bold">Keine Fahrt gefunden.</span>';
+                    itinerary.innerHTML = '<div class="py-10 text-center text-zinc-500">Kein Verlauf verfügbar.</div>';
+                    return;
+                }
+
+                results.innerHTML = `<span class="text-green-500 font-bold">Fahrt gefunden!</span>`;
+                $('trip-source-display').textContent = `QUELLE: ${data.source || 'API'}`;
+                $('trip-operator-display').textContent = data.operator || data.line?.operator?.name || '---';
+                
+                const finalRemarks = [...(data.remarks || [])];
+                
+                // Dynamisch Störungen nachladen
+                const lineName = data.line?.name || '';
+                if (lineName) {
+                    fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent('Düsseldorf Hbf')}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            if (d?.disruptions?.length) {
+                                d.disruptions.forEach(dis => {
+                                    if (!dis.line || dis.line.includes(lineName) || lineName.includes(dis.line)) {
+                                        if (!finalRemarks.some(fr => fr.text === dis.text)) {
+                                            finalRemarks.push({ text: dis.text, type: 'info', priority: 60 });
+                                        }
+                                    }
+                                });
+                                renderTripItinerary(data.stopovers, finalRemarks);
+                            }
+                        }).catch(()=>{});
+                }
+                
+                renderTripItinerary(data.stopovers, finalRemarks);
+            } catch (e) {
+                results.innerHTML = '<span class="text-red-500">Fehler beim Laden.</span>';
+                itinerary.innerHTML = '<div class="py-10 text-center text-red-500">Ein Fehler ist aufgetreten.</div>';
+            }
+        }
+
+        async function searchTransitousTrip(number, date) {
+            const when = date ? `${date}T12:00:00` : new Date().toISOString();
+            const q = number.toUpperCase().replace(/\s+/g, '');
+            for (const hub of TRANSITOUS_HUBS) {
+                try {
+                    const res = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${hub}&time=${encodeURIComponent(when)}&n=200`, { headers: { 'Referer': 'https://dilaeit.onrender.com' } }).then(r=>r.json());
+                    const match = (res.departures || res.stopTimes || []).find(d => {
+                        const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
+                        const dn = (d.displayName || '').toUpperCase().replace(/\s+/g, '');
+                        const rn = (d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                        return ts === q || ts.endsWith(q) || ts.includes(q)
+                            || dn === q || dn.includes("(" + q + ")") || dn.includes(q)
+                            || rn === q || rn.includes(q);
+                    });
+                    if (match) return match;
+                } catch {}
+            }
+            return null;
+        }
+
+        function renderTripItinerary(stopovers, tripRemarks = []) {
+            const container = $('trip-itinerary');
+            container.innerHTML = '';
+            
+            const now = Date.now();
+            const sorted = [...stopovers].sort((a,b) => new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
+            
+            sorted.forEach(stop => {
+                const schedArr = stop.plannedArrival ? new Date(stop.plannedArrival) : null;
+                const actualArr = stop.arrival ? new Date(stop.arrival) : null;
+                const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const actualDep = stop.departure ? new Date(stop.departure) : null;
+                const isCancelled = stop.cancelled;
+
+                const formatTime = (sched, actual, hasDeparted) => {
+                    if (!sched) return '';
+                    const planStr = `<span class="text-gray-500 text-[9px] mr-1">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                    if (!actual) return `<span class="text-gray-300 font-mono">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                    
+                    const timeStr = actual.toLocaleTimeString('de-DE', { 
+                        hour: '2-digit', 
+                        minute: '2-digit', 
+                        second: hasDeparted ? '2-digit' : undefined 
+                    });
+                    
+                    const diffSec = Math.round((actual - sched) / 1000);
+                    const isDelayed = diffSec >= 60;
+                    const color = isDelayed ? 'text-red-400' : 'text-green-400';
+                    const delayText = (Math.abs(diffSec) < 60) ? ' ±0' : (diffSec > 0 ? ` +${Math.floor(diffSec/60)}'` : ` ${Math.ceil(diffSec/60)}'`);
+                    
+                    return `${planStr}<span class="${color} ${hasDeparted ? 'font-bold' : ''} mono">${timeStr}${delayText}</span>`;
+                };
+
+                const isPast = (actualDep && actualDep < now) || (actualArr && actualArr < now);
+                const hasDeparted = (actualDep && actualDep < now);
+                const stopItem = document.createElement('div');
+                stopItem.className = `relative flex items-stretch py-1 ${isCancelled ? 'opacity-40' : ''}`;
+                stopItem.innerHTML = `
+                    <div class="w-24 text-right pr-2 text-[10px]">
+                        ${schedArr ? `<div><span class="text-gray-600 mr-1">AN</span>${formatTime(schedArr, actualArr, isPast)}</div>` : ''}
+                        ${schedDep ? `<div><span class="text-gray-600 mr-1">AB</span>${formatTime(schedDep, actualDep, hasDeparted)}</div>` : ''}
+                    </div>
+                    <div class="w-4 flex flex-col items-center">
+                        <div class="w-0.5 flex-1 bg-gray-700"></div>
+                        <div class="w-2.5 h-2.5 rounded-full ${isCancelled ? 'bg-gray-600' : 'bg-red-600'} border border-zinc-950 z-10 shrink-0 my-0.5"></div>
+                        <div class="w-0.5 flex-1 bg-gray-700"></div>
+                    </div>
+                    <div class="flex-1 pl-2">
+                        <div class="text-sm font-semibold ${isCancelled ? 'line-through' : ''}">${stop.stop.name}</div>
+                        <div class="text-[10px] text-gray-500">${stop.platform || '---'}</div>
+                    </div>`;
+                container.appendChild(stopItem);
+            });
+
+            if (tripRemarks.length > 0) {
+                const remDiv = document.createElement('div');
+                remDiv.className = 'mt-4 pt-4 border-t border-zinc-800 space-y-2';
+                tripRemarks.forEach(r => {
+                    const d = document.createElement('div');
+                    const isDisruption = (r.type === 'disruption' || r.type === 'warning' || 
+                        (r.text && r.text.toLowerCase().includes('verspätung')));
+                    
+                    if (isDisruption) {
+                        d.className = 'text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';
+                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-red-500'></i> <div class='flex-1 whitespace-pre-wrap'>${r.text}</div>`;
+                    } else {
+                        d.className = 'text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';
+                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400'></i> <div class='flex-1 whitespace-pre-wrap'>${r.text}</div>`;
+                    }
+                    remDiv.appendChild(d);
+                });
+                container.appendChild(remDiv);
+            }
+        }
+
         function startRouteSearch() {}
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
