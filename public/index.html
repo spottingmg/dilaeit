@@ -669,21 +669,30 @@
             try {
                 const vrrTripId = dep.tripId;
                 const dbTripId  = dep.dbTripId || (dep.prognosis?.tripId);
-                const isTransitousId = (dbTripId || vrrTripId || '').includes(':') || (dbTripId || vrrTripId || '').length > 30;
-                const isTrainLine = ['ice','ic','ec','re','rb','s'].includes((dep.line?.product || '').toLowerCase());
+                const source    = dep._source || ( (dbTripId || vrrTripId || '').includes(':') ? 'Transitous' : 'VRR OpenService');
                 
                 let url = '';
-                let sourceName = 'API';
-                if (dbTripId && !isTransitousId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`; sourceName = 'Deutsche Bahn'; }
-                else if (isTransitousId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId || vrrTripId)}`; sourceName = 'Transitous'; }
-                else if (isTrainLine) {
-                    const number = dep.line?.name || dep.line?.id || '';
-                    const date   = $('query-date').value || new Date().toISOString().slice(0, 10);
-                    try {
-                        const searchRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(6000) });
-                        if (searchRes.ok) { const sd = await searchRes.json(); if (sd?.tripId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(sd.tripId)}`; sourceName = 'Deutsche Bahn'; } }
-                    } catch {}
+                let sourceName = source;
+                
+                if (source === 'Transitous') { 
+                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId || vrrTripId)}`; 
+                } else if (source === 'VRR OpenService') {
+                    url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
+                } else if (dbTripId) { 
+                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`; 
+                    sourceName = 'Deutsche Bahn'; 
+                } else {
+                    const isTrainLine = ['ice','ic','ec','re','rb','s'].includes((dep.line?.product || '').toLowerCase());
+                    if (isTrainLine) {
+                        const number = dep.line?.name || dep.line?.id || '';
+                        const date   = $('query-date').value || new Date().toISOString().slice(0, 10);
+                        try {
+                            const searchRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(6000) });
+                            if (searchRes.ok) { const sd = await searchRes.json(); if (sd?.tripId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(sd.tripId)}`; sourceName = 'Deutsche Bahn'; } }
+                        } catch {}
+                    }
                 }
+                
                 if (!url && vrrTripId) { url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`; sourceName = 'VRR OpenService'; }
                 if (!url) { itinerary.innerHTML = `<div class="py-10 text-center text-zinc-500 text-sm">Kein Fahrtverlauf verfügbar.</div>`; return; }
 
@@ -735,10 +744,26 @@
                 "delay from previous trip": "Verspätung aus vorheriger Fahrt",
                 "Platform change": "Gleiswechsel.",
                 "Stop cancelled": "Halt entfällt.",
-                "Train is cancelled": "Zug fällt aus."
+                "Train is cancelled": "Zug fällt aus.",
+                "signal failure": "Signalstörung",
+                "external influence": "äußerer Einfluss",
+                "animals on the track": "Tiere auf der Strecke",
+                "medical emergency": "medizinischer Notfall",
+                "police investigation": "Polizeieinsatz",
+                "fire on the track": "Brand an der Strecke",
+                "weather conditions": "witterungsbedingte Störung",
+                "heavy snow": "starker Schneefall",
+                "storm": "Sturm",
+                "flooding": "Überflutung"
             };
 
-            const translate = (text) => translationMap[text] || text;
+            const translate = (text) => {
+                if (!text) return text;
+                let out = translationMap[text] || text;
+                // Spezielle Ersetzungen für Transitous
+                out = out.replace(/Continues as line (.*)/i, "Fährt weiter als Linie $1");
+                return out;
+            };
             const allRemarks = [...tripRemarks];
             stopovers.forEach(s => (s.remarks || []).forEach(r => { if (!allRemarks.find(ex => ex.text === r.text)) allRemarks.push(r); }));
 
