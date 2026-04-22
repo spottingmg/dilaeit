@@ -422,6 +422,11 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 
                 line: { name: lineName, id: lineId, product: prodName },
 
+                remarks: [
+                    ...(ev.hints || []).map(h => ({ text: h.content, type: 'hint' })),
+                    ...(ev.infos || []).map(i => ({ text: i.urlText || i.content, type: 'info', url: i.url }))
+                ].filter(r => r.text),
+
                 _source: 'VRR OpenService'
 
             };
