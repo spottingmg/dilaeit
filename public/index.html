@@ -721,6 +721,7 @@
                 // Source-Erkennung basierend auf currentSource State, nicht auf tripId-Format
                 if (state.currentSource === 'db' || source === 'Transitous') { 
                     url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId || vrrTripId)}`; 
+                    sourceName = 'Transitous';
                 } else {
                     // VRR Quelle - immer VRR API nutzen
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
@@ -735,7 +736,7 @@
                 
                 if (!url && dbTripId) { 
                     url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`; 
-                    sourceName = 'Deutsche Bahn'; 
+                    sourceName = 'Transitous'; 
                 }
                 
                 // Letzter Fallback: DB IRIS Suche für Zugnummern
@@ -910,26 +911,18 @@
                     const remarkType = (r.type || '').toLowerCase();
                     
                     // Unterscheidung: Info-Meldungen (weiß/grau) vs Störungen (rot)
-                    // "info" Typ = weiße/grau Hintergrund, "hint"/"disruption" = rot
-                    const isDisruption = remarkType === 'disruption' || remarkType === 'warning' || 
-                                        remarkType === 'hint' || 
-                                        (r.text && (
-                                            r.text.toLowerCase().includes('verspätung') ||
-                                            r.text.toLowerCase().includes('störung') ||
-                                            r.text.toLowerCase().includes('ausfall') ||
-                                            r.text.toLowerCase().includes('entfällt') ||
-                                            r.text.toLowerCase().includes('umleitung') ||
-                                            r.text.toLowerCase().includes('sperrung') ||
-                                            r.text.toLowerCase().includes('beeinträchtigt') ||
-                                            r.text.toLowerCase().includes('verzögerung')
-                                        ));
+                    const disruptionKeywords = ['verspätung', 'störung', 'ausfall', 'entfällt', 'umleitung', 'sperrung', 'beeinträchtigt', 'verzögerung', 'seV', 'ersatzverkehr'];
+                    const infoKeywords = ['wlan', 'klima', 'fahrrad', 'bistro', 'restaurant', 'steckdose', 'power', 'sitzplatz', 'ruhe', 'quiet'];
+                    
+                    const textLower = (r.text || '').toLowerCase();
+                    const isDisruption = remarkType === 'disruption' || remarkType === 'warning' || remarkType === 'hint' || 
+                                        disruptionKeywords.some(kw => textLower.includes(kw));
+                    const isInfo = !isDisruption && (remarkType === 'info' || infoKeywords.some(kw => textLower.includes(kw)));
                     
                     if (isDisruption) {
-                        // Rote Störungsmeldung
                         d.className = 'text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';
                         d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-red-500'></i> <div class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</div>`;
                     } else {
-                        // Weiße/grau Info-Meldung
                         d.className = 'text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';
                         const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted text-blue-400">${translate(r.text)}</a>` : translate(r.text);
                         d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400'></i> <div class='flex-1 whitespace-pre-wrap'>${content}</div>`;
