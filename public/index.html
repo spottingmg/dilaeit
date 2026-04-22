@@ -935,16 +935,18 @@
                 let showSeconds = false;
                 if (dep.delay !== null && dep.delay !== undefined) {
                     const secs = dep.delay;
-                    // Wenn die Quelle Deutsche Bahn oder Transitous ist, zeigen wir Sekunden an
-                    if (dep._source && (dep._source.includes('Deutsche Bahn') || dep._source.includes('Transitous'))) {
-                        showSeconds = true;
-                        roundedDelay = secs;
-                    } else if (Math.abs(secs) >= 60) {
+                    // FIX: Im Abfahrtmonitor wollen wir immer Minuten (außer es ist unter 1 Min und wir wollen Sekunden zeigen)
+                    // Der User wünscht sich für Transitous "+-0" oder "-1" statt "+240s"
+                    if (Math.abs(secs) >= 60) {
                         roundedDelay = secs >= 0 ? Math.floor(secs / 60) : Math.ceil(secs / 60);
                     } else if (secs !== 0) {
-                        // Für präzise Anzeige unter 1 Min zeigen wir Sekunden
-                        roundedDelay = secs;
-                        showSeconds = true;
+                        // Bei sehr kleinen Abweichungen (Sekunden) zeigen wir sie nur, wenn die Quelle DB/Transitous ist
+                        if (dep._source && (dep._source.includes('Deutsche Bahn') || dep._source.includes('Transitous'))) {
+                            roundedDelay = secs;
+                            showSeconds = true;
+                        } else {
+                            roundedDelay = 0;
+                        }
                     } else {
                         roundedDelay = 0;
                     }
@@ -1850,17 +1852,14 @@
                     // = Bus ist wirklich abgefahren/angekommen, bestätigt
                     const isConfirmedPast = isPast && actual;
 
-                    if (isConfirmedPast && isDbSource) {
-                        // Sekunden NUR wenn nicht :00 (echte RT-Sekundengenauigkeit)
+                    if (isConfirmedPast) {
+                        // Sekunden anzeigen wenn verfügbar (für DB/Transitous/VRR wenn abgefahren)
+                        // VRR hat oft keine Sekunden, aber wenn die Quelle präzise ist, zeigen wir sie
                         const hasRealSeconds = actual.getSeconds() !== 0;
                         const timeStr = hasRealSeconds
                             ? actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                             : actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                        // Immer fett für vergangene Halte mit RT-Quelle
                         return `${planStr}<span class="precision-time ${rtColor}">${timeStr}</span>`;
-                    } else if (isConfirmedPast) {
-                        // VRR: fett aber keine Sekunden (VRR hat keine echten Sekunden)
-                        return `${planStr}<span class="font-bold font-mono text-[11px] ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
                     } else {
                         // Zukunft/Prognose: immer dünn + kursiv
                         return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
