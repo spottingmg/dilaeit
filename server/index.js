@@ -501,56 +501,29 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
 
 
         const departures = times.map(t => {
-
-            const place   = t.place || {};
-
+            const place = t.place || {};
             const planned = place.scheduledDeparture || place.scheduledArrival || null;
-            // Echtzeit nur wenn Transitous realTime-Flag gesetzt (wir vertrauen dem Flag)
-            const hasRT   = t.realTime === true || t.realtime === true;
-            const rawActual = (place.departure !== place.scheduledDeparture ? place.departure : null)
-
-                           || (place.arrival   !== place.scheduledArrival   ? place.arrival   : null)
-
-                           || null;
-
-            const actual   = hasRT && rawActual ? rawActual : planned;
-
-            const delaySec = hasRT && rawActual && planned
-
-                ? Math.round((new Date(rawActual) - new Date(planned)) / 1000) : null;
-
+            const hasRT = t.realTime === true || t.realtime === true;
+            const actual = hasRT ? (place.departure || place.arrival || planned) : planned;
+            const delaySec = hasRT && planned && (place.departure || place.arrival)
+                ? Math.round((new Date(place.departure || place.arrival) - new Date(planned)) / 1000) 
+                : (hasRT ? 0 : null);
             return {
-
                 plannedWhen:     planned,
-
                 when:            actual,
-
                 delay:           delaySec,
-
                 platform:        place.track          || null,
-
                 plannedPlatform: place.scheduledTrack || null,
-
                 cancelled:       t.cancelled || false,
-
-                direction:       t.headsign  || t.tripTo?.name || 'Unbekannt',
-
+                direction:       t.headsign  || t.tripTo?.name || "Unbekannt",
                 tripId:          t.tripId    || null,
-
                 dbTripId:        t.tripId    || null,
-
                 line: {
-
-                    name:    t.displayName || t.routeShortName || t.tripShortName || '???',
-
-                    product: (t.mode || 'bus').toLowerCase()
-
+                    name:    t.displayName || t.routeShortName || t.tripShortName || "???",
+                    product: (t.mode || "bus").toLowerCase()
                 },
-
-                _source: 'Transitous'
-
+                _source: "Transitous"
             };
-
         }).filter(d => d.plannedWhen);
 
         res.json({ departures });
@@ -893,29 +866,37 @@ app.get('/api/disruptions', async (req, res) => {
         if (!station || !station.id) return res.json({ disruptions: [] });
 
         // Abrufen der Remarks/Hinweise für diese Station
-        // hafas-client hat keine direkte "disruptions" methode, 
-        // aber wir können departures mit remarks abrufen oder hafas.remarks()
-        const departures = await hafas.departures(station.id, { duration: 120, remarks: true });
+        // Wir rufen sowohl Abfahrten als auch allgemeine Remarks ab
+        const [departures, remarks] = await Promise.all([
+            hafas.departures(station.id, { duration: 180, remarks: true }).catch(() => ({ departures: [] })),
+            hafas.remarks({ results: 20 }).catch(() => [])
+        ]);
         
         const disruptions = [];
         const seenTexts = new Set();
 
-        // Sammle alle relevanten Remarks aus den Abfahrten
-        departures.forEach(dep => {
-            (dep.remarks || []).forEach(rem => {
-                if (rem.type === 'warning' || rem.type === 'status') {
-                    const text = rem.summary || rem.text;
-                    if (text && !seenTexts.has(text)) {
-                        seenTexts.add(text);
-                        disruptions.push({
-                            type: 'disruption',
-                            text: text,
-                            line: dep.line?.name || null
-                        });
-                    }
+        const processRemark = (rem, lineName = null) => {
+            if (rem.type === 'warning' || rem.type === 'status') {
+                const text = rem.text || rem.summary; // Bevorzuge den Langtext
+                if (text && !seenTexts.has(text)) {
+                    seenTexts.add(text);
+                    disruptions.push({
+                        type: 'disruption',
+                        text: text,
+                        line: lineName || (rem.lines && rem.lines[0]?.name) || rem.line?.name || null
+                    });
                 }
-            });
+            }
+        };
+
+        // Sammle alle relevanten Remarks aus den Abfahrten
+        const deps = Array.isArray(departures) ? departures : (departures.departures || []);
+        deps.forEach(dep => {
+            (dep.remarks || []).forEach(rem => processRemark(rem, dep.line?.name));
         });
+
+        // Sammle allgemeine Remarks (Streckensperrungen etc.)
+        (remarks || []).forEach(rem => processRemark(rem));
 
         // "Immer gemeldete" Störungen simulieren/ergänzen falls NRW
         const lowerName = name.toLowerCase();
@@ -1454,3 +1435,4 @@ setInterval(async () => {
 const port = Number(process.env.PORT || 8787);
 
 app.listen(port, '0.0.0.0', () => console.log(`🚀 dilaeit läuft auf Port ${port}`));
+
