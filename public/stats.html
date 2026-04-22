@@ -673,6 +673,355 @@ async function confirmDelete(id) {
     if (typeof pushToServer === 'function') pushToServer();
 }
 
+// ─── Edit Journey ──────────────────────────────────────────────────────────────
+async function openEdit(id) {
+    const journey = allJourneys.find(j => j.id === id);
+    if (!journey) return;
+    
+    document.getElementById('edit-id').value = journey.id;
+    document.getElementById('edit-date').value = journey.date;
+    document.getElementById('edit-time').value = journey.time || '';
+    document.getElementById('edit-line').value = journey.line || '';
+    document.getElementById('edit-from').value = journey.from || '';
+    document.getElementById('edit-to').value = journey.to || '';
+    document.getElementById('edit-mode').value = journey.mode || 'train';
+    document.getElementById('edit-km').value = journey.km || '';
+    document.getElementById('edit-dep-delay').value = journey.depDelay || 0;
+    document.getElementById('edit-delay').value = journey.delay || 0;
+    document.getElementById('edit-note').value = journey.note || '';
+    
+    // Real times
+    document.getElementById('edit-dep-real').value = journey.depReal || '';
+    document.getElementById('edit-arr-real').value = journey.arrReal || '';
+    
+    // Manual badges
+    const depBadge = document.getElementById('edit-dep-manual-badge');
+    const arrBadge = document.getElementById('edit-arr-manual-badge');
+    if (journey.depManual) { depBadge.classList.remove('hidden'); } else { depBadge.classList.add('hidden'); }
+    if (journey.arrManual) { arrBadge.classList.remove('hidden'); } else { arrBadge.classList.add('hidden'); }
+    
+    // Planned arrival
+    document.getElementById('edit-arrive-planned').value = journey.arrivePlanned || '';
+    
+    // Coords
+    if (journey.fromCoords) {
+        document.getElementById('edit-from-lat').value = journey.fromCoords[0] || '';
+        document.getElementById('edit-from-lon').value = journey.fromCoords[1] || '';
+    }
+    if (journey.toCoords) {
+        document.getElementById('edit-to-lat').value = journey.toCoords[0] || '';
+        document.getElementById('edit-to-lon').value = journey.toCoords[1] || '';
+    }
+    
+    document.getElementById('edit-modal').classList.remove('hidden');
+}
+
+function closeEdit() {
+    document.getElementById('edit-modal').classList.add('hidden');
+}
+
+async function saveEdit() {
+    const id = document.getElementById('edit-id').value;
+    const journey = allJourneys.find(j => j.id === id);
+    if (!journey) return;
+    
+    journey.date = document.getElementById('edit-date').value;
+    journey.time = document.getElementById('edit-time').value;
+    journey.line = document.getElementById('edit-line').value;
+    journey.from = document.getElementById('edit-from').value;
+    journey.to = document.getElementById('edit-to').value;
+    journey.mode = document.getElementById('edit-mode').value;
+    journey.km = parseFloat(document.getElementById('edit-km').value) || null;
+    journey.depDelay = parseInt(document.getElementById('edit-dep-delay').value) || 0;
+    journey.delay = parseInt(document.getElementById('edit-delay').value) || 0;
+    journey.note = document.getElementById('edit-note').value;
+    
+    journey.depReal = document.getElementById('edit-dep-real').value || null;
+    journey.arrReal = document.getElementById('edit-arr-real').value || null;
+    journey.arrivePlanned = document.getElementById('edit-arrive-planned').value || null;
+    
+    // Coords
+    const fromLat = parseFloat(document.getElementById('edit-from-lat').value);
+    const fromLon = parseFloat(document.getElementById('edit-from-lon').value);
+    const toLat = parseFloat(document.getElementById('edit-to-lat').value);
+    const toLon = parseFloat(document.getElementById('edit-to-lon').value);
+    journey.fromCoords = (!isNaN(fromLat) && !isNaN(fromLon)) ? [fromLat, fromLon] : null;
+    journey.toCoords = (!isNaN(toLat) && !isNaN(toLon)) ? [toLat, toLon] : null;
+    
+    await saveJourney(journey);
+    closeEdit();
+    updateAll();
+    if (typeof pushToServer === 'function') pushToServer();
+}
+
+// ─── Trip Details ──────────────────────────────────────────────────────────────
+function openTripDetails(id) {
+    const journey = allJourneys.find(j => j.id === id);
+    if (!journey) return;
+    
+    let details = `Fahrt: ${journey.line}\n`;
+    details += `Von: ${journey.from}\n`;
+    details += `Nach: ${journey.to}\n`;
+    details += `Datum: ${journey.date}\n`;
+    details += `Zeit: ${journey.time || '--:--'}\n`;
+    details += `Verspätung: ${journey.delay || 0}'\n`;
+    if (journey.km) details += `Distanz: ${journey.km} km\n`;
+    if (journey.note) details += `Bemerkung: ${journey.note}`;
+    
+    alert(details);
+}
+
+// ─── Sync Modal ────────────────────────────────────────────────────────────────
+let currentSyncCode = null;
+
+function openSyncModal() {
+    // Create sync modal if not exists
+    if (!document.getElementById('sync-modal')) {
+        const modal = document.createElement('div');
+        modal.id = 'sync-modal';
+        modal.className = 'fixed inset-0 z-[1200] bg-black/80 backdrop-blur flex items-center justify-center p-4';
+        modal.innerHTML = `
+            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md">
+                <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-900">
+                    <h2 class="font-bold text-white">Geräte synchronisieren</h2>
+                    <button onclick="closeSyncModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-4">
+                    <div class="text-sm text-zinc-400">
+                        Synchronisiere deine Fahrten zwischen Geräten (Handy ↔ PC).
+                    </div>
+                    
+                    <!-- Neuer Sync Code -->
+                    <div class="space-y-2">
+                        <div class="text-xs text-zinc-500 mono">NEUEN CODE ERSTELLEN</div>
+                        <button onclick="createSyncCode()" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-all">
+                            <i class="fas fa-plus mr-2"></i>Neuen Sync-Code erstellen
+                        </button>
+                    </div>
+                    
+                    <!-- Existing Code -->
+                    <div class="space-y-2">
+                        <div class="text-xs text-zinc-500 mono">CODE EINGEBEN</div>
+                        <div class="flex gap-2">
+                            <input type="text" id="sync-code-input" placeholder="z.B. DL-4829" class="flex-1 uppercase" maxlength="8">
+                            <button onclick="loadSyncData()" class="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 rounded-xl transition-all">
+                                Laden
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Display current code -->
+                    <div id="sync-code-display" class="hidden p-4 bg-zinc-900 rounded-xl border border-zinc-800 text-center">
+                        <div class="text-xs text-zinc-500 mono mb-1">DEIN SYNC-CODE</div>
+                        <div class="text-2xl font-black text-red-500 mono tracking-wider" id="sync-code-value">--</div>
+                        <div class="flex gap-2 mt-3 justify-center">
+                            <button onclick="copySyncCode()" class="text-xs text-zinc-400 hover:text-white px-3 py-1 bg-zinc-800 rounded-lg transition">
+                                <i class="fas fa-copy mr-1"></i>Kopieren
+                            </button>
+                            <button onclick="uploadToServer()" class="text-xs text-green-400 hover:text-green-300 px-3 py-1 bg-green-900/30 rounded-lg transition">
+                                <i class="fas fa-upload mr-1"></i>Hochladen
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="sync-status" class="hidden p-3 rounded-xl text-sm"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    
+    document.getElementById('sync-modal').classList.remove('hidden');
+    document.getElementById('sync-code-display').classList.add('hidden');
+    document.getElementById('sync-status').classList.add('hidden');
+}
+
+function closeSyncModal() {
+    const modal = document.getElementById('sync-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function createSyncCode() {
+    const status = document.getElementById('sync-status');
+    status.classList.remove('hidden');
+    status.className = 'p-3 rounded-xl text-sm bg-blue-900/30 text-blue-300';
+    status.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Erstelle Sync-Code...';
+    
+    try {
+        const res = await fetch('/api/sync/create', { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.code) {
+            currentSyncCode = data.code;
+            document.getElementById('sync-code-value').textContent = data.code;
+            document.getElementById('sync-code-display').classList.remove('hidden');
+            status.className = 'p-3 rounded-xl text-sm bg-green-900/30 text-green-300';
+            status.innerHTML = '<i class="fas fa-check mr-2"></i>Sync-Code erstellt!';
+        }
+    } catch (e) {
+        status.className = 'p-3 rounded-xl text-sm bg-red-900/30 text-red-300';
+        status.innerHTML = '<i class="fas fa-exclamation mr-2"></i>Fehler: ' + e.message;
+    }
+}
+
+async function loadSyncData() {
+    const code = document.getElementById('sync-code-input').value.trim().toUpperCase();
+    if (!code) return;
+    
+    const status = document.getElementById('sync-status');
+    status.classList.remove('hidden');
+    status.className = 'p-3 rounded-xl text-sm bg-blue-900/30 text-blue-300';
+    status.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Lade Daten...';
+    
+    try {
+        const res = await fetch(`/api/sync/${encodeURIComponent(code)}`);
+        const data = await res.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        if (data.journeys && data.journeys.length > 0) {
+            // Import journeys
+            const db = await openDB();
+            const tx = db.transaction(STORE, 'readwrite');
+            const os = tx.objectStore(STORE);
+            
+            let imported = 0;
+            for (const j of data.journeys) {
+                if (j.id && j.date) {
+                    os.put(j);
+                    imported++;
+                }
+            }
+            
+            await new Promise((res, rej) => {
+                tx.oncomplete = () => res();
+                tx.onerror = () => rej(tx.error);
+            });
+            
+            allJourneys = await getAllJourneys();
+            allJourneys.sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`));
+            buildYearFilter();
+            updateAll();
+            
+            status.className = 'p-3 rounded-xl text-sm bg-green-900/30 text-green-300';
+            status.innerHTML = `<i class="fas fa-check mr-2"></i>${imported} Fahrten importiert!`;
+        } else {
+            status.className = 'p-3 rounded-xl text-sm bg-yellow-900/30 text-yellow-300';
+            status.innerHTML = '<i class="fas fa-info mr-2"></i>Keine Daten auf dem Server.';
+        }
+    } catch (e) {
+        status.className = 'p-3 rounded-xl text-sm bg-red-900/30 text-red-300';
+        status.innerHTML = '<i class="fas fa-exclamation mr-2"></i>Fehler: ' + e.message;
+    }
+}
+
+async function uploadToServer() {
+    if (!currentSyncCode) return;
+    
+    const status = document.getElementById('sync-status');
+    status.classList.remove('hidden');
+    status.className = 'p-3 rounded-xl text-sm bg-blue-900/30 text-blue-300';
+    status.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Lade Daten hoch...';
+    
+    try {
+        const journeys = await getAllJourneys();
+        const res = await fetch(`/api/sync/${encodeURIComponent(currentSyncCode)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ journeys })
+        });
+        
+        const data = await res.json();
+        if (data.ok) {
+            status.className = 'p-3 rounded-xl text-sm bg-green-900/30 text-green-300';
+            status.innerHTML = `<i class="fas fa-check mr-2"></i>${data.count} Fahrten hochgeladen!`;
+        }
+    } catch (e) {
+        status.className = 'p-3 rounded-xl text-sm bg-red-900/30 text-red-300';
+        status.innerHTML = '<i class="fas fa-exclamation mr-2"></i>Fehler: ' + e.message;
+    }
+}
+
+function copySyncCode() {
+    if (!currentSyncCode) return;
+    navigator.clipboard.writeText(currentSyncCode).then(() => {
+        const status = document.getElementById('sync-status');
+        status.classList.remove('hidden');
+        status.className = 'p-3 rounded-xl text-sm bg-green-900/30 text-green-300';
+        status.innerHTML = '<i class="fas fa-check mr-2"></i>Code kopiert!';
+    });
+}
+
+// ─── Push Notifications ────────────────────────────────────────────────────────
+async function togglePush() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        alert('Push-Benachrichtigungen werden in diesem Browser nicht unterstützt.');
+        return;
+    }
+    
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        
+        if (sub) {
+            // Unsubscribe
+            await sub.unsubscribe();
+            await fetch('/api/push/unsubscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId: 'web-client' })
+            });
+            alert('Push-Benachrichtigungen deaktiviert.');
+        } else {
+            // Subscribe
+            const res = await fetch('/api/push/vapid-public');
+            const { key } = await res.json();
+            
+            const subscription = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(key)
+            });
+            
+            await fetch('/api/push/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subscription, clientId: 'web-client' })
+            });
+            
+            alert('Push-Benachrichtigungen aktiviert!');
+        }
+    } catch (e) {
+        alert('Fehler: ' + e.message);
+    }
+}
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+
+// ─── Live Tracking ─────────────────────────────────────────────────────────────
+let trackingInterval = null;
+
+function startLiveTracking() {
+    if (trackingInterval) clearInterval(trackingInterval);
+    trackingInterval = setInterval(async () => {
+        // Check for active check-ins in localStorage
+        const activeCheckins = JSON.parse(localStorage.getItem('dilaeit_active_checkins') || '[]');
+        if (activeCheckins.length === 0) return;
+        
+        // Tracking logic would go here
+    }, 30000);
+}
+
 // ─── Export / Import ──────────────────────────────────────────────────────────
 async function exportData() {
     const j    = await getAllJourneys();
@@ -778,6 +1127,25 @@ async function importData(e) {
         alert('Import fehlgeschlagen: ' + err.message);
     }
     e.target.value = '';
+}
+
+async function clearAllData() {
+    if (!confirm('Wirklich ALLE Fahrten unwiderruflich löschen?')) return;
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE, 'readwrite');
+        const os = tx.objectStore(STORE);
+        await os.clear();
+        await new Promise((res, rej) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+        });
+        allJourneys = [];
+        updateAll();
+        alert('Alle Daten wurden gelöscht.');
+    } catch (err) {
+        alert('Löschen fehlgeschlagen: ' + err.message);
+    }
 }
 
 // ─── Charts ──────────────────────────────────────────────────────────────────
