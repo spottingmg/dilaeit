@@ -278,9 +278,9 @@
                         
                         // Für reine Zahlen: nur exakt oder endsWith auf tripShortName
                         // Für Text: auch includes auf displayName erlaubt
-                        const matches = tripUp === q || tripUp.endsWith(q)
+                        const matches = tripUp === q || tripUp.endsWith(q) || tripUp.includes("(" + q + ")")
                                      || routeUp === q || routeUp.endsWith(q)
-                                     || displayUp === q || displayUp.endsWith(q)
+                                     || displayUp === q || displayUp.endsWith(q) || displayUp.includes("(" + q + ")")
                                      || (!isNumericQ && nameUp.includes(q));
                         if (matches && !seen.has(showName)) {
                             seen.add(showName);
@@ -429,17 +429,17 @@
 
         // ─── Transitous Suche ─────────────────────────────────────────────────────────
         // Mehrere große Bahnhöfe parallel durchsuchen für maximale Trefferquote
-        const TRANSITOUS_HUBS = [
-            'de:05111:21225',  // Düsseldorf Hbf
-            'de:05513:6130',   // Dortmund Hbf
-            'de:05113:9289',   // Essen Hbf
-            'de:05515:13450',  // Münster Hbf
-            'de:08111:6',      // Stuttgart Hbf
-            'de:09162:1',      // München Hbf
+                const TRANSITOUS_HUBS = [
+            'de:05116:8000250',  // Mönchengladbach Hbf
+            'de:05315:8000207',  // Köln Hbf
+            'de:05111:8000085',  // Düsseldorf Hbf
+            'de:05913:8000096',  // Dortmund Hbf
+            'de:05113:8000105',  // Duisburg Hbf
+            'de:05124:8000191',  // Essen Hbf
+            'de:05314:8000044',  // Bonn Hbf
+            'de:07135:8000206',  // Koblenz Hbf
+            'de:02000:8600282',  // Hamburg Hbf
             'de:11000:900003201', // Berlin Hbf
-            'de:06412:10',     // Frankfurt(Main) Hbf
-            'de:02000:8600282',// Hamburg Hbf
-            'de:05315:13',     // Köln Hbf
         ];
 
         async function searchTransitousTrip(number, date) {
@@ -486,7 +486,7 @@
                     m = deps.find(d => {
                         const dn = (d.displayName || '').toUpperCase().replace(/\s+/g, '');
                         const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
-                        return dn.endsWith(q) || ts.endsWith(q);
+                        return dn.endsWith(q) || ts.endsWith(q) || dn.includes("(" + q + ")") || ts.includes("(" + q + ")")
                     });
                     if (m) return m;
 
@@ -799,13 +799,10 @@
 
                 const formatDelay = (secs) => {
                     if (secs === null || secs === undefined) return null;
-                    if (secs === 0) return '±0';
-                    const sign = secs > 0 ? '+' : '';
-                    const absSecs = Math.abs(secs);
-                    if (absSecs >= 60) {
-                        return `${sign}${Math.round(secs / 60)}'`;
-                    }
-                    return `${sign}${secs}s`;
+                    if (Math.abs(secs) < 60) return '±0';
+                    const sign = secs >= 60 ? '+' : '-';
+                    const mins = Math.abs(Math.round(secs / 60));
+                    return sign + mins + "'";
                 };
 
                 const getDelayClass = (secs) => {
