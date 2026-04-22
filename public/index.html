@@ -708,26 +708,43 @@
                 const res  = await fetch(url);
                 const data = await res.json();
                 const stops = data?.stopovers || [];
-                const remarks = data?.remarks || [];
+                const tripDetailsRemarks = data?.remarks || [];
+                const depRemarks = dep.remarks || [];
+                const mergedRemarks = [...tripDetailsRemarks];
+                
+                depRemarks.forEach(dr => {
+                    if (!mergedRemarks.some(mr => mr.text === dr.text)) mergedRemarks.push(dr);
+                });
+
                 const finalSourceName = data?.source || sourceName;
 
                 if (data.operator) $('detail-operator').textContent = data.operator;
                 else if (data.line?.operator?.name) $('detail-operator').textContent = data.line.operator.name;
 
                 currentDetailStopovers = stops;
-                renderItinerary(stops, remarks, finalSourceName);
+                renderItinerary(stops, mergedRemarks, finalSourceName);
 
-                // Dynamisch DB Störungen nachladen
+                // Dynamisch DB/VRR Störungen nachladen (auch für Transitous)
                 if (finalSourceName === 'Transitous' || finalSourceName === 'VRR OpenService') {
                     const stName = state.currentStation?.name || '';
+                    const lineName = dep.line?.name || '';
                     if (stName) {
                         fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stName)}`)
                             .then(r => r.ok ? r.json() : null)
                             .then(d => {
+                                let finalRemarks = [...mergedRemarks];
                                 if (d?.disruptions?.length) {
                                     const dbRemarks = d.disruptions.map(dr => ({ text: dr.text, type: dr.type || 'hint', priority: dr.priority || 50 }));
-                                    renderItinerary(stops, [...remarks, ...dbRemarks], finalSourceName);
+                                    dbRemarks.forEach(dr => { if (!finalRemarks.some(fr => fr.text === dr.text)) finalRemarks.push(dr); });
                                 }
+                                
+                                // Wenn Transitous, probiere VRR-Linien-Meldungen falls wir die Linie kennen
+                                if (finalSourceName === 'Transitous' && lineName) {
+                                    // Wir könnten hier einen spezifischen Endpunkt für Linien-Meldungen haben oder die disruptions filtern
+                                    // Aktuell gibt /api/disruptions bereits linienbezogene Meldungen zurück falls vorhanden
+                                }
+                                
+                                renderItinerary(stops, finalRemarks, finalSourceName);
                             }).catch(()=>{});
                     }
                 }
@@ -838,7 +855,8 @@
                     const d = document.createElement('div');
                     d.className = 'text-[10px] text-red-400 bg-red-400/5 p-2 rounded-lg border border-red-400/20 flex items-start gap-2';
                     const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted">${translate(r.text)}</a>` : translate(r.text);
-                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div class="flex-1 whitespace-pre-wrap">${content}</div>`;
+                    const contentStoerung = dep.line?.hints?.content.name;
+                    d.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <div class="flex-1 whitespace-pre-wrap">${content}</div> <div class="flex-1 whitespace-pre-wrap">${contentStoerung}</div>`;
                     remDiv.appendChild(d);
                 });
                 container.appendChild(remDiv);
