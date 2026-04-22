@@ -797,7 +797,7 @@
                     const color = isDelayed ? 'text-red-400' : 'text-green-400';
                     const delayText = isDelayed ? ` +${Math.floor(diffSec/60)}'` : (Math.abs(diffSec) < 60 ? ' ±0' : ` ${Math.ceil(diffSec/60)}'`);
                     
-                    return `${planStr}<span class="${color} font-bold mono">${timeStr}${delayText}</span>`;
+                    return `${planStr}<span class="${color} ${hasDeparted ? 'font-bold' : ''} mono">${timeStr}${delayText}</span>`;
                 };
 
                 const isPast = (actualDep && actualDep < Date.now()) || (actualArr && actualArr < Date.now());
