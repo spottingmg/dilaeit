@@ -142,7 +142,13 @@ const TR_HEADERS = { 'Referer': 'https://dilaeit.onrender.com' };
 
 
 
-// ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
+// ─── Helfer ────────────────────────────────────────────────────────────
+function getLocalEfaTime(date) {
+    const offset = date.getTimezoneOffset() * 60000;
+    const local = new Date(date.getTime() - offset);
+    const iso = local.toISOString();
+    return { date: iso.slice(0, 10).replace(/-/g, ''), time: iso.slice(11, 16).replace(/:/g, '') };
+}
 
 function toIsoStringOrNull(v) {
 
@@ -375,9 +381,7 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 
             itdDateTimeDepArr: 'dep',
 
-            itdDate: toYyyymmddLocal(whenRaw),
-
-            itdTime: toHmmLocal(whenRaw),
+            ...getLocalEfaTime(new Date(whenRaw)),
 
             limit: 60,
 
@@ -423,9 +427,9 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
                 line: { name: lineName, id: lineId, product: prodName },
 
                 remarks: [
-                    ...(ev.hints || []).map(h => ({ text: h.content, type: 'hint' })),
-                    ...(ev.infos || []).map(i => ({ text: i.urlText || i.content, type: 'info', url: i.url }))
-                ].filter(r => r.text),
+                    ...(Array.isArray(ev.hints) ? ev.hints : []).map(h => ({ text: h.content, type: 'hint' })),
+                    ...(Array.isArray(ev.infos) ? ev.infos : []).map(i => ({ text: i.urlText || i.content || i.title || i.subtitle, type: 'info', url: i.url }))
+                ].filter(r => r.text && r.text !== 'null'),
 
                 _source: 'VRR OpenService'
 
@@ -642,14 +646,14 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
         const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
             outputFormat: 'rapidJSON', version: EFA_VERSION,
-            mode: 'direct', line, stopID, tripCode, date, time,
+            mode: 'direct', line, stopID, tripCode, itdDate: date, itdTime: time,
             tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
         });
 
         const seq = data.transportation?.locationSequence || [];
         const tripRemarks = [];
-        (data.infos || []).forEach(i => { const txt = i.urlText || i.content || i.title || i.subtitle; if (txt) tripRemarks.push({ text: txt, type: "info", priority: 60, url: i.url }); });
-        (data.hints || []).forEach(h => { if (h.content) tripRemarks.push({ text: h.content, type: "hint", priority: 50 }); });
+        (Array.isArray(data.infos) ? data.infos : []).forEach(i => { const txt = i.urlText || i.content || i.title || i.subtitle; if (txt && txt !== 'null') tripRemarks.push({ text: txt, type: 'info', priority: 60, url: i.url }); });
+        (Array.isArray(data.hints) ? data.hints : []).forEach(h => { if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); });
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
             const pA = toIsoStringOrNull(s.arrivalTimePlanned);
             const pD = toIsoStringOrNull(s.departureTimePlanned);
