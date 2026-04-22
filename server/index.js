@@ -225,11 +225,14 @@ async function efaGet(endpoint, params) {
 function encodeTripId(dep) {
     // EFA braucht für den Trip-Verlauf die exakte Kombination. 
     // transportation.id ist oft die GlobalID (z.B. vrr:20009: :H:j26:1)
-    const lineId = dep.transportation?.id || dep.line?.id || '';
+    const lineId = dep.transportation?.id || dep.line?.id || dep.line?.name || '';
+    const stopID = dep.location?.id || dep.stopPoint?.id || dep.stop?.id || '';
+    const tripCode = dep.transportation?.properties?.tripCode || dep.tripCode || '0';
+    
     return Buffer.from(JSON.stringify({
         line:     lineId,
-        stopID:   dep.location?.id || dep.stopPoint?.id || dep.stop?.id || '',
-        tripCode: dep.transportation?.properties?.tripCode || dep.tripCode || '',
+        stopID:   stopID,
+        tripCode: tripCode,
         date:     toYyyymmddLocal(dep.plannedWhen || dep.departureTimePlanned || new Date().toISOString()),
         time:     toHmmLocal(dep.plannedWhen      || dep.departureTimePlanned || new Date().toISOString()),
     })).toString('base64url');
@@ -640,13 +643,13 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
         const { line, stopID, tripCode, date, time } = payload || {};
 
-        if (!line || !stopID || tripCode == null || !date || !time)
+        if (!line || !stopID || !date || !time)
 
             return res.status(400).json({ error: 'tripId missing fields' });
 
         const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', {
             outputFormat: 'rapidJSON', version: EFA_VERSION,
-            mode: 'direct', line, stopID, tripCode, date, time,
+            mode: 'direct', line, stopID, tripCode: tripCode || '0', itdDate: date, itdTime: time,
             tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
         });
 
@@ -659,6 +662,7 @@ app.get('/api/trips/:tripId', async (req, res) => {
         });
         (Array.isArray(data.hints) ? data.hints : []).forEach(h => { if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); });
         (Array.isArray(data.transportation?.hints) ? data.transportation.hints : []).forEach(h => { if (h.content && h.content !== 'null') tripRemarks.push({ text: h.content, type: 'hint', priority: 50 }); });
+        
         const stopovers = (Array.isArray(seq) ? seq : []).map(s => {
             const pA = toIsoStringOrNull(s.arrivalTimePlanned);
             const pD = toIsoStringOrNull(s.departureTimePlanned);
@@ -672,9 +676,9 @@ app.get('/api/trips/:tripId', async (req, res) => {
             // Echtzeit wenn Estimated Zeit da ist (Standard VRR)
             const hasRT = !!(eA || eD);
             
-            const aA    = hasRT ? (eA || pA) : null;
-            const aD    = hasRT ? (eD || pD) : null;
-            const isCancelled = s.isCancelled || rtArr.some(r => r?.includes('CANCELLED'));
+            const aA    = hasRT ? (eA || pA) : pA;
+            const aD    = hasRT ? (eD || pD) : pD;
+            const isCancelled = s.isCancelled || rtArr.some(r => typeof r === 'string' && r.includes('CANCELLED'));
 
             const planned  = s.properties?.plannedPlatformName || null;
 
@@ -696,11 +700,11 @@ app.get('/api/trips/:tripId', async (req, res) => {
             return {
                 stop:             { name: s.name || s.parent?.name || '' },
                 plannedArrival:   pA,
-                arrival:          aA || pA,
+                arrival:          aA,
                 plannedDeparture: pD,
-                departure:        aD || pD,
-                arrivalDelaySec:   (hasRT && pA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-                departureDelaySec: (hasRT && pD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                departure:        aD,
+                arrivalDelaySec:   (hasRT && pA && eA) ? Math.round((new Date(eA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (hasRT && pD && eD) ? Math.round((new Date(eD) - new Date(pD)) / 1000) : null,
                 plannedPlatform:  planned,
                 platform:         actual,
                 cancelled: isCancelled || false,
@@ -725,7 +729,10 @@ app.get('/api/trips/:tripId', async (req, res) => {
             }
         });
 
-    } catch (e) { res.status(502).json({ error: e.message }); }
+    } catch (e) { 
+        console.error('[VRR trip]', e.message);
+        res.status(502).json({ error: e.message }); 
+    }
 
 });
 
@@ -795,7 +802,8 @@ app.get('/api/iris/trip-search', async (req, res) => {
             // Suche auch nach (10612) -> Match auf 10612
             return ts === q || dn === q || rs === q || 
                    ts.endsWith(q) || dn.endsWith(q) ||
-                   dn.includes(`(${q})`) || ts.includes(`(${q})`);
+                   dn.includes(`(${q})`) || ts.includes(`(${q})`) ||
+                   dn.includes(q) || ts.includes(q);
         });
 
 
@@ -834,9 +842,9 @@ app.get('/api/iris/trip-search', async (req, res) => {
 
             const pD = s.scheduledDeparture || null;
 
-            const aA = irisHasRT && s.arrival   && s.arrival   !== pA ? s.arrival   : null;
+            const aA = irisHasRT && s.arrival   ? s.arrival   : pA;
 
-            const aD = irisHasRT && s.departure && s.departure !== pD ? s.departure : null;
+            const aD = irisHasRT && s.departure ? s.departure : pD;
 
             return {
 
@@ -844,12 +852,12 @@ app.get('/api/iris/trip-search', async (req, res) => {
 
                         location: (s.lat && s.lon) ? { latitude: s.lat, longitude: s.lon } : null },
 
-                plannedArrival:    pA, arrival: aA || pA,
+                plannedArrival:    pA, arrival: aA,
 
-                plannedDeparture:  pD, departure: aD || pD,
+                plannedDeparture:  pD, departure: aD,
 
-                arrivalDelaySec:   (hasRT && pA) ? Math.round(((eA || pA) - new Date(pA)) / 1000) : null,
-                departureDelaySec: (hasRT && pD) ? Math.round(((eD || pD) - new Date(pD)) / 1000) : null,
+                arrivalDelaySec:   (irisHasRT && pA && s.arrival) ? Math.round((new Date(s.arrival) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (irisHasRT && pD && s.departure) ? Math.round((new Date(s.departure) - new Date(pD)) / 1000) : null,
 
                 platform: s.track || null, plannedPlatform: s.scheduledTrack || null,
 
@@ -890,7 +898,8 @@ app.get('/api/disruptions', async (req, res) => {
         if (!name) return res.json({ disruptions: [] });
 
         // Wir suchen erst die Station-ID für den Namen via HAFAS
-        const locations = await hafas.locations(name, { results: 1 });
+        if (!hafas) return res.json({ disruptions: [] });
+        const locations = await hafas.locations(name, { results: 1 }).catch(() => []);
         const station = locations[0];
         if (!station || !station.id) return res.json({ disruptions: [] });
 
@@ -898,7 +907,7 @@ app.get('/api/disruptions', async (req, res) => {
         // Wir rufen sowohl Abfahrten als auch allgemeine Remarks ab
         const [departures, remarks] = await Promise.all([
             hafas.departures(station.id, { duration: 180, remarks: true }).catch(() => ({ departures: [] })),
-            hafas.remarks({ results: 20 }).catch(() => [])
+            hafas.remarks({ results: 10 }).catch(() => [])
         ]);
         
         const disruptions = [];
