@@ -1087,9 +1087,9 @@
                 list.innerHTML = disruptions.map(d => {
                     const icon = d.type === 'disruption' ? 'fa-exclamation-triangle text-orange-400' : 'fa-info-circle text-orange-400';
                     const lineTag = d.line ? `<span class="px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 text-[10px] font-bold italic mr-1">${d.line}</span>` : '';
-                    return `<div class="flex items-start gap-2 text-xs text-orange-200/80 py-1 border-b border-orange-900/30 last:border-0">
-                        <i class="fas ${icon} mt-0.5 shrink-0 text-[11px]"></i>
-                        <span>${lineTag}${d.text}</span>
+                    return `<div class="flex items-start gap-2 text-xs text-orange-200/80 py-1.5 border-b border-orange-900/30 last:border-0">
+                        <i class="fas ${icon} mt-1 shrink-0 text-[11px]"></i>
+                        <div class="flex-1 whitespace-pre-wrap">${lineTag}${d.text}</div>
                     </div>`;
                 }).join('');
                 panel.classList.remove('hidden');
@@ -1927,9 +1927,10 @@
                             ${platformHtml}
                             ${isCancelled ? '<span class="text-red-500 text-[10px] font-bold">ENTFÄLLT</span>' : ''}
                             ${(stop.remarks || []).map(r => `
-                                <span class="text-red-400 text-[10px] block w-full">
-                                    <i class="fas fa-exclamation-triangle mr-0.5"></i>${translate(r.text)}
-                                </span>
+                                <div class="text-red-400 text-[10px] mt-1 flex items-start gap-1 bg-red-400/5 p-1.5 rounded-lg border border-red-400/20 w-full">
+                                    <i class="fas fa-info-circle mt-0.5 shrink-0"></i>
+                                    <div class="flex-1 whitespace-pre-wrap">${translate(r.text)}</div>
+                                </div>
                             `).join('')}
                         </div>
                     </div>
@@ -1945,13 +1946,13 @@
 
             if (allRemarks.length > 0) {
                 const remarksContainer = document.createElement('div');
-                remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-1.5';
+                remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-2';
                 allRemarks.forEach(rem => {
                     const rDiv = document.createElement('div');
                     const isDisruption = rem.type === 'disruption' || (rem.priority || 0) >= 80;
-                    rDiv.className = `text-[10px] font-medium flex items-start gap-2 ${isDisruption ? 'text-orange-400' : 'text-red-500'}`;
+                    rDiv.className = `text-[10px] font-medium flex items-start gap-2 bg-zinc-50 dark:bg-zinc-900/50 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 ${isDisruption ? 'text-orange-400' : 'text-red-500'}`;
                     const icon = isDisruption ? 'fa-exclamation-triangle' : 'fa-info-circle';
-                    rDiv.innerHTML = `<i class="fas ${icon} mt-0.5 shrink-0"></i> <span>${translate(rem.text)}</span>`;
+                    rDiv.innerHTML = `<i class="fas ${icon} mt-0.5 shrink-0"></i> <div class="flex-1 whitespace-pre-wrap">${translate(rem.text)}</div>`;
                     remarksContainer.appendChild(rDiv);
                 });
                 container.appendChild(remarksContainer);
