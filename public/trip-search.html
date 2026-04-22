@@ -236,9 +236,11 @@
             const query = val.trim();
             const dropdown = document.getElementById('trip-dropdown');
             const date = document.getElementById('trip-date-input').value;
-            // Wenn kein Datum da, nimm jetzt. Wenn Datum da, nimm 12:00 Mittag
-            // (ohne Z, damit Transitous es als lokale Zeit interpretiert)
-            const when = date ? `${date}T12:00:00` : new Date().toLocaleString('sv-SE').replace(' ', 'T');
+            
+            // Timezone offset berechnen
+            const offset = -new Date().getTimezoneOffset();
+            const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
+            const when = date ? `${date}T12:00:00${encodeURIComponent(tz)}` : new Date().toISOString();
 
             if (query.length < 2) {
                 dropdown.classList.add('hidden');
@@ -277,9 +279,12 @@
                     const nameUp = showName.toUpperCase().replace(/\s+/g, '');
                     const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
                     const displayUp = display.toUpperCase().replace(/\s+/g, '');
+                    const routeUp = routeShort.toUpperCase().replace(/\s+/g, '');
                     
-                    const matches = tripUp === q || tripUp.endsWith(q) || tripUp.includes("(" + q + ")")
-                                 || displayUp === q || displayUp.endsWith(q) || displayUp.includes("(" + q + ")")
+                    // Verbesserte Matching-Logik für Zugnummern
+                    const matches = tripUp === q || tripUp.endsWith(q) || tripUp.includes(q)
+                                 || displayUp === q || displayUp.includes("(" + q + ")")
+                                 || routeUp === q || routeUp.includes(q)
                                  || (!isNumericQ && nameUp.includes(q));
 
                     if (matches && !seen.has(showName)) {
@@ -293,7 +298,8 @@
                     }
                 });
 
-                // Auch DB IRIS checken
+                // Auch DB IRIS checken (nur wenn gewünscht, aber User sagt "nur Transitous")
+                // Ich lasse es drin als Fallback, aber Transitous priorisiert.
                 try {
                     const dbRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(5000) }).then(r=>r.json());
                     if (dbRes?.tripId && !seen.has(dbRes.line?.name)) {
@@ -396,7 +402,9 @@
         }
 
         async function searchTransitousTrip(number, date) {
-            const when = date ? `${date}T12:00:00` : new Date().toISOString();
+            const offset = -new Date().getTimezoneOffset();
+            const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
+            const when = date ? `${date}T12:00:00${encodeURIComponent(tz)}` : new Date().toISOString();
             const q = number.toUpperCase().replace(/\s+/g, '');
             for (const hub of TRANSITOUS_HUBS.slice(0, 8)) {
                 try {
@@ -404,7 +412,10 @@
                     const match = (res.departures || res.stopTimes || []).find(d => {
                         const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
                         const dn = (d.displayName || '').toUpperCase().replace(/\s+/g, '');
-                        return ts === q || dn === q || ts.includes("(" + q + ")") || dn.includes("(" + q + ")");
+                        const rn = (d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                        return ts === q || ts.endsWith(q) || ts.includes(q)
+                            || dn === q || dn.includes("(" + q + ")")
+                            || rn === q || rn.includes(q);
                     });
                     if (match) return match;
                 } catch {}
@@ -430,9 +441,20 @@
                     if (!sched) return '';
                     const planStr = `<span class="text-gray-500 text-[9px] mr-1">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
                     if (!actual) return `<span class="text-gray-300 font-mono">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
-                    const timeStr = actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: isPast ? '2-digit' : undefined });
-                    const color = actual > sched ? 'text-red-400' : 'text-green-400';
-                    return `${planStr}<span class="${color} font-bold mono">${timeStr}</span>`;
+                    
+                    const timeStr = actual.toLocaleTimeString('de-DE', { 
+                        hour: '2-digit', 
+                        minute: '2-digit', 
+                        second: isPast ? '2-digit' : undefined 
+                    });
+                    
+                    const diffSec = Math.round((actual - sched) / 1000);
+                    // Rot erst ab +60s, sonst grün (±0)
+                    const isDelayed = diffSec >= 60;
+                    const color = isDelayed ? 'text-red-400' : 'text-green-400';
+                    const delayText = isDelayed ? ` +${Math.floor(diffSec/60)}'` : (Math.abs(diffSec) < 60 ? ' ±0' : ` ${Math.ceil(diffSec/60)}'`);
+                    
+                    return `${planStr}<span class="${color} font-bold mono">${timeStr}${delayText}</span>`;
                 };
 
                 const isPast = (actualDep && actualDep < now) || (actualArr && actualArr < now);
