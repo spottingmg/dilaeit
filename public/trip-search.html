@@ -236,7 +236,9 @@
             const query = val.trim();
             const dropdown = document.getElementById('trip-dropdown');
             const date = document.getElementById('trip-date-input').value;
-            const when = date ? `${date}T12:00:00` : new Date().toISOString();
+            // Wenn kein Datum da, nimm jetzt. Wenn Datum da, nimm 12:00 Mittag
+            // (ohne Z, damit Transitous es als lokale Zeit interpretiert)
+            const when = date ? `${date}T12:00:00` : new Date().toLocaleString('sv-SE').replace(' ', 'T');
 
             if (query.length < 2) {
                 dropdown.classList.add('hidden');
