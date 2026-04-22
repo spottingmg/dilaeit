@@ -364,7 +364,7 @@
                         signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
                     }).then(r => r.ok ? r.json() : null);
                     if (dbResult) {
-                        showTripResults(dbResult, 'Deutsche Bahn');
+                        showTripResults(dbResult, dbResult.source || 'Transitous');
                         return;
                     }
                 }
