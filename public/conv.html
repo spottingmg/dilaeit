@@ -2,12 +2,9 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit · json-Konverter</title>
+    <title>dilaeit · Transit Konverter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0a0a0a">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="description" content="Träwelling-Export in das dilaeit-Format konvertieren">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
     <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -75,27 +72,90 @@
         </p>
     </div>
 
+    <!-- Schritte -->
+    <div id="steps-traewelling" class="mb-8 space-y-3">
+        <div class="flex items-start gap-3">
+            <div class="step-num">1</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">Träwelling öffnen</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Gehe zu <a href="https://traewelling.de" target="_blank" class="text-red-500 hover:underline">traewelling.de</a> → Profil → <strong class="text-zinc-300">Einstellungen → Daten exportieren</strong></div>
+            </div>
+        </div>
+        <div class="flex items-start gap-3">
+            <div class="step-num">2</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">Export herunterladen</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Klicke auf <strong class="text-zinc-300">„JSON exportieren"</strong> – du erhältst eine <code class="text-zinc-400 bg-zinc-800 px-1 rounded">statuses.json</code></div>
+            </div>
+        </div>
+        <div class="flex items-start gap-3">
+            <div class="step-num">3</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">Datei hier ablegen</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Ziehe die JSON-Datei in das Feld unten oder klicke zum Auswählen. Die Konvertierung startet automatisch.</div>
+            </div>
+        </div>
+        <div class="flex items-start gap-3">
+            <div class="step-num">4</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">In dilaeit importieren</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Lade die konvertierte Datei herunter und öffne <a href="/stats.html" class="text-red-500 hover:underline">dilaeit Stats</a> → <strong class="text-zinc-300">Importieren</strong></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="steps-travelynx" class="mb-8 space-y-3 hidden">
+        <div class="flex items-start gap-3">
+            <div class="step-num">1</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">travelynx.de öffnen</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Gehe zu <a href="https://travelynx.de" target="_blank" class="text-red-500 hover:underline">travelynx.de</a> → <strong class="text-zinc-300">Account → Export</strong></div>
+            </div>
+        </div>
+        <div class="flex items-start gap-3">
+            <div class="step-num">2</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">JSON-Export herunterladen</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Wähle <strong class="text-zinc-300">„Fahrten (JSON)"</strong> – du erhältst eine JSON-Datei mit allen deinen Fahrten</div>
+            </div>
+        </div>
+        <div class="flex items-start gap-3">
+            <div class="step-num">3</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">Datei hier ablegen</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Ziehe die JSON-Datei in das Feld unten oder klicke zum Auswählen.</div>
+            </div>
+        </div>
+        <div class="flex items-start gap-3">
+            <div class="step-num">4</div>
+            <div>
+                <div class="font-semibold text-sm text-zinc-200">In dilaeit importieren</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Lade die konvertierte Datei herunter und öffne <a href="/stats.html" class="text-red-500 hover:underline">dilaeit Stats</a> → <strong class="text-zinc-300">Importieren</strong></div>
+            </div>
+        </div>
+    </div>
+
     <div id="drop-zone" onclick="document.getElementById('file-input').click()">
-        <input type="file" id="file-input" accept=".json" class="hidden">
+        <input type="file" id="file-input" accept=".json,.txt" class="hidden">
         <div class="text-5xl mb-4 text-zinc-600"><i class="fas fa-file-import"></i></div>
-        <p class="text-zinc-300 font-semibold text-lg mb-1">JSON hier ablegen</p>
+        <p class="text-zinc-300 font-semibold text-lg mb-1">Export JSON/TXT hier ablegen</p>
         <p class="text-zinc-600 text-sm">oder klicken zum Auswählen</p>
     </div>
 
     <div id="result-section" class="hidden mt-8">
         <div class="flex flex-wrap gap-3 mb-6" id="stat-row"></div>
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-4">
             <p class="text-zinc-500 text-sm" id="preview-hint"></p>
-            <button onclick="startDownload()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-5 py-2.5 rounded-xl">
-                JSON herunterladen
+            <button onclick="startDownload()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-lg shadow-red-600/20 transition-all active:scale-95">
+                <i class="fas fa-download mr-2"></i>dilaeit JSON herunterladen
             </button>
         </div>
-        <div class="border border-zinc-800 rounded-2xl overflow-hidden">
-            <div style="max-height: 460px; overflow-y: auto;">
+        <div class="border border-zinc-800 rounded-2xl overflow-hidden bg-zinc-900/30">
+            <div style="max-height: 500px; overflow-y: auto;">
                 <table class="results-table">
-                    <thead class="sticky top-0 bg-zinc-950">
+                    <thead class="sticky top-0 bg-zinc-950 z-20">
                         <tr>
-                            <th>Datum</th><th>Zeit</th><th>Linie</th><th>Von</th><th>Nach</th><th>Typ</th><th>km</th>
+                            <th>Datum</th><th>Zeit</th><th>Linie</th><th>Von</th><th>Nach</th><th>km</th><th>Versp.</th>
                         </tr>
                     </thead>
                     <tbody id="preview-body"></tbody>
@@ -114,9 +174,14 @@
         document.getElementById('source-name').textContent = 'travelynx.de';
         document.getElementById('mode-label').textContent = '/ travelynx-konverter';
         document.getElementById('mode-desc').textContent = 'Konvertiere deinen travelynx.de JSON-Export für dilaeit.';
+        document.getElementById('steps-traewelling').classList.add('hidden');
+        document.getElementById('steps-travelynx').classList.remove('hidden');
     } else {
         document.getElementById('source-name').textContent = 'Träwelling';
         document.getElementById('mode-label').textContent = '/ träwelling-konverter';
+        document.getElementById('mode-desc').textContent = 'Konvertiere deinen Träwelling JSON-Export für dilaeit.';
+        document.getElementById('steps-traewelling').classList.remove('hidden');
+        document.getElementById('steps-travelynx').classList.add('hidden');
     }
 
     document.getElementById('file-input').onchange = e => {
@@ -125,19 +190,26 @@
         const reader = new FileReader();
         reader.onload = () => {
             try {
-                converted = mode === 'travelynx' ? convertTravelynx(reader.result) : convertTraewelling(reader.result);
+                const raw = reader.result;
+                converted = mode === 'travelynx' ? convertTravelynx(raw) : convertTraewelling(raw);
                 render(converted);
-            } catch(err) { alert(err.message); }
+            } catch(err) { alert('Fehler bei der Konvertierung: ' + err.message); }
         };
         reader.readAsText(file);
     };
 
     function convertTraewelling(raw) {
         const parsed = JSON.parse(raw);
-        return parsed.data.map(entry => {
+        const data = parsed.data || parsed;
+        if (!Array.isArray(data)) throw new Error('Kein gültiger Träwelling Export (Array erwartet)');
+        
+        return data.map(entry => {
             const s = entry.status;
             const ci = s.checkin;
             const depISO = ci.manualDeparture || ci.origin.departurePlanned;
+            const arrISO = ci.manualArrival   || ci.destination.arrivalPlanned;
+            const arrRealISO = ci.destination.arrivalReal  || arrISO;
+
             return {
                 id: 'trw-' + s.id,
                 date: new Date(depISO).toISOString().slice(0,10),
@@ -147,7 +219,8 @@
                 to: ci.destination.name,
                 mode: (ci.category || 'train').toLowerCase(),
                 km: ci.distance ? Math.round(ci.distance / 100) / 10 : null,
-                delay: Math.round((new Date(ci.destination.arrivalReal || ci.destination.arrivalPlanned) - new Date(ci.destination.arrivalPlanned)) / 60000),
+                delay: Math.round((new Date(arrRealISO) - new Date(arrISO)) / 60000),
+                note: s.body || null,
                 fromCoords: ci.origin.latitude ? [ci.origin.latitude, ci.origin.longitude] : null,
                 toCoords: ci.destination.latitude ? [ci.destination.latitude, ci.destination.longitude] : null
             };
@@ -156,27 +229,62 @@
 
     function convertTravelynx(raw) {
         const data = JSON.parse(raw);
-        return data.map(j => ({
-            id: 'tlx-' + j.id,
-            date: new Date(j.sched_dep_ts * 1000).toISOString().slice(0,10),
-            time: new Date(j.sched_dep_ts * 1000).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}),
-            line: (j.type + ' ' + (j.line || j.no)).trim(),
-            from: j.from_name,
-            to: j.to_name,
-            mode: j.type?.toLowerCase().includes('bus') ? 'bus' : 'train',
-            km: null,
-            delay: Math.round(j.delay_arr / 60),
-            fromCoords: j.from_latlon,
-            toCoords: j.to_latlon
-        }));
+        if (!Array.isArray(data)) throw new Error('Kein gültiger Travelynx Export (Array erwartet)');
+        
+        return data.map(j => {
+            const schedDep = parseFloat(j.sched_dep_ts) * 1000;
+            const schedArr = parseFloat(j.sched_arr_ts) * 1000;
+            const rtArr    = parseFloat(j.rt_arr_ts)    * 1000;
+            
+            let delay = 0;
+            if (j.delay_arr != null) delay = Math.round(parseFloat(j.delay_arr) / 60);
+            else if (rtArr && schedArr) delay = Math.round((rtArr - schedArr) / 60000);
+
+            return {
+                id: 'tlx-' + j.id,
+                date: new Date(schedDep).toISOString().slice(0,10),
+                time: new Date(schedDep).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}),
+                line: (j.type + ' ' + (j.line || j.no || '')).trim(),
+                from: j.from_name,
+                to: j.to_name,
+                mode: j.type?.toLowerCase().includes('bus') ? 'bus' : 'train',
+                km: j.km ? parseFloat(j.km) : null,
+                delay: delay,
+                fromCoords: j.from_latlon,
+                toCoords: j.to_latlon,
+                note: j.user_data?.comment || null
+            };
+        });
     }
 
     function render(data) {
-        document.getElementById('preview-body').innerHTML = data.map(j => `
+        let totalKm = 0;
+        data.forEach(j => { if(j.km) totalKm += j.km; });
+        
+        document.getElementById('stat-row').innerHTML = `
+            <div class="scard">
+                <div class="text-2xl font-black text-white mono">${data.length}</div>
+                <div class="text-[10px] text-zinc-500 uppercase mt-1">Fahrten</div>
+            </div>
+            <div class="scard">
+                <div class="text-2xl font-black text-blue-400 mono">${Math.round(totalKm)}</div>
+                <div class="text-[10px] text-zinc-500 uppercase mt-1">km gesamt</div>
+            </div>
+        `;
+
+        document.getElementById('preview-body').innerHTML = data.slice(0, 100).map(j => `
             <tr>
-                <td>${j.date}</td><td>${j.time}</td><td>${j.line}</td><td>${j.from}</td><td>${j.to}</td><td>${j.mode}</td><td>${j.km || '—'}</td>
+                <td class="text-zinc-500 mono">${j.date}</td>
+                <td class="text-zinc-400 mono">${j.time}</td>
+                <td class="font-bold">${j.line}</td>
+                <td class="text-zinc-400 text-xs">${j.from}</td>
+                <td class="text-zinc-400 text-xs">${j.to}</td>
+                <td class="text-zinc-500 mono">${j.km || '—'}</td>
+                <td class="${j.delay > 0 ? 'text-red-400' : 'text-green-400'} font-bold mono">${j.delay > 0 ? '+' : ''}${j.delay}'</td>
             </tr>
         `).join('');
+        
+        document.getElementById('preview-hint').textContent = data.length > 100 ? `Vorschau: Erste 100 von ${data.length} Fahrten` : `${data.length} Fahrten bereit zum Download.`;
         document.getElementById('result-section').classList.remove('hidden');
     }
 
@@ -185,7 +293,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `dilaeit_import_${mode}.json`;
+        a.download = `dilaeit_import_${mode}_${new Date().toISOString().slice(0,10)}.json`;
         a.click();
     }
 </script>
