@@ -755,7 +755,6 @@
                 if (!url) { itinerary.innerHTML = `<div class="py-10 text-center text-zinc-500 text-sm">Kein Fahrtverlauf verfügbar.</div>`; return; }
 
                 const res  = await fetch(url);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 const stops = data?.stopovers || [];
                 const tripDetailsRemarks = data?.remarks || [];
@@ -774,24 +773,6 @@
                 currentDetailStopovers = stops;
                 renderItinerary(stops, mergedRemarks, finalSourceName);
 
-                // Störungen und Hinweise IMMER vom VRR laden, unabhängig von der gewählten API-Quelle
-                // (VRR oder DB/Transitous für die Fahrtensuche)
-                const stName = state.currentStation?.name || '';
-                if (stName) {
-                    fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stName)}`)
-                        .then(r => r.ok ? r.json() : null)
-                        .then(d => {
-                            let finalRemarks = [...mergedRemarks];
-                            if (d?.disruptions?.length) {
-                                // VRR-Störungen zu den vorhandenen Bemerkungen hinzufügen
-                                const vrrRemarks = d.disruptions.map(dr => ({ text: dr.text, type: dr.type || 'hint', priority: dr.priority || 50 }));
-                                vrrRemarks.forEach(dr => { if (!finalRemarks.some(fr => fr.text === dr.text)) finalRemarks.push(dr); });
-                            }
-                            renderItinerary(stops, finalRemarks, finalSourceName);
-                        }).catch(()=>{});
-                } else {
-                    renderItinerary(stops, mergedRemarks, finalSourceName);
-                }
             } catch (e) { itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden.</div>`; }
         }
 
