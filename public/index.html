@@ -755,6 +755,7 @@
                 if (!url) { itinerary.innerHTML = `<div class="py-10 text-center text-zinc-500 text-sm">Kein Fahrtverlauf verfügbar.</div>`; return; }
 
                 const res  = await fetch(url);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 const stops = data?.stopovers || [];
                 const tripDetailsRemarks = data?.remarks || [];
