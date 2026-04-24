@@ -266,7 +266,7 @@
                         <span id="trip-source-display">QUELLE: --</span>
                     </div>
                 </div>
-                <div id="trip-itinerary-search" class="space-y-0 relative"></div>
+                <div id="trip-itinerary" class="space-y-0 relative"></div>
             </div>
         </div>
 
@@ -773,6 +773,24 @@
                 currentDetailStopovers = stops;
                 renderItinerary(stops, mergedRemarks, finalSourceName);
 
+                // Störungen und Hinweise IMMER vom VRR laden, unabhängig von der gewählten API-Quelle
+                // (VRR oder DB/Transitous für die Fahrtensuche)
+                const stName = state.currentStation?.name || '';
+                if (stName) {
+                    fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stName)}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            let finalRemarks = [...mergedRemarks];
+                            if (d?.disruptions?.length) {
+                                // VRR-Störungen zu den vorhandenen Bemerkungen hinzufügen
+                                const vrrRemarks = d.disruptions.map(dr => ({ text: dr.text, type: dr.type || 'hint', priority: dr.priority || 50 }));
+                                vrrRemarks.forEach(dr => { if (!finalRemarks.some(fr => fr.text === dr.text)) finalRemarks.push(dr); });
+                            }
+                            renderItinerary(stops, finalRemarks, finalSourceName);
+                        }).catch(()=>{});
+                } else {
+                    renderItinerary(stops, mergedRemarks, finalSourceName);
+                }
             } catch (e) { itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden.</div>`; }
         }
 
@@ -923,12 +941,71 @@
         function loadLastStation() { const s = localStorage.getItem('dilaeit_last_station'); if (s) { try { state.currentStation = JSON.parse(s); $('station-search').value = state.currentStation.name; refreshDepartures(); } catch(e){} } }
         function detectRegion(n) { return (n.includes('Düsseldorf') || n.includes('Mönchengladbach') || n.includes('Köln')) ? 'NRW' : 'DEUTSCHLAND'; }
         function initArchive() {}
+        let tripLeafletMap = null;
+
         function switchDetailTab(t) {
             ['itinerary','map','punctuality','zuglauf'].forEach(p => $(`panel-${p}`).classList.toggle('hidden', p !== t));
             document.querySelectorAll('.detail-tab').forEach(b => {
                 const active = b.id === `tab-${t}`;
                 b.className = `detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'}`;
             });
+            if (t === 'map') {
+                setTimeout(() => initTripMap(), 100);
+            }
+        }
+
+        function initTripMap() {
+            const j = currentTripDep?._checkin || state._lastCheckin;
+            const from = j?.fromCoords || currentDetailStopovers?.[0]?.stop?.location;
+            const to   = j?.toCoords   || currentDetailStopovers?.[currentDetailStopovers?.length - 1]?.stop?.location;
+            const fromLL = from ? (Array.isArray(from) ? from : [from.latitude, from.longitude]) : null;
+            const toLL   = to   ? (Array.isArray(to)   ? to   : [to.latitude, to.longitude])     : null;
+
+            if (!fromLL && !toLL) {
+                $('trip-map-status').textContent = 'Keine Koordinaten verfügbar';
+                return;
+            }
+
+            const mapEl = $('trip-map');
+            if (!tripLeafletMap) {
+                tripLeafletMap = L.map(mapEl, { zoomControl: true });
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap',
+                    maxZoom: 18,
+                }).addTo(tripLeafletMap);
+            } else {
+                tripLeafletMap.eachLayer(l => {
+                    if (l instanceof L.Marker || l instanceof L.Polyline) tripLeafletMap.removeLayer(l);
+                });
+            }
+
+            const bounds = [];
+            const greenIcon = L.divIcon({ className: '', html: '<div style="width:12px;height:12px;background:#22c55e;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,.5)"></div>', iconAnchor:[6,6] });
+            const redIcon   = L.divIcon({ className: '', html: '<div style="width:12px;height:12px;background:#ef4444;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,.5)"></div>', iconAnchor:[6,6] });
+
+            // Haltestellen aus Fahrtverlauf als Linie
+            if (currentDetailStopovers?.length > 1) {
+                const pts = currentDetailStopovers
+                    .map(s => s.stop?.location ? [s.stop.location.latitude, s.stop.location.longitude] : null)
+                    .filter(Boolean);
+                if (pts.length > 1) {
+                    L.polyline(pts, { color: '#ef4444', weight: 3, opacity: 0.7 }).addTo(tripLeafletMap);
+                    pts.forEach(p => bounds.push(p));
+                }
+            }
+
+            if (fromLL) {
+                L.marker(fromLL, { icon: greenIcon }).addTo(tripLeafletMap).bindPopup('Einstieg');
+                bounds.push(fromLL);
+            }
+            if (toLL) {
+                L.marker(toLL, { icon: redIcon }).addTo(tripLeafletMap).bindPopup('Ausstieg');
+                bounds.push(toLL);
+            }
+
+            if (bounds.length) tripLeafletMap.fitBounds(bounds, { padding: [20, 20] });
+            tripLeafletMap.invalidateSize();
+            $('trip-map-status').textContent = '';
         }
         function toggleArchive() {}
         function clearArchive() {}
@@ -941,138 +1018,27 @@
 
         async function loadDisruptions() {
             if (!state.currentStation || state.disruptionsLoaded) return;
+            state.disruptionsLoaded = true;
             const panel = $('disruptions-panel');
-            const list = $('disruptions-list');
+            const list  = $('disruptions-list');
             const count = $('disruptions-count');
-            
             try {
-                // Lade Störungen von DB Timetables API (falls verfügbar) und VRR API (falls VRR Quelle)
-                const items = [];
-                const seenTexts = new Set();
-                
-                // 1. DB Timetables API für aktuelle Verkehrslage (z.B. Strecke beeinträchtigt)
-                if (state.currentSource === 'db') {
-                    try {
-                        // EVA-Nummer aus Station ermitteln (wenn vorhanden)
-                        const evaNo = state.currentStation.id || '';
-                        if (evaNo) {
-                            const res = await fetch(`${API_BASE}/api/db/timetable-changes/${encodeURIComponent(evaNo)}`);
-                            if (res.ok) {
-                                const data = await res.json();
-                                (data.messages || []).forEach(m => {
-                                    const text = m.int || m.ext || '';
-                                    if (text && !seenTexts.has(text)) {
-                                        seenTexts.add(text);
-                                        // Prüfe ob es eine Störung oder Info ist
-                                        const isDisruption = m.type === 'r' || m.type === 'd' || 
-                                            text.toLowerCase().includes('beeinträchtigt') ||
-                                            text.toLowerCase().includes('strecke') ||
-                                            text.toLowerCase().includes('sperrung') ||
-                                            text.toLowerCase().includes('störung') ||
-                                            text.toLowerCase().includes('ausfall');
-                                        
-                                        items.push({
-                                            text: text,
-                                            type: isDisruption ? 'disruption' : 'info',
-                                            line: m.cat || null,
-                                            source: 'db'
-                                        });
-                                    }
-                                });
-                            }
-                        }
-                    } catch(e) {}
-                }
-                
-                // 2. VRR Störungen laden (wenn VRR Quelle ausgewählt)
-                if (state.currentSource === 'vrr') {
-                    try {
-                        // Nutze die Abfahrtsdaten um hints/Störungen zu extrahieren
-                        const dateVal = $('query-date').value;
-                        const timeVal = $('query-time').value;
-                        const offset = -new Date().getTimezoneOffset();
-                        const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
-                        
-                        const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
-                        const res = await fetch(url);
-                        if (res.ok) {
-                            const data = await res.json();
-                            const departures = data.departures || [];
-                            
-                            // Sammle alle hints und infos von den Abfahrten
-                            departures.forEach(dep => {
-                                // Hinweise von der Abfahrt selbst
-                                (dep.remarks || []).forEach(r => {
-                                    const text = r.text || '';
-                                    if (text && !seenTexts.has(text)) {
-                                        seenTexts.add(text);
-                                        // Prüfe ob es eine Störung oder Info ist
-                                        const isDisruption = r.type === 'hint' || 
-                                            text.toLowerCase().includes('verspätung') ||
-                                            text.toLowerCase().includes('störung') ||
-                                            text.toLowerCase().includes('ausfall') ||
-                                            text.toLowerCase().includes('entfällt') ||
-                                            text.toLowerCase().includes('umleitung') ||
-                                            text.toLowerCase().includes('sperrung') ||
-                                            text.toLowerCase().includes('beeinträchtigt') ||
-                                            text.toLowerCase().includes('verzögerung') ||
-                                            text.toLowerCase().includes('seV') ||
-                                            text.toLowerCase().includes('ersatzverkehr');
-                                        
-                                        items.push({
-                                            text: text,
-                                            type: isDisruption ? 'disruption' : 'info',
-                                            line: dep.line?.name || null,
-                                            source: 'vrr'
-                                        });
-                                    }
-                                });
-                            });
-                        }
-                    } catch(e) {}
-                }
-                
-                state.disruptionsLoaded = true;
-                if (items.length === 0) {
-                    panel.classList.add('hidden');
-                    return;
-                }
-                
+                const r = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(state.currentStation.name)}`);
+                if (!r.ok) return;
+                const { disruptions } = await r.json();
+                if (!disruptions?.length) { panel.classList.add('hidden'); return; }
                 panel.classList.remove('hidden');
-                count.textContent = `(${items.length})`;
-                list.innerHTML = '';
-                
-                items.forEach(d => {
-                    const div = document.createElement('div');
-                    const isDisruption = d.type === 'disruption' || d.type === 'warning';
-                    
-                    if (isDisruption) {
-                        // Rote Störungsmeldung
-                        div.className = 'p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 leading-relaxed';
-                        div.innerHTML = `
-                            <div class="font-bold mb-1 flex items-center gap-2 text-red-400">
-                                <i class="fas fa-exclamation-triangle text-red-500 text-[10px]"></i>
-                                ${d.type === 'disruption' ? 'Störung' : d.type || 'Meldung'}${d.line ? ` · ${d.line}` : ''}
-                            </div>
-                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
-                        `;
-                    } else {
-                        // Weiße Info-Meldung
-                        div.className = 'p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-[11px] text-gray-300 leading-relaxed';
-                        div.innerHTML = `
-                            <div class="font-bold mb-1 flex items-center gap-2 text-gray-400">
-                                <i class="fas fa-info-circle text-gray-500 text-[10px]"></i>
-                                Info${d.line ? ` · ${d.line}` : ''}
-                            </div>
-                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
-                        `;
-                    }
-                    list.appendChild(div);
-                });
-            } catch (e) { 
-                console.error('Disruptions load failed:', e);
-                panel.classList.add('hidden'); 
-            }
+                count.textContent = `${disruptions.length} Meldung${disruptions.length > 1 ? 'en' : ''}`;
+                list.innerHTML = disruptions.map(d => {
+                    const isDisruption = d.type === 'disruption' || d.type === 'warning' || (d.priority || 0) >= 80;
+                    const icon  = isDisruption ? 'fa-exclamation-triangle text-orange-400' : 'fa-info-circle text-orange-400';
+                    const lineTag = d.line ? `<span class="px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 text-[10px] font-bold italic mr-1">${d.line}</span>` : '';
+                    return `<div class="flex items-start gap-2 text-xs text-orange-200/80 py-1 border-b border-orange-900/30 last:border-0">
+                        <i class="fas ${icon} mt-0.5 shrink-0 text-[11px]"></i>
+                        <span>${lineTag}${d.text}</span>
+                    </div>`;
+                }).join('');
+            } catch(e) {}
         }
         // ─── Zugnummernsuche ───────────────────────────────────────────────────────────
         const TRANSITOUS_HUBS = [
@@ -1247,7 +1213,7 @@
         async function loadTripDetails(idOrNumber, date) {
             const results = $('trip-search-results');
             const container = $('trip-itinerary-container');
-            const itinerary = $('trip-itinerary-search');
+            const itinerary = $('trip-itinerary');
             
             results.innerHTML = `<div class="flex items-center gap-3 py-4"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Fahrtverlauf...</div>`;
             container.classList.remove('hidden');
@@ -1334,7 +1300,7 @@
         }
 
         function renderTripItinerary(stopovers, tripRemarks = []) {
-            const container = $('trip-itinerary-search');
+            const container = $('trip-itinerary');
             container.innerHTML = '';
             
             const now = Date.now();
