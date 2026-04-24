@@ -617,14 +617,20 @@ function renderList(data) {
         const dStr = new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
         const delayColor = (j.delay || 0) >= 5 ? 'text-red-500' : (j.delay || 0) >= 1 ? 'text-yellow-500' : 'text-green-500';
 
-        const depTime     = j.depReal || j.time || '--:--';
-        const arrTime     = j.arrReal || '--:--';
-        const depManual   = j.depManual;
-        const arrManual   = j.arrManual;
-        const depTooltip  = depManual ? 'title="Zeit manuell überschrieben."' : '';
-        const arrTooltip  = arrManual ? 'title="Zeit manuell überschrieben."' : '';
-        const depStyle    = depManual ? 'border-b border-dashed border-orange-500 cursor-help' : '';
-        const arrStyle    = arrManual ? 'border-b border-dashed border-orange-500 cursor-help' : '';
+        const depReal    = j.depReal || null;
+        const depPlanned = j.time    || null;
+        const arrReal    = j.arrReal || null;
+        const arrPlanned = j.arrPlanned || null;
+        const isDepLate  = depReal && depPlanned && depReal !== depPlanned;
+        const isArrLate  = arrReal && arrPlanned && arrReal !== arrPlanned;
+
+        const depHtml = depReal
+            ? (isDepLate ? `<span class="line-through text-zinc-600 mr-0.5">${depPlanned}</span><span class="text-red-400">${depReal}</span>` : `<span>${depReal}</span>`)
+            : `<span>${depPlanned || '--:--'}</span>`;
+
+        const arrHtml = arrReal
+            ? (isArrLate ? `<span class="line-through text-zinc-600 mr-0.5">${arrPlanned}</span><span class="text-red-400">${arrReal}</span>` : `<span>${arrReal}</span>`)
+            : (arrPlanned ? `<span>${arrPlanned}</span>` : '');
 
         div.innerHTML = `
             <div class="flex items-center justify-between gap-4">
@@ -638,18 +644,16 @@ function renderList(data) {
                             ${j.km ? `<span class="text-[10px] text-zinc-600 font-normal">${j.km} km</span>` : ''}
                         </div>
                         <div class="text-xs text-zinc-400">${j.from} <i class="fas fa-arrow-right mx-1 text-[8px] text-zinc-700"></i> ${j.to}</div>
-                        <div class="text-[10px] text-zinc-500 mt-0.5 flex items-center gap-1.5">
+                        <div class="text-[10px] text-zinc-500 mt-0.5 mono flex items-center gap-1">
                             <span>${dStr}</span>
                             <span class="text-zinc-700">·</span>
-                            <span ${depTooltip} class="mono ${depStyle}">ab ${depTime}</span>
-                            ${arrTime !== '--:--' ? `<span class="text-zinc-700">→</span><span ${arrTooltip} class="mono ${arrStyle}">an ${arrTime}</span>` : ''}
+                            <span>ab </span>${depHtml}
+                            ${arrHtml ? `<span class="text-zinc-700 mx-0.5">→</span><span>an </span>${arrHtml}` : ''}
                         </div>
                     </div>
                 </div>
-                <div class="flex items-center gap-4">
-                    <div class="text-right">
-                        <div class="text-sm font-black mono ${delayColor}">${(j.delay || 0) > 0 ? '+' : ''}${j.delay || 0}'</div>
-                    </div>
+                <div class="flex items-center gap-3">
+                    <div class="text-sm font-black mono ${delayColor}">${(j.delay || 0) > 0 ? '+' : ''}${j.delay || 0}'</div>
                     <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onclick="openTripDetails('${j.id}')" class="p-2 text-zinc-500 hover:text-white" title="Details"><i class="fas fa-route"></i></button>
                         <button onclick="openEdit('${j.id}')" class="p-2 text-zinc-500 hover:text-white" title="Bearbeiten"><i class="fas fa-pencil-alt"></i></button>
@@ -768,20 +772,81 @@ async function saveEdit() {
 }
 
 // ─── Trip Details ──────────────────────────────────────────────────────────────
+let _tdmMap = null;
+
 function openTripDetails(id) {
-    const journey = allJourneys.find(j => j.id === id);
-    if (!journey) return;
-    
-    let details = `Fahrt: ${journey.line}\n`;
-    details += `Von: ${journey.from}\n`;
-    details += `Nach: ${journey.to}\n`;
-    details += `Datum: ${journey.date}\n`;
-    details += `Zeit: ${journey.time || '--:--'}\n`;
-    details += `Verspätung: ${journey.delay || 0}'\n`;
-    if (journey.km) details += `Distanz: ${journey.km} km\n`;
-    if (journey.note) details += `Bemerkung: ${journey.note}`;
-    
-    alert(details);
+    const j = allJourneys.find(x => x.id === id);
+    if (!j) return;
+
+    // Felder füllen
+    document.getElementById('tdm-line').textContent  = j.line || '—';
+    document.getElementById('tdm-route').textContent = `${j.from || '—'} → ${j.to || '—'}`;
+    document.getElementById('tdm-date').textContent  = j.date ? new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
+    document.getElementById('tdm-km').textContent    = j.km ? `${j.km} km` : '—';
+
+    const depTime = j.depReal || j.time || '--:--';
+    const arrTime = j.arrReal || '--:--';
+    document.getElementById('tdm-time').textContent = depTime;
+    document.getElementById('tdm-arr').textContent  = arrTime;
+
+    const delay = j.delay || 0;
+    const delayEl = document.getElementById('tdm-delay');
+    delayEl.textContent = (delay > 0 ? '+' : '') + delay + "'";
+    delayEl.className = `text-lg font-black mono ${delay >= 5 ? 'text-red-500' : delay >= 1 ? 'text-yellow-500' : 'text-green-500'}`;
+
+    const noteEl = document.getElementById('tdm-note');
+    if (j.note) { noteEl.textContent = j.note; noteEl.classList.remove('hidden'); }
+    else noteEl.classList.add('hidden');
+
+    // Modal öffnen
+    const modal = document.getElementById('trip-detail-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    // Karte initialisieren
+    setTimeout(() => {
+        const mapEl = document.getElementById('tdm-map');
+        if (!_tdmMap) {
+            _tdmMap = L.map(mapEl, { zoomControl: true });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap', maxZoom: 18
+            }).addTo(_tdmMap);
+        } else {
+            _tdmMap.eachLayer(l => { if (l instanceof L.Marker || l instanceof L.CircleMarker) _tdmMap.removeLayer(l); });
+        }
+
+        const bounds = [];
+        const greenIcon = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;background:#22c55e;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
+        const redIcon   = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;background:#ef4444;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
+
+        if (j.fromCoords) {
+            const ll = Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0], j.fromCoords[1]];
+            L.marker(ll, { icon: greenIcon }).addTo(_tdmMap).bindPopup(`<b>Einstieg</b><br>${j.from}`);
+            bounds.push(ll);
+        }
+        if (j.toCoords) {
+            const ll = Array.isArray(j.toCoords) ? j.toCoords : [j.toCoords[0], j.toCoords[1]];
+            L.marker(ll, { icon: redIcon }).addTo(_tdmMap).bindPopup(`<b>Ausstieg</b><br>${j.to}`);
+            bounds.push(ll);
+        }
+        if (j.fromCoords && j.toCoords) {
+            const from = Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0], j.fromCoords[1]];
+            const to   = Array.isArray(j.toCoords)   ? j.toCoords   : [j.toCoords[0],   j.toCoords[1]];
+            L.polyline([from, to], { color: '#ef4444', weight: 3, opacity: 0.6, dashArray: '6,4' }).addTo(_tdmMap);
+        }
+
+        if (bounds.length === 2) _tdmMap.fitBounds(bounds, { padding: [40, 40] });
+        else if (bounds.length === 1) _tdmMap.setView(bounds[0], 13);
+        else { document.getElementById('tdm-map').innerHTML = '<div class="flex items-center justify-center h-full text-zinc-600 text-sm">Keine Koordinaten – Geocoding in der Kartenansicht starten</div>'; }
+
+        _tdmMap.invalidateSize();
+    }, 150);
+}
+
+function closeTripDetailModal() {
+    const modal = document.getElementById('trip-detail-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
 }
 
 // ─── Sync Modal ────────────────────────────────────────────────────────────────
@@ -1047,6 +1112,22 @@ async function exportData() {
     URL.revokeObjectURL(url);
 }
 
+async function clearAllData() {
+    if (!confirm('Möchtest du wirklich ALLE gespeicherten Fahrten unwiderruflich löschen?')) return;
+    const db = await openDB();
+    const tx = db.transaction(STORE, 'readwrite');
+    const os = tx.objectStore(STORE);
+    await new Promise((res, rej) => {
+        const req = os.clear();
+        req.onsuccess = () => res();
+        req.onerror = () => rej(req.error);
+    });
+    allJourneys = [];
+    buildYearFilter();
+    updateAll();
+    alert('Alle Daten wurden gelöscht.');
+}
+
 async function importData(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -1069,21 +1150,42 @@ async function importData(e) {
         const tx = db.transaction(STORE, 'readwrite');
         const os = tx.objectStore(STORE);
 
-        // Duplikat-Check: nur auf exakter ID-Basis, keine Zeitfenster-Heuristik
-        const existingIds = new Set(allJourneys.map(x => x.id));
+        // Wir tracken IDs in diesem Import-Lauf um interne Duplikate zu vermeiden
         const importedIdsInSession = new Set();
 
         for (const j of data) {
             if (j.id && j.date) {
-                if (importedIdsInSession.has(j.id) || existingIds.has(j.id)) {
+                if (importedIdsInSession.has(j.id)) {
                     skipped++;
                     continue;
                 }
-                os.put(j);
-                allJourneys.push(j);
-                existingIds.add(j.id);
-                importedIdsInSession.add(j.id);
-                count++;
+
+                // Checke ob bereits in allJourneys (entweder aus DB oder bereits in diesem Import-Lauf hinzugefügt)
+                const isDuplicate = allJourneys.some(x => {
+                    if (x.id === j.id) return true;
+                    if (x.date !== j.date) return false;
+                    if (norm(x.line) !== norm(j.line)) return false;
+                    
+                    if (x.time && j.time) {
+                        try {
+                            const t1 = toMin(x.time);
+                            const t2 = toMin(j.time);
+                            const diff = Math.abs(t1 - t2);
+                            // Wenn Linie, Datum und Zeit (±15 Min) gleich sind -> Duplikat
+                            if (diff <= 15) return true;
+                        } catch(e) {}
+                    }
+                    return false;
+                });
+                
+                if (!isDuplicate) {
+                    os.put(j);
+                    allJourneys.push(j);
+                    importedIdsInSession.add(j.id);
+                    count++;
+                } else {
+                    skipped++;
+                }
             }
         }
 
@@ -1372,5 +1474,51 @@ async function saveCheckin() {
 
 init();
 </script>
+<!-- Trip Detail Modal -->
+<div id="trip-detail-modal" class="fixed inset-0 z-[1100] bg-black/80 backdrop-blur hidden items-center justify-center p-4">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950 z-10">
+            <div>
+                <div class="font-black text-white" id="tdm-line">—</div>
+                <div class="text-xs text-zinc-500" id="tdm-route">—</div>
+            </div>
+            <button onclick="closeTripDetailModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="px-5 py-4 space-y-4">
+            <!-- Stats Row -->
+            <div class="grid grid-cols-3 gap-3">
+                <div class="bg-zinc-900 rounded-xl p-3 text-center">
+                    <div class="text-lg font-black mono text-white" id="tdm-time">--:--</div>
+                    <div class="text-[10px] text-zinc-500 uppercase">Abfahrt</div>
+                </div>
+                <div class="bg-zinc-900 rounded-xl p-3 text-center">
+                    <div class="text-lg font-black mono text-white" id="tdm-arr">--:--</div>
+                    <div class="text-[10px] text-zinc-500 uppercase">Ankunft</div>
+                </div>
+                <div class="bg-zinc-900 rounded-xl p-3 text-center">
+                    <div class="text-lg font-black mono" id="tdm-delay">+0'</div>
+                    <div class="text-[10px] text-zinc-500 uppercase">Verspätung</div>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-zinc-900 rounded-xl p-3 text-center">
+                    <div class="text-base font-black text-white" id="tdm-km">—</div>
+                    <div class="text-[10px] text-zinc-500 uppercase">km</div>
+                </div>
+                <div class="bg-zinc-900 rounded-xl p-3 text-center">
+                    <div class="text-base font-black text-white" id="tdm-date">—</div>
+                    <div class="text-[10px] text-zinc-500 uppercase">Datum</div>
+                </div>
+            </div>
+            <!-- Map -->
+            <div id="tdm-map" style="height:260px;border-radius:12px;overflow:hidden;"></div>
+            <!-- Note -->
+            <div id="tdm-note" class="hidden text-xs text-zinc-400 italic bg-zinc-900 p-3 rounded-xl border border-zinc-800"></div>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>
