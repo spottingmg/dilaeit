@@ -142,7 +142,6 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
         <button onclick="showTab('list')"    id="tab-list"    class="stat-tab"><i class="fas fa-list mr-1"></i>Fahrten</button>
         <button onclick="showTab('map')"     id="tab-map"     class="stat-tab"><i class="fas fa-map mr-1"></i>Karte</button>
         <button onclick="showTab('delay')"   id="tab-delay"   class="stat-tab"><i class="fas fa-clock mr-1"></i>Verspätung</button>
-        <button onclick="showTab('archive')" id="tab-archive" class="stat-tab"><i class="fas fa-database mr-1"></i>Archiv</button>
     </div>
 
     <!-- PANEL: Charts -->
@@ -223,23 +222,6 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
         <div class="scard">
             <div class="text-xs text-zinc-500 mono mb-3">VERSPÄTUNGSVERLAUF</div>
             <div class="chart-wrap"><canvas id="chart-delay"></canvas></div>
-        </div>
-    </div>
-
-    <!-- Archiv Panel -->
-    <div id="panel-archive" class="hidden space-y-4">
-        <div class="scard">
-            <div class="flex items-center justify-between mb-4">
-                <div class="text-xs text-zinc-500 mono">ECHTZEITARCHIV</div>
-                <div class="flex items-center gap-2">
-                    <button onclick="archivePrevDay()" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm transition-colors">‹ −1d</button>
-                    <span id="archive-date-label" class="text-sm font-bold mono text-white w-28 text-center"></span>
-                    <button onclick="archiveNextDay()" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm transition-colors">+1d ›</button>
-                </div>
-            </div>
-            <div id="archive-list-items" class="space-y-2 text-sm">
-                <div class="text-zinc-600 text-center py-8">Lade Archiv…</div>
-            </div>
         </div>
     </div>
 
@@ -478,9 +460,8 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
 <script>
 // ─── DB & State ──────────────────────────────────────────────────────────────
 const DB_NAME = 'dilaeit_stats';
-const STORE    = 'journeys';
-const SNAPSTORE = 'tripSnapshots';
-const DB_VER   = 3;
+const STORE   = 'journeys';
+const DB_VER  = 2;
 
 let allJourneys = [];
 let currentYear = 'all';
@@ -495,10 +476,6 @@ async function openDB() {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(STORE)) {
                 db.createObjectStore(STORE, { keyPath: 'id' });
-            }
-            if (!db.objectStoreNames.contains(SNAPSTORE)) {
-                const ss = db.createObjectStore(SNAPSTORE, { keyPath: 'key' });
-                ss.createIndex('date', 'date', { unique: false });
             }
         };
         req.onsuccess = () => res(req.result);
@@ -521,38 +498,6 @@ async function deleteJourney(id) {
     return new Promise((res, rej) => {
         const tx = db.transaction(STORE, 'readwrite');
         tx.objectStore(STORE).delete(id);
-        tx.oncomplete = () => res();
-        tx.onerror = () => rej(tx.error);
-    });
-}
-
-// ─── Trip Snapshots (Echtzeitarchiv) ─────────────────────────────────────────
-async function saveSnapshot(snap) {
-    const db = await openDB();
-    return new Promise((res, rej) => {
-        const tx = db.transaction(SNAPSTORE, 'readwrite');
-        tx.objectStore(SNAPSTORE).put(snap);
-        tx.oncomplete = () => res();
-        tx.onerror = () => rej(tx.error);
-    });
-}
-
-async function getSnapshotsByDate(dateStr) {
-    const db = await openDB();
-    return new Promise((res, rej) => {
-        const tx  = db.transaction(SNAPSTORE, 'readonly');
-        const idx = tx.objectStore(SNAPSTORE).index('date');
-        const req = idx.getAll(dateStr);
-        req.onsuccess = () => res(req.result || []);
-        req.onerror  = () => rej(req.error);
-    });
-}
-
-async function deleteSnapshot(key) {
-    const db = await openDB();
-    return new Promise((res, rej) => {
-        const tx = db.transaction(SNAPSTORE, 'readwrite');
-        tx.objectStore(SNAPSTORE).delete(key);
         tx.oncomplete = () => res();
         tx.onerror = () => rej(tx.error);
     });
@@ -609,146 +554,11 @@ function updateSummary(data) {
 // ─── Tabs & Filters ───────────────────────────────────────────────────────────
 function showTab(t) {
     activeTab = t;
-    ['charts', 'list', 'map', 'delay', 'archive'].forEach(p => {
-        document.getElementById(`panel-${p}`)?.classList.toggle('hidden', p !== t);
-        document.getElementById(`tab-${p}`)?.classList.toggle('active', p === t);
+    ['charts', 'list', 'map', 'delay'].forEach(p => {
+        document.getElementById(`panel-${p}`).classList.toggle('hidden', p !== t);
+        document.getElementById(`tab-${p}`).classList.toggle('active', p === t);
     });
-    if (t === 'map' && statsMap) {
-        setTimeout(() => { statsMap.invalidateSize(); }, 200);
-        setTimeout(() => { statsMap.invalidateSize(); }, 600);
-    }
-    if (t === 'archive') renderArchiveTab();
     updateAll();
-}
-
-// ─── Echtzeitarchiv ───────────────────────────────────────────────────────────
-let archiveDate = new Date().toISOString().slice(0, 10);
-
-function archivePrevDay() {
-    const d = new Date(archiveDate + 'T12:00:00'); d.setDate(d.getDate() - 1);
-    archiveDate = d.toISOString().slice(0, 10); renderArchiveTab();
-}
-function archiveNextDay() {
-    const d = new Date(archiveDate + 'T12:00:00'); d.setDate(d.getDate() + 1);
-    archiveDate = d.toISOString().slice(0, 10); renderArchiveTab();
-}
-
-async function renderArchiveTab() {
-    const label = document.getElementById('archive-date-label');
-    const list  = document.getElementById('archive-list-items');
-    if (!label || !list) return;
-    label.textContent = new Date(archiveDate + 'T12:00:00').toLocaleDateString('de-DE', { weekday:'short', day:'2-digit', month:'2-digit' });
-    list.innerHTML = '<div class="text-zinc-600 text-center py-8"><i class="fas fa-circle-notch fa-spin mr-2"></i></div>';
-    try {
-        const snaps = await getSnapshotsByDate(archiveDate);
-        if (!snaps.length) {
-            list.innerHTML = '<div class="text-zinc-600 text-center py-8 text-sm">Keine Fahrtverläufe für diesen Tag.<br><span class="text-xs">Werden automatisch gespeichert wenn du sie in dilaeit öffnest.</span></div>';
-            return;
-        }
-        snaps.sort((a, b) => (a.stopovers?.[0]?.plannedDeparture || '').localeCompare(b.stopovers?.[0]?.plannedDeparture || ''));
-        list.innerHTML = '';
-        snaps.forEach(snap => {
-            const first = snap.stopovers?.[0];
-            const last  = snap.stopovers?.[snap.stopovers.length - 1];
-            const fmt   = t => t ? new Date(t).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : '--:--';
-            const delays = snap.stopovers.map(s => s.arrivalDelaySec ?? s.departureDelaySec).filter(d => d != null);
-            const avgDelay = delays.length ? Math.round(delays.reduce((a,b)=>a+b,0)/delays.length/60) : null;
-            const dc = avgDelay === null ? 'text-zinc-500' : avgDelay >= 5 ? 'text-red-400' : avgDelay >= 1 ? 'text-yellow-400' : 'text-green-400';
-            const el = document.createElement('div');
-            el.className = 'journey-card cursor-pointer hover:border-red-600/50 transition-colors';
-            el.innerHTML = `
-                <div class="flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-3">
-                        <div class="text-xs font-black bg-red-600 text-white px-2 py-1 rounded-lg italic shrink-0">${snap.line}</div>
-                        <div>
-                            <div class="text-sm font-semibold text-white truncate max-w-[200px]">${snap.direction || ''}</div>
-                            <div class="text-[10px] text-zinc-500 mono">${fmt(first?.plannedDeparture)} → ${fmt(last?.plannedArrival)} · ${snap.stopovers?.length||0} Halte</div>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        ${avgDelay!==null ? `<span class="font-black mono text-sm ${dc}">${avgDelay>0?'+':''}${avgDelay}'</span>` : ''}
-                        <button onclick="event.stopPropagation();deleteSnapshot('${snap.key}').then(()=>renderArchiveTab())" class="p-1 text-zinc-600 hover:text-red-500"><i class="fas fa-trash-alt text-xs"></i></button>
-                    </div>
-                </div>`;
-            el.onclick = () => openArchiveSnap(snap);
-            list.appendChild(el);
-        });
-    } catch(e) { list.innerHTML = `<div class="text-red-500 text-center py-4">${e.message}</div>`; }
-}
-
-function openArchiveSnap(snap) {
-    const modal = document.getElementById('archive-snap-modal');
-    const title = document.getElementById('asm-title');
-    const sub   = document.getElementById('asm-sub');
-    const list  = document.getElementById('asm-list');
-    if (!modal) return;
-
-    title.textContent = snap.line || '—';
-    sub.textContent   = `${snap.direction || '—'} · ${new Date(snap.date+'T12:00:00').toLocaleDateString('de-DE')} · ${snap.source || ''}`;
-
-    const fmt = t => t ? new Date(t).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : null;
-
-    list.innerHTML = (snap.stopovers || []).map((s, i) => {
-        const pA = fmt(s.plannedArrival);
-        const pD = fmt(s.plannedDeparture);
-        const aA = fmt(s.arrival);
-        const aD = fmt(s.departure);
-        const delaySec = s.arrivalDelaySec ?? s.departureDelaySec;
-        const delayMin = delaySec != null ? Math.round(delaySec / 60) : null;
-        const dc = delayMin === null ? '' : delayMin >= 5 ? 'text-red-400' : delayMin >= 1 ? 'text-yellow-400' : 'text-green-400';
-        const isFirst = i === 0, isLast = i === (snap.stopovers.length - 1);
-        const dotColor = s.cancelled ? '#6b7280' : s.additional ? '#22c55e' : (isFirst || isLast) ? '#ef4444' : '#374151';
-        const nameClass = s.cancelled ? 'line-through text-zinc-500' : s.additional ? 'text-green-400' : 'text-white';
-
-        const hasRT = aA && pA && aA !== pA || aD && pD && aD !== pD;
-        const depHtml = pD
-            ? (hasRT && aD && aD !== pD
-                ? `<span class="line-through text-zinc-600 mr-0.5">${pD}</span><span class="${dc}">${aD}</span>`
-                : `<span>${aD || pD}</span>`)
-            : '';
-        const arrHtml = pA
-            ? (hasRT && aA && aA !== pA
-                ? `<span class="line-through text-zinc-600 mr-0.5">${pA}</span><span class="${dc}">${aA}</span>`
-                : `<span>${aA || pA}</span>`)
-            : '';
-
-        const delayBadge = delayMin !== null && hasRT
-            ? `<span class="text-[10px] font-bold mono ${dc} ml-1">${delayMin > 0 ? '+' : ''}${delayMin}'</span>`
-            : '';
-
-        const platform = s.platform || s.plannedPlatform;
-        const platChanged = s.platform && s.plannedPlatform && s.platform !== s.plannedPlatform;
-        const platHtml = platform
-            ? `<span class="text-[10px] mono ${platChanged ? 'text-orange-400 font-bold' : 'text-zinc-600'} ml-1">${platChanged ? `${s.plannedPlatform}→${s.platform}` : platform}</span>`
-            : '';
-
-        const cancelTag = s.cancelled ? `<span class="text-[9px] text-red-500 font-bold ml-1 uppercase">Entfällt</span>` : '';
-
-        return `<div class="flex items-stretch gap-0 py-1 min-h-[2.2rem] ${s.cancelled ? 'opacity-50' : ''}">
-            <!-- Zeitblock -->
-            <div class="w-20 shrink-0 flex flex-col items-end justify-center pr-2 text-[10px] mono leading-tight">
-                ${arrHtml ? `<div class="text-zinc-500"><span class="text-[8px] mr-0.5">AN</span>${arrHtml}</div>` : ''}
-                ${depHtml ? `<div><span class="text-[8px] mr-0.5">AB</span>${depHtml}</div>` : ''}
-            </div>
-            <!-- Linie -->
-            <div class="flex flex-col items-center w-4 shrink-0">
-                <div class="w-px flex-1 ${i === 0 ? 'bg-transparent' : 'bg-zinc-700'}"></div>
-                <div style="width:10px;height:10px;border-radius:50%;background:${dotColor};border:2px solid #18181b;flex-shrink:0"></div>
-                <div class="w-px flex-1 ${isLast ? 'bg-transparent' : 'bg-zinc-700'}"></div>
-            </div>
-            <!-- Name + Info -->
-            <div class="flex-1 flex flex-col justify-center pl-2">
-                <div class="flex items-center gap-1 flex-wrap">
-                    <span class="text-sm font-semibold ${nameClass}">${s.name}</span>
-                    ${cancelTag}${delayBadge}${platHtml}
-                </div>
-                ${(s.remarks || []).map(r => `<div class="text-[9px] text-zinc-500 mt-0.5">${r.text || ''}</div>`).join('')}
-            </div>
-        </div>`;
-    }).join('');
-
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
 }
 
 function setYear(y) {
@@ -806,7 +616,33 @@ function renderList(data) {
         div.className = 'journey-card relative group';
         const dStr = new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
         const delayColor = (j.delay || 0) >= 5 ? 'text-red-500' : (j.delay || 0) >= 1 ? 'text-yellow-500' : 'text-green-500';
-        
+
+        // Zeiten: Soll immer anzeigen, Echtzeit daneben wenn vorhanden und verschieden
+        const depPlanned = j.time       || null;
+        const depReal    = j.depReal    || null;
+        const arrPlanned = j.arrPlanned || null;
+        const arrReal    = j.arrReal    || null;
+        const isDepLate  = depReal && depPlanned && depReal !== depPlanned;
+        const isArrLate  = arrReal && arrPlanned && arrReal !== arrPlanned;
+
+        // Manuelle Überschreibung: gestrichelter Orange-Unterstrich + Tooltip
+        const depMA = j.depManual ? ' style="border-bottom:1px dashed #f97316;cursor:help" title="Zeit manuell überschrieben."' : '';
+        const arrMA = j.arrManual ? ' style="border-bottom:1px dashed #f97316;cursor:help" title="Zeit manuell überschrieben."' : '';
+
+        // Abfahrt: Sollzeit immer, Echtzeit daneben wenn verschieden
+        const depHtml = depPlanned
+            ? (isDepLate
+                ? `<span class="line-through text-zinc-600">${depPlanned}</span> <span class="text-red-400"${depMA}>${depReal}</span>`
+                : `<span${depMA}>${depPlanned}</span>${depReal && depReal !== depPlanned ? ` <span class="text-red-400">${depReal}</span>` : ''}`)
+            : '<span class="text-zinc-600">--:--</span>';
+
+        // Ankunft: Sollzeit immer (wenn vorhanden), Echtzeit daneben
+        const arrHtml = (arrPlanned || arrReal)
+            ? (isArrLate
+                ? `<span class="line-through text-zinc-600">${arrPlanned}</span> <span class="text-red-400"${arrMA}>${arrReal}</span>`
+                : `<span${arrMA}>${arrPlanned || arrReal}</span>${arrReal && arrPlanned && arrReal !== arrPlanned ? '' : (arrReal && !arrPlanned ? ` <span class="text-zinc-500">${arrReal}</span>` : '')}`)
+            : null;
+
         div.innerHTML = `
             <div class="flex items-center justify-between gap-4">
                 <div class="flex items-center gap-3">
@@ -819,14 +655,15 @@ function renderList(data) {
                             ${j.km ? `<span class="text-[10px] text-zinc-600 font-normal">${j.km} km</span>` : ''}
                         </div>
                         <div class="text-xs text-zinc-400">${j.from} <i class="fas fa-arrow-right mx-1 text-[8px] text-zinc-700"></i> ${j.to}</div>
-                        <div class="text-[10px] text-zinc-500 mt-0.5">${dStr} · ${j.time || '--:--'}</div>
+                        <div class="text-[10px] text-zinc-500 mt-0.5 mono flex items-center gap-1 flex-wrap">
+                            <span>${dStr} ·</span>
+                            <span>ab ${depHtml}</span>
+                            ${arrHtml ? `<span class="text-zinc-700">→</span><span>an ${arrHtml}</span>` : ''}
+                        </div>
                     </div>
                 </div>
-                <div class="flex items-center gap-4">
-                    <div class="text-right">
-                        <div class="text-sm font-black mono ${delayColor}">${(j.delay || 0) > 0 ? '+' : ''}${j.delay || 0}'</div>
-                        <div class="text-[10px] mono text-zinc-600">${j.arrReal || '--:--'}</div>
-                    </div>
+                <div class="flex items-center gap-3">
+                    <div class="text-sm font-black mono ${delayColor}">${(j.delay || 0) > 0 ? '+' : ''}${j.delay || 0}'</div>
                     <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onclick="openTripDetails('${j.id}')" class="p-2 text-zinc-500 hover:text-white" title="Details"><i class="fas fa-route"></i></button>
                         <button onclick="openEdit('${j.id}')" class="p-2 text-zinc-500 hover:text-white" title="Bearbeiten"><i class="fas fa-pencil-alt"></i></button>
@@ -945,95 +782,20 @@ async function saveEdit() {
 }
 
 // ─── Trip Details ──────────────────────────────────────────────────────────────
-let _tdmMap = null;
-
 function openTripDetails(id) {
-    const j = allJourneys.find(x => x.id === id);
-    if (!j) return;
-
-    document.getElementById('tdm-line').textContent  = j.line || '—';
-    document.getElementById('tdm-route').textContent = `${j.from||'—'} → ${j.to||'—'}`;
-    document.getElementById('tdm-date').textContent  = j.date ? new Date(j.date+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
-    document.getElementById('tdm-km').textContent    = j.km ? `${j.km} km` : '—';
-    document.getElementById('tdm-time').textContent  = j.depReal || j.time || '--:--';
-    document.getElementById('tdm-arr').textContent   = j.arrReal || '--:--';
-
-    const delay = j.delay || 0;
-    const de = document.getElementById('tdm-delay');
-    de.textContent = (delay > 0 ? '+' : '') + delay + "'";
-    de.className = `text-lg font-black mono ${delay>=5?'text-red-500':delay>=1?'text-yellow-500':'text-green-500'}`;
-
-    const noteEl = document.getElementById('tdm-note');
-    if (j.note) { noteEl.textContent = j.note; noteEl.classList.remove('hidden'); }
-    else noteEl.classList.add('hidden');
-
-    const modal = document.getElementById('trip-detail-modal');
-    modal.classList.remove('hidden'); modal.classList.add('flex');
-
-    setTimeout(async () => {
-        const mapEl = document.getElementById('tdm-map');
-        if (!_tdmMap) {
-            _tdmMap = L.map(mapEl, { zoomControl: true });
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:18 }).addTo(_tdmMap);
-        } else {
-            _tdmMap.eachLayer(l => { if (!(l instanceof L.TileLayer)) _tdmMap.removeLayer(l); });
-        }
-
-        const greenIcon = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#22c55e;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
-        const redIcon   = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#ef4444;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
-        const bounds = [];
-        let routeDrawn = false;
-
-        // Detaillierten Fahrtverlauf via tripId laden
-        if (j.tripId) {
-            try {
-                const isTransitous = j.tripId.startsWith('de-DELFI') || j.tripId.startsWith('de:');
-                const url = isTransitous
-                    ? `/api/train-details/${encodeURIComponent(j.tripId)}`
-                    : `/api/trips/${encodeURIComponent(j.tripId)}`;
-                const r = await fetch(url);
-                if (r.ok) {
-                    const data = await r.json();
-                    const pts = (data.stopovers || [])
-                        .map(s => s.stop?.location ? [s.stop.location.latitude, s.stop.location.longitude] : null)
-                        .filter(Boolean);
-                    if (pts.length > 1) {
-                        L.polyline(pts, { color:'#ef4444', weight:3, opacity:0.75 }).addTo(_tdmMap);
-                        data.stopovers.forEach((s, i) => {
-                            if (!s.stop?.location) return;
-                            const ll = [s.stop.location.latitude, s.stop.location.longitude];
-                            const isFirst = i === 0, isLast = i === data.stopovers.length - 1;
-                            const size = (isFirst || isLast) ? 14 : 8;
-                            const bg = isFirst ? '#22c55e' : isLast ? '#ef4444' : '#6b7280';
-                            const icon = L.divIcon({ className:'', html:`<div style="width:${size}px;height:${size}px;background:${bg};border-radius:50%;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`, iconAnchor:[size/2,size/2] });
-                            L.marker(ll, { icon }).addTo(_tdmMap).bindPopup(`<b>${s.stop.name}</b>`);
-                            bounds.push(ll);
-                        });
-                        routeDrawn = true;
-                    }
-                }
-            } catch(e) {}
-        }
-
-        const fromLL = j.fromCoords ? (Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0], j.fromCoords[1]]) : null;
-        const toLL   = j.toCoords   ? (Array.isArray(j.toCoords)   ? j.toCoords   : [j.toCoords[0],   j.toCoords[1]])   : null;
-
-        if (fromLL) { L.marker(fromLL, { icon: greenIcon }).addTo(_tdmMap).bindPopup(`<b>Einstieg</b><br>${j.from}`); bounds.push(fromLL); }
-        if (toLL)   { L.marker(toLL,   { icon: redIcon   }).addTo(_tdmMap).bindPopup(`<b>Ausstieg</b><br>${j.to}`);   bounds.push(toLL);   }
-
-        if (!routeDrawn && fromLL && toLL) {
-            L.polyline([fromLL, toLL], { color:'#ef4444', weight:2, opacity:0.5, dashArray:'6,4' }).addTo(_tdmMap);
-        }
-
-        if (bounds.length) _tdmMap.fitBounds(bounds, { padding:[40,40] });
-        else mapEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#4b5563;font-size:14px">Keine Koordinaten verfügbar</div>';
-        _tdmMap.invalidateSize();
-    }, 150);
-}
-
-function closeTripDetailModal() {
-    const modal = document.getElementById('trip-detail-modal');
-    modal.classList.add('hidden'); modal.classList.remove('flex');
+    const journey = allJourneys.find(j => j.id === id);
+    if (!journey) return;
+    
+    let details = `Fahrt: ${journey.line}\n`;
+    details += `Von: ${journey.from}\n`;
+    details += `Nach: ${journey.to}\n`;
+    details += `Datum: ${journey.date}\n`;
+    details += `Zeit: ${journey.time || '--:--'}\n`;
+    details += `Verspätung: ${journey.delay || 0}'\n`;
+    if (journey.km) details += `Distanz: ${journey.km} km\n`;
+    if (journey.note) details += `Bemerkung: ${journey.note}`;
+    
+    alert(details);
 }
 
 // ─── Sync Modal ────────────────────────────────────────────────────────────────
@@ -1661,65 +1423,5 @@ async function saveCheckin() {
 
 init();
 </script>
-<!-- Trip Detail Modal -->
-<div id="trip-detail-modal" class="fixed inset-0 z-[1100] bg-black/80 backdrop-blur hidden items-center justify-center p-4">
-    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950 z-10">
-            <div>
-                <div class="font-black text-white text-base" id="tdm-line">—</div>
-                <div class="text-xs text-zinc-500" id="tdm-route">—</div>
-            </div>
-            <button onclick="closeTripDetailModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <div class="px-5 py-4 space-y-4">
-            <div class="grid grid-cols-3 gap-3">
-                <div class="bg-zinc-900 rounded-xl p-3 text-center">
-                    <div class="text-lg font-black mono text-white" id="tdm-time">--:--</div>
-                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Abfahrt</div>
-                </div>
-                <div class="bg-zinc-900 rounded-xl p-3 text-center">
-                    <div class="text-lg font-black mono text-white" id="tdm-arr">--:--</div>
-                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Ankunft</div>
-                </div>
-                <div class="bg-zinc-900 rounded-xl p-3 text-center">
-                    <div class="text-lg font-black mono" id="tdm-delay">+0'</div>
-                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Verspätung</div>
-                </div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div class="bg-zinc-900 rounded-xl p-3 text-center">
-                    <div class="text-base font-black text-white" id="tdm-km">—</div>
-                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Distanz</div>
-                </div>
-                <div class="bg-zinc-900 rounded-xl p-3 text-center">
-                    <div class="text-sm font-black text-white" id="tdm-date">—</div>
-                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Datum</div>
-                </div>
-            </div>
-            <div id="tdm-map" style="height:280px;border-radius:12px;overflow:hidden;background:#111;"></div>
-            <div id="tdm-note" class="hidden text-xs text-zinc-400 italic bg-zinc-900 p-3 rounded-xl border border-zinc-800"></div>
-        </div>
-    </div>
-</div>
-
-<!-- Archive Snap Itinerary Modal -->
-<div id="archive-snap-modal" class="fixed inset-0 z-[1200] bg-black/85 backdrop-blur hidden items-center justify-center p-4">
-    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 shrink-0">
-            <div>
-                <div class="font-black text-white text-base italic" id="asm-title">—</div>
-                <div class="text-xs text-zinc-500 mt-0.5" id="asm-sub">—</div>
-            </div>
-            <button onclick="document.getElementById('archive-snap-modal').classList.add('hidden');document.getElementById('archive-snap-modal').classList.remove('flex');"
-                class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <div id="asm-list" class="overflow-y-auto px-4 py-3 space-y-0"></div>
-    </div>
-</div>
-
 </body>
 </html>
