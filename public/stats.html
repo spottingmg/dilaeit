@@ -617,20 +617,25 @@ function renderList(data) {
         const dStr = new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
         const delayColor = (j.delay || 0) >= 5 ? 'text-red-500' : (j.delay || 0) >= 1 ? 'text-yellow-500' : 'text-green-500';
 
-        const depReal    = j.depReal || null;
-        const depPlanned = j.time    || null;
-        const arrReal    = j.arrReal || null;
+        const depReal    = j.depReal    || null;
+        const depPlanned = j.time       || null;
+        const arrReal    = j.arrReal    || null;
         const arrPlanned = j.arrPlanned || null;
         const isDepLate  = depReal && depPlanned && depReal !== depPlanned;
         const isArrLate  = arrReal && arrPlanned && arrReal !== arrPlanned;
 
-        const depHtml = depReal
-            ? (isDepLate ? `<span class="line-through text-zinc-600 mr-0.5">${depPlanned}</span><span class="text-red-400">${depReal}</span>` : `<span>${depReal}</span>`)
-            : `<span>${depPlanned || '--:--'}</span>`;
+        const depManualAttr = j.depManual ? 'title="Zeit manuell überschrieben." class="border-b border-dashed border-orange-500 cursor-help"' : '';
+        const arrManualAttr = j.arrManual ? 'title="Zeit manuell überschrieben." class="border-b border-dashed border-orange-500 cursor-help"' : '';
+
+        const depHtml = isDepLate
+            ? `<span class="line-through text-zinc-600 mr-0.5">${depPlanned}</span><span ${depManualAttr}>${depReal}</span>`
+            : `<span ${depManualAttr}>${depPlanned || '--:--'}</span>`;
 
         const arrHtml = arrReal
-            ? (isArrLate ? `<span class="line-through text-zinc-600 mr-0.5">${arrPlanned}</span><span class="text-red-400">${arrReal}</span>` : `<span>${arrReal}</span>`)
-            : (arrPlanned ? `<span>${arrPlanned}</span>` : '');
+            ? (isArrLate
+                ? `<span class="mx-0.5 text-zinc-700">→</span><span class="line-through text-zinc-600 mr-0.5">${arrPlanned}</span><span ${arrManualAttr}>${arrReal}</span>`
+                : `<span class="mx-0.5 text-zinc-700">→</span><span ${arrManualAttr}>${arrReal}</span>`)
+            : '';
 
         div.innerHTML = `
             <div class="flex items-center justify-between gap-4">
@@ -644,11 +649,9 @@ function renderList(data) {
                             ${j.km ? `<span class="text-[10px] text-zinc-600 font-normal">${j.km} km</span>` : ''}
                         </div>
                         <div class="text-xs text-zinc-400">${j.from} <i class="fas fa-arrow-right mx-1 text-[8px] text-zinc-700"></i> ${j.to}</div>
-                        <div class="text-[10px] text-zinc-500 mt-0.5 mono flex items-center gap-1">
-                            <span>${dStr}</span>
-                            <span class="text-zinc-700">·</span>
-                            <span>ab </span>${depHtml}
-                            ${arrHtml ? `<span class="text-zinc-700 mx-0.5">→</span><span>an </span>${arrHtml}` : ''}
+                        <div class="text-[10px] text-zinc-500 mt-0.5 mono flex items-center gap-0.5 flex-wrap">
+                            <span>${dStr} ·</span>
+                            <span>ab </span>${depHtml}${arrHtml}
                         </div>
                     </div>
                 </div>
@@ -778,7 +781,6 @@ function openTripDetails(id) {
     const j = allJourneys.find(x => x.id === id);
     if (!j) return;
 
-    // Felder füllen
     document.getElementById('tdm-line').textContent  = j.line || '—';
     document.getElementById('tdm-route').textContent = `${j.from || '—'} → ${j.to || '—'}`;
     document.getElementById('tdm-date').textContent  = j.date ? new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
@@ -798,13 +800,11 @@ function openTripDetails(id) {
     if (j.note) { noteEl.textContent = j.note; noteEl.classList.remove('hidden'); }
     else noteEl.classList.add('hidden');
 
-    // Modal öffnen
     const modal = document.getElementById('trip-detail-modal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 
-    // Karte initialisieren
-    setTimeout(() => {
+    setTimeout(async () => {
         const mapEl = document.getElementById('tdm-map');
         if (!_tdmMap) {
             _tdmMap = L.map(mapEl, { zoomControl: true });
@@ -812,32 +812,55 @@ function openTripDetails(id) {
                 attribution: '© OpenStreetMap', maxZoom: 18
             }).addTo(_tdmMap);
         } else {
-            _tdmMap.eachLayer(l => { if (l instanceof L.Marker || l instanceof L.CircleMarker) _tdmMap.removeLayer(l); });
+            _tdmMap.eachLayer(l => { if (!(l instanceof L.TileLayer)) _tdmMap.removeLayer(l); });
         }
 
-        const bounds = [];
         const greenIcon = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;background:#22c55e;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
         const redIcon   = L.divIcon({ className: '', html: '<div style="width:14px;height:14px;background:#ef4444;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
+        const dotIcon   = L.divIcon({ className: '', html: '<div style="width:7px;height:7px;background:#6b7280;border-radius:50%;border:1px solid white"></div>', iconAnchor:[3,3] });
 
-        if (j.fromCoords) {
-            const ll = Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0], j.fromCoords[1]];
-            L.marker(ll, { icon: greenIcon }).addTo(_tdmMap).bindPopup(`<b>Einstieg</b><br>${j.from}`);
-            bounds.push(ll);
-        }
-        if (j.toCoords) {
-            const ll = Array.isArray(j.toCoords) ? j.toCoords : [j.toCoords[0], j.toCoords[1]];
-            L.marker(ll, { icon: redIcon }).addTo(_tdmMap).bindPopup(`<b>Ausstieg</b><br>${j.to}`);
-            bounds.push(ll);
-        }
-        if (j.fromCoords && j.toCoords) {
-            const from = Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0], j.fromCoords[1]];
-            const to   = Array.isArray(j.toCoords)   ? j.toCoords   : [j.toCoords[0],   j.toCoords[1]];
-            L.polyline([from, to], { color: '#ef4444', weight: 3, opacity: 0.6, dashArray: '6,4' }).addTo(_tdmMap);
+        const bounds = [];
+        let routeDrawn = false;
+
+        // Versuche detaillierten Fahrtverlauf via tripId zu laden
+        if (j.tripId) {
+            try {
+                const url = j.tripId.startsWith('de-DELFI') || j.tripId.startsWith('de:')
+                    ? `/api/train-details/${encodeURIComponent(j.tripId)}`
+                    : `/api/trips/${encodeURIComponent(j.tripId)}`;
+                const r = await fetch(url);
+                if (r.ok) {
+                    const data = await r.json();
+                    const pts = (data.stopovers || [])
+                        .map(s => s.stop?.location ? [s.stop.location.latitude, s.stop.location.longitude] : null)
+                        .filter(Boolean);
+                    if (pts.length > 1) {
+                        L.polyline(pts, { color: '#ef4444', weight: 3, opacity: 0.75 }).addTo(_tdmMap);
+                        pts.forEach((p, i) => {
+                            if (i === 0 || i === pts.length - 1) return;
+                            L.marker(p, { icon: dotIcon }).addTo(_tdmMap);
+                            bounds.push(p);
+                        });
+                        routeDrawn = true;
+                    }
+                }
+            } catch(e) {}
         }
 
-        if (bounds.length === 2) _tdmMap.fitBounds(bounds, { padding: [40, 40] });
-        else if (bounds.length === 1) _tdmMap.setView(bounds[0], 13);
-        else { document.getElementById('tdm-map').innerHTML = '<div class="flex items-center justify-center h-full text-zinc-600 text-sm">Keine Koordinaten – Geocoding in der Kartenansicht starten</div>'; }
+        // Ein- und Ausstieg markieren
+        const fromLL = j.fromCoords ? (Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0], j.fromCoords[1]]) : null;
+        const toLL   = j.toCoords   ? (Array.isArray(j.toCoords)   ? j.toCoords   : [j.toCoords[0],   j.toCoords[1]])   : null;
+
+        if (fromLL) { L.marker(fromLL, { icon: greenIcon }).addTo(_tdmMap).bindPopup(`<b>Einstieg</b><br>${j.from}`); bounds.push(fromLL); }
+        if (toLL)   { L.marker(toLL,   { icon: redIcon   }).addTo(_tdmMap).bindPopup(`<b>Ausstieg</b><br>${j.to}`);   bounds.push(toLL);   }
+
+        // Fallback Luftlinie wenn keine Route
+        if (!routeDrawn && fromLL && toLL) {
+            L.polyline([fromLL, toLL], { color: '#ef4444', weight: 2, opacity: 0.5, dashArray: '6,4' }).addTo(_tdmMap);
+        }
+
+        if (bounds.length) _tdmMap.fitBounds(bounds, { padding: [40, 40] });
+        else { mapEl.innerHTML = '<div class="flex items-center justify-center h-full text-zinc-600 text-sm">Keine Koordinaten – Geocoding starten</div>'; }
 
         _tdmMap.invalidateSize();
     }, 150);
@@ -1476,10 +1499,10 @@ init();
 </script>
 <!-- Trip Detail Modal -->
 <div id="trip-detail-modal" class="fixed inset-0 z-[1100] bg-black/80 backdrop-blur hidden items-center justify-center p-4">
-    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
         <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950 z-10">
             <div>
-                <div class="font-black text-white" id="tdm-line">—</div>
+                <div class="font-black text-white text-base" id="tdm-line">—</div>
                 <div class="text-xs text-zinc-500" id="tdm-route">—</div>
             </div>
             <button onclick="closeTripDetailModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
@@ -1487,34 +1510,31 @@ init();
             </button>
         </div>
         <div class="px-5 py-4 space-y-4">
-            <!-- Stats Row -->
             <div class="grid grid-cols-3 gap-3">
                 <div class="bg-zinc-900 rounded-xl p-3 text-center">
                     <div class="text-lg font-black mono text-white" id="tdm-time">--:--</div>
-                    <div class="text-[10px] text-zinc-500 uppercase">Abfahrt</div>
+                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Abfahrt</div>
                 </div>
                 <div class="bg-zinc-900 rounded-xl p-3 text-center">
                     <div class="text-lg font-black mono text-white" id="tdm-arr">--:--</div>
-                    <div class="text-[10px] text-zinc-500 uppercase">Ankunft</div>
+                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Ankunft</div>
                 </div>
                 <div class="bg-zinc-900 rounded-xl p-3 text-center">
                     <div class="text-lg font-black mono" id="tdm-delay">+0'</div>
-                    <div class="text-[10px] text-zinc-500 uppercase">Verspätung</div>
+                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Verspätung</div>
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
                 <div class="bg-zinc-900 rounded-xl p-3 text-center">
                     <div class="text-base font-black text-white" id="tdm-km">—</div>
-                    <div class="text-[10px] text-zinc-500 uppercase">km</div>
+                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Distanz</div>
                 </div>
                 <div class="bg-zinc-900 rounded-xl p-3 text-center">
-                    <div class="text-base font-black text-white" id="tdm-date">—</div>
-                    <div class="text-[10px] text-zinc-500 uppercase">Datum</div>
+                    <div class="text-sm font-black text-white" id="tdm-date">—</div>
+                    <div class="text-[10px] text-zinc-500 uppercase mt-0.5">Datum</div>
                 </div>
             </div>
-            <!-- Map -->
-            <div id="tdm-map" style="height:260px;border-radius:12px;overflow:hidden;"></div>
-            <!-- Note -->
+            <div id="tdm-map" style="height:280px;border-radius:12px;overflow:hidden;background:#111;"></div>
             <div id="tdm-note" class="hidden text-xs text-zinc-400 italic bg-zinc-900 p-3 rounded-xl border border-zinc-800"></div>
         </div>
     </div>
