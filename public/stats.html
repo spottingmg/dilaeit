@@ -188,22 +188,7 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
     <!-- PANEL: Karte -->
     <div id="panel-map" class="hidden">
         <div class="scard">
-            <div class="flex items-center justify-between mb-3">
-                <div class="text-xs text-zinc-500 mono">ALLE STRECKEN</div>
-                <button onclick="geocodeAllJourneys()" id="geocode-btn"
-                    class="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-600 px-3 py-1.5 rounded-lg transition-colors">
-                    <i class="fas fa-map-marker-alt text-[10px]"></i> Koordinaten ermitteln
-                </button>
-            </div>
-            <div id="geocode-progress" class="hidden mb-3">
-                <div class="flex items-center justify-between mb-1">
-                    <span class="text-xs text-zinc-500" id="geocode-label">Ermittle Koordinaten…</span>
-                    <span class="text-xs text-zinc-600 mono" id="geocode-count"></span>
-                </div>
-                <div class="h-1 rounded-full bg-zinc-800 overflow-hidden">
-                    <div id="geocode-bar" class="h-full bg-red-500 rounded-full transition-all duration-200" style="width:0%"></div>
-                </div>
-            </div>
+            <div class="text-xs text-zinc-500 mono mb-3">ALLE STRECKEN</div>
             <div id="stats-map"></div>
             <div class="text-xs text-zinc-600 mt-2 flex gap-4">
                 <span><span class="inline-block w-3 h-1 bg-red-500 rounded mr-1"></span>Zug/RE/RB</span>
@@ -573,10 +558,6 @@ function showTab(t) {
         document.getElementById(`panel-${p}`).classList.toggle('hidden', p !== t);
         document.getElementById(`tab-${p}`).classList.toggle('active', p === t);
     });
-    if (t === 'map' && statsMap) {
-        setTimeout(() => { statsMap.invalidateSize(); }, 200);
-        setTimeout(() => { statsMap.invalidateSize(); }, 600);
-    }
     updateAll();
 }
 
@@ -635,7 +616,16 @@ function renderList(data) {
         div.className = 'journey-card relative group';
         const dStr = new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
         const delayColor = (j.delay || 0) >= 5 ? 'text-red-500' : (j.delay || 0) >= 1 ? 'text-yellow-500' : 'text-green-500';
-        
+
+        const depTime     = j.depReal || j.time || '--:--';
+        const arrTime     = j.arrReal || '--:--';
+        const depManual   = j.depManual;
+        const arrManual   = j.arrManual;
+        const depTooltip  = depManual ? 'title="Zeit manuell überschrieben."' : '';
+        const arrTooltip  = arrManual ? 'title="Zeit manuell überschrieben."' : '';
+        const depStyle    = depManual ? 'border-b border-dashed border-orange-500 cursor-help' : '';
+        const arrStyle    = arrManual ? 'border-b border-dashed border-orange-500 cursor-help' : '';
+
         div.innerHTML = `
             <div class="flex items-center justify-between gap-4">
                 <div class="flex items-center gap-3">
@@ -648,13 +638,17 @@ function renderList(data) {
                             ${j.km ? `<span class="text-[10px] text-zinc-600 font-normal">${j.km} km</span>` : ''}
                         </div>
                         <div class="text-xs text-zinc-400">${j.from} <i class="fas fa-arrow-right mx-1 text-[8px] text-zinc-700"></i> ${j.to}</div>
-                        <div class="text-[10px] text-zinc-500 mt-0.5">${dStr} · ${j.time || '--:--'}</div>
+                        <div class="text-[10px] text-zinc-500 mt-0.5 flex items-center gap-1.5">
+                            <span>${dStr}</span>
+                            <span class="text-zinc-700">·</span>
+                            <span ${depTooltip} class="mono ${depStyle}">ab ${depTime}</span>
+                            ${arrTime !== '--:--' ? `<span class="text-zinc-700">→</span><span ${arrTooltip} class="mono ${arrStyle}">an ${arrTime}</span>` : ''}
+                        </div>
                     </div>
                 </div>
                 <div class="flex items-center gap-4">
                     <div class="text-right">
                         <div class="text-sm font-black mono ${delayColor}">${(j.delay || 0) > 0 ? '+' : ''}${j.delay || 0}'</div>
-                        <div class="text-[10px] mono text-zinc-600">${j.arrReal || '--:--'}</div>
                     </div>
                     <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onclick="openTripDetails('${j.id}')" class="p-2 text-zinc-500 hover:text-white" title="Details"><i class="fas fa-route"></i></button>
@@ -1053,22 +1047,6 @@ async function exportData() {
     URL.revokeObjectURL(url);
 }
 
-async function clearAllData() {
-    if (!confirm('Möchtest du wirklich ALLE gespeicherten Fahrten unwiderruflich löschen?')) return;
-    const db = await openDB();
-    const tx = db.transaction(STORE, 'readwrite');
-    const os = tx.objectStore(STORE);
-    await new Promise((res, rej) => {
-        const req = os.clear();
-        req.onsuccess = () => res();
-        req.onerror = () => rej(req.error);
-    });
-    allJourneys = [];
-    buildYearFilter();
-    updateAll();
-    alert('Alle Daten wurden gelöscht.');
-}
-
 async function importData(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -1091,42 +1069,21 @@ async function importData(e) {
         const tx = db.transaction(STORE, 'readwrite');
         const os = tx.objectStore(STORE);
 
-        // Wir tracken IDs in diesem Import-Lauf um interne Duplikate zu vermeiden
+        // Duplikat-Check: nur auf exakter ID-Basis, keine Zeitfenster-Heuristik
+        const existingIds = new Set(allJourneys.map(x => x.id));
         const importedIdsInSession = new Set();
 
         for (const j of data) {
             if (j.id && j.date) {
-                if (importedIdsInSession.has(j.id)) {
+                if (importedIdsInSession.has(j.id) || existingIds.has(j.id)) {
                     skipped++;
                     continue;
                 }
-
-                // Checke ob bereits in allJourneys (entweder aus DB oder bereits in diesem Import-Lauf hinzugefügt)
-                const isDuplicate = allJourneys.some(x => {
-                    if (x.id === j.id) return true;
-                    if (x.date !== j.date) return false;
-                    if (norm(x.line) !== norm(j.line)) return false;
-                    
-                    if (x.time && j.time) {
-                        try {
-                            const t1 = toMin(x.time);
-                            const t2 = toMin(j.time);
-                            const diff = Math.abs(t1 - t2);
-                            // Wenn Linie, Datum und Zeit (±15 Min) gleich sind -> Duplikat
-                            if (diff <= 15) return true;
-                        } catch(e) {}
-                    }
-                    return false;
-                });
-                
-                if (!isDuplicate) {
-                    os.put(j);
-                    allJourneys.push(j);
-                    importedIdsInSession.add(j.id);
-                    count++;
-                } else {
-                    skipped++;
-                }
+                os.put(j);
+                allJourneys.push(j);
+                existingIds.add(j.id);
+                importedIdsInSession.add(j.id);
+                count++;
             }
         }
 
@@ -1279,69 +1236,6 @@ function renderDelay(data) {
     });
 }
 
-// ─── Geocoding ────────────────────────────────────────────────────────────────
-const _geocodeCache = new Map();
-async function _geocodeName(name) {
-    if (_geocodeCache.has(name)) return _geocodeCache.get(name);
-    try {
-        const r = await fetch(`/api/locations?query=${encodeURIComponent(name)}&results=1`);
-        if (!r.ok) { _geocodeCache.set(name, null); return null; }
-        const data = await r.json();
-        const locs = data.locations || data || [];
-        const loc  = locs.find(l => l.lat && l.lon) || locs[0];
-        const coords = loc?.lat ? [parseFloat(loc.lat), parseFloat(loc.lon)] : null;
-        _geocodeCache.set(name, coords);
-        return coords;
-    } catch { _geocodeCache.set(name, null); return null; }
-}
-
-async function geocodeAllJourneys() {
-    const btn      = document.getElementById('geocode-btn');
-    const progress = document.getElementById('geocode-progress');
-    const bar      = document.getElementById('geocode-bar');
-    const label    = document.getElementById('geocode-label');
-    const count    = document.getElementById('geocode-count');
-    const missing  = allJourneys.filter(j => !j.fromCoords || !j.toCoords);
-    if (!missing.length) {
-        if (label) label.textContent = 'Alle Fahrten haben bereits Koordinaten ✓';
-        if (progress) { progress.classList.remove('hidden'); setTimeout(() => progress.classList.add('hidden'), 3000); }
-        return;
-    }
-    const names = [...new Set(missing.flatMap(j => [
-        ...(!j.fromCoords ? [j.from] : []),
-        ...(!j.toCoords   ? [j.to]   : []),
-    ]))].filter(Boolean);
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin text-[10px]"></i> Läuft…'; }
-    if (progress) { progress.classList.remove('hidden'); bar.style.width = '0%'; }
-    let done = 0, found = 0;
-    for (const name of names) {
-        if (label) label.textContent = name;
-        if (count) count.textContent = `${done + 1} / ${names.length}`;
-        if (bar)   bar.style.width   = `${Math.round((done / names.length) * 100)}%`;
-        const coords = await _geocodeName(name);
-        if (coords) found++;
-        done++;
-        await new Promise(r => setTimeout(r, 80));
-    }
-    // Fahrten aktualisieren und speichern
-    let updated = 0;
-    for (const j of allJourneys) {
-        let changed = false;
-        if (!j.fromCoords && _geocodeCache.get(j.from)) { j.fromCoords = _geocodeCache.get(j.from); changed = true; }
-        if (!j.toCoords   && _geocodeCache.get(j.to))   { j.toCoords   = _geocodeCache.get(j.to);   changed = true; }
-        if (changed) { await saveJourney(j); updated++; }
-    }
-    if (bar)   bar.style.width = '100%';
-    if (label) label.textContent = `${updated} Fahrten aktualisiert (${found}/${names.length} Stationen gefunden)`;
-    if (count) count.textContent = '';
-    if (btn)   { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check text-green-400 text-[10px]"></i> Fertig'; }
-    setTimeout(() => {
-        if (progress) progress.classList.add('hidden');
-        if (btn) btn.innerHTML = '<i class="fas fa-map-marker-alt text-[10px]"></i> Koordinaten ermitteln';
-    }, 4000);
-    renderMap(allJourneys);
-}
-
 // ─── Map Logic ───────────────────────────────────────────────────────────────
 let statsMap = null;
 function renderMap(data) {
@@ -1369,9 +1263,7 @@ function renderMap(data) {
     });
 
     if (bounds.length) statsMap.fitBounds(bounds, { padding: [30, 30] });
-    // Länger warten damit der Tab vollständig sichtbar ist
-    setTimeout(() => statsMap.invalidateSize(), 300);
-    setTimeout(() => statsMap.invalidateSize(), 800);
+    setTimeout(() => statsMap.invalidateSize(), 100);
 }
 
 // ─── Station Search ──────────────────────────────────────────────────────────
