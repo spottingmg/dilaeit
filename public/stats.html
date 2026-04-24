@@ -676,61 +676,79 @@ async function renderArchiveTab() {
     } catch(e) { list.innerHTML = `<div class="text-red-500 text-center py-4">${e.message}</div>`; }
 }
 
-let _archiveSnapMap = null;
-
 function openArchiveSnap(snap) {
-    // Zeige Fahrtverlauf im Karten-Modal
-    document.getElementById('tdm-line').textContent  = snap.line || '—';
-    document.getElementById('tdm-route').textContent = snap.direction || '—';
-    document.getElementById('tdm-date').textContent  = new Date(snap.date+'T12:00:00').toLocaleDateString('de-DE');
-    const first = snap.stopovers?.[0];
-    const last  = snap.stopovers?.[snap.stopovers.length-1];
-    const fmt = t => t ? new Date(t).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : '--:--';
-    document.getElementById('tdm-time').textContent = fmt(first?.plannedDeparture);
-    document.getElementById('tdm-arr').textContent  = fmt(last?.plannedArrival);
-    document.getElementById('tdm-km').textContent   = `${snap.stopovers?.length||0} Halte`;
-    const delays = snap.stopovers.map(s=>s.arrivalDelaySec??s.departureDelaySec).filter(d=>d!=null);
-    const avg = delays.length ? Math.round(delays.reduce((a,b)=>a+b,0)/delays.length/60) : 0;
-    const de = document.getElementById('tdm-delay');
-    de.textContent = (avg>0?'+':'')+avg+"'";
-    de.className = `text-lg font-black mono ${avg>=5?'text-red-500':avg>=1?'text-yellow-500':'text-green-500'}`;
-    document.getElementById('tdm-note')?.classList.add('hidden');
+    const modal = document.getElementById('archive-snap-modal');
+    const title = document.getElementById('asm-title');
+    const sub   = document.getElementById('asm-sub');
+    const list  = document.getElementById('asm-list');
+    if (!modal) return;
 
-    const modal = document.getElementById('trip-detail-modal');
-    modal.classList.remove('hidden'); modal.classList.add('flex');
+    title.textContent = snap.line || '—';
+    sub.textContent   = `${snap.direction || '—'} · ${new Date(snap.date+'T12:00:00').toLocaleDateString('de-DE')} · ${snap.source || ''}`;
 
-    setTimeout(() => {
-        const mapEl = document.getElementById('tdm-map');
-        if (!_archiveSnapMap) {
-            _archiveSnapMap = L.map(mapEl, { zoomControl: true });
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:18 }).addTo(_archiveSnapMap);
-        } else {
-            _archiveSnapMap.eachLayer(l => { if (!(l instanceof L.TileLayer)) _archiveSnapMap.removeLayer(l); });
-        }
-        renderSnapMap(_archiveSnapMap, snap.stopovers);
-    }, 150);
-}
+    const fmt = t => t ? new Date(t).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) : null;
 
-function renderSnapMap(map, stopovers) {
-    const pts = stopovers.map(s => s.location ? [s.location.latitude, s.location.longitude] : null).filter(Boolean);
-    const bounds = [];
-    if (pts.length > 1) {
-        L.polyline(pts, { color:'#ef4444', weight:3, opacity:0.75 }).addTo(map);
-    }
-    stopovers.forEach((s, i) => {
-        if (!s.location) return;
-        const ll = [s.location.latitude, s.location.longitude];
-        const delay = Math.round((s.arrivalDelaySec ?? s.departureDelaySec ?? 0) / 60);
-        const dc = delay >= 5 ? '#ef4444' : delay >= 1 ? '#eab308' : '#22c55e';
-        const isFirst = i === 0, isLast = i === stopovers.length - 1;
-        const size = (isFirst || isLast) ? 14 : 8;
-        const icon = L.divIcon({ className:'', html:`<div style="width:${size}px;height:${size}px;background:${isFirst?'#22c55e':isLast?'#ef4444':'#6b7280'};border-radius:50%;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>`, iconAnchor:[size/2,size/2] });
-        const delayStr = delay !== 0 ? ` <span style="color:${dc}">${delay>0?'+':''}${delay}'</span>` : '';
-        L.marker(ll, { icon }).addTo(map).bindPopup(`<b>${s.name}</b>${delayStr}`);
-        bounds.push(ll);
-    });
-    if (bounds.length) map.fitBounds(bounds, { padding:[30,30] });
-    map.invalidateSize();
+    list.innerHTML = (snap.stopovers || []).map((s, i) => {
+        const pA = fmt(s.plannedArrival);
+        const pD = fmt(s.plannedDeparture);
+        const aA = fmt(s.arrival);
+        const aD = fmt(s.departure);
+        const delaySec = s.arrivalDelaySec ?? s.departureDelaySec;
+        const delayMin = delaySec != null ? Math.round(delaySec / 60) : null;
+        const dc = delayMin === null ? '' : delayMin >= 5 ? 'text-red-400' : delayMin >= 1 ? 'text-yellow-400' : 'text-green-400';
+        const isFirst = i === 0, isLast = i === (snap.stopovers.length - 1);
+        const dotColor = s.cancelled ? '#6b7280' : s.additional ? '#22c55e' : (isFirst || isLast) ? '#ef4444' : '#374151';
+        const nameClass = s.cancelled ? 'line-through text-zinc-500' : s.additional ? 'text-green-400' : 'text-white';
+
+        const hasRT = aA && pA && aA !== pA || aD && pD && aD !== pD;
+        const depHtml = pD
+            ? (hasRT && aD && aD !== pD
+                ? `<span class="line-through text-zinc-600 mr-0.5">${pD}</span><span class="${dc}">${aD}</span>`
+                : `<span>${aD || pD}</span>`)
+            : '';
+        const arrHtml = pA
+            ? (hasRT && aA && aA !== pA
+                ? `<span class="line-through text-zinc-600 mr-0.5">${pA}</span><span class="${dc}">${aA}</span>`
+                : `<span>${aA || pA}</span>`)
+            : '';
+
+        const delayBadge = delayMin !== null && hasRT
+            ? `<span class="text-[10px] font-bold mono ${dc} ml-1">${delayMin > 0 ? '+' : ''}${delayMin}'</span>`
+            : '';
+
+        const platform = s.platform || s.plannedPlatform;
+        const platChanged = s.platform && s.plannedPlatform && s.platform !== s.plannedPlatform;
+        const platHtml = platform
+            ? `<span class="text-[10px] mono ${platChanged ? 'text-orange-400 font-bold' : 'text-zinc-600'} ml-1">${platChanged ? `${s.plannedPlatform}→${s.platform}` : platform}</span>`
+            : '';
+
+        const cancelTag = s.cancelled ? `<span class="text-[9px] text-red-500 font-bold ml-1 uppercase">Entfällt</span>` : '';
+
+        return `<div class="flex items-stretch gap-0 py-1 min-h-[2.2rem] ${s.cancelled ? 'opacity-50' : ''}">
+            <!-- Zeitblock -->
+            <div class="w-20 shrink-0 flex flex-col items-end justify-center pr-2 text-[10px] mono leading-tight">
+                ${arrHtml ? `<div class="text-zinc-500"><span class="text-[8px] mr-0.5">AN</span>${arrHtml}</div>` : ''}
+                ${depHtml ? `<div><span class="text-[8px] mr-0.5">AB</span>${depHtml}</div>` : ''}
+            </div>
+            <!-- Linie -->
+            <div class="flex flex-col items-center w-4 shrink-0">
+                <div class="w-px flex-1 ${i === 0 ? 'bg-transparent' : 'bg-zinc-700'}"></div>
+                <div style="width:10px;height:10px;border-radius:50%;background:${dotColor};border:2px solid #18181b;flex-shrink:0"></div>
+                <div class="w-px flex-1 ${isLast ? 'bg-transparent' : 'bg-zinc-700'}"></div>
+            </div>
+            <!-- Name + Info -->
+            <div class="flex-1 flex flex-col justify-center pl-2">
+                <div class="flex items-center gap-1 flex-wrap">
+                    <span class="text-sm font-semibold ${nameClass}">${s.name}</span>
+                    ${cancelTag}${delayBadge}${platHtml}
+                </div>
+                ${(s.remarks || []).map(r => `<div class="text-[9px] text-zinc-500 mt-0.5">${r.text || ''}</div>`).join('')}
+            </div>
+        </div>`;
+    }).join('');
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
 }
 
 function setYear(y) {
@@ -1683,6 +1701,23 @@ init();
             <div id="tdm-map" style="height:280px;border-radius:12px;overflow:hidden;background:#111;"></div>
             <div id="tdm-note" class="hidden text-xs text-zinc-400 italic bg-zinc-900 p-3 rounded-xl border border-zinc-800"></div>
         </div>
+    </div>
+</div>
+
+<!-- Archive Snap Itinerary Modal -->
+<div id="archive-snap-modal" class="fixed inset-0 z-[1200] bg-black/85 backdrop-blur hidden items-center justify-center p-4">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 shrink-0">
+            <div>
+                <div class="font-black text-white text-base italic" id="asm-title">—</div>
+                <div class="text-xs text-zinc-500 mt-0.5" id="asm-sub">—</div>
+            </div>
+            <button onclick="document.getElementById('archive-snap-modal').classList.add('hidden');document.getElementById('archive-snap-modal').classList.remove('flex');"
+                class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div id="asm-list" class="overflow-y-auto px-4 py-3 space-y-0"></div>
     </div>
 </div>
 
