@@ -773,6 +773,55 @@
                 currentDetailStopovers = stops;
                 renderItinerary(stops, mergedRemarks, finalSourceName);
 
+                // Snapshot im Echtzeitarchiv speichern (alle Quellen: VRR, Transitous, DB)
+                try {
+                    const snapDate = dep.plannedWhen
+                        ? new Date(dep.plannedWhen).toISOString().slice(0, 10)
+                        : new Date().toISOString().slice(0, 10);
+                    const tripKey  = dep.tripId || dep.dbTripId || `${dep.line?.name}_${dep.direction}_${dep.plannedWhen}`;
+                    const snapKey  = `${tripKey}_${snapDate}`;
+                    const snap = {
+                        key:       snapKey,
+                        date:      snapDate,
+                        savedAt:   new Date().toISOString(),
+                        line:      dep.line?.name || dep.line?.id || '?',
+                        direction: dep.direction || '',
+                        source:    finalSourceName,
+                        tripId:    dep.tripId || dep.dbTripId || null,
+                        stopovers: stops.map(s => ({
+                            name:              s.stop?.name || '',
+                            location:          s.stop?.location || null,
+                            plannedArrival:    s.plannedArrival    || null,
+                            arrival:           s.arrival           || null,
+                            plannedDeparture:  s.plannedDeparture  || null,
+                            departure:         s.departure         || null,
+                            arrivalDelaySec:   s.arrivalDelaySec   ?? null,
+                            departureDelaySec: s.departureDelaySec ?? null,
+                            platform:          s.platform          || null,
+                            plannedPlatform:   s.plannedPlatform   || null,
+                            cancelled:         s.cancelled  || false,
+                            additional:        s.additional || false,
+                            remarks:           s.remarks    || [],
+                        })),
+                        remarks: mergedRemarks,
+                    };
+                    const idbReq = indexedDB.open('dilaeit_stats', 3);
+                    idbReq.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains('tripSnapshots')) {
+                            const ss = db.createObjectStore('tripSnapshots', { keyPath: 'key' });
+                            ss.createIndex('date', 'date', { unique: false });
+                        }
+                    };
+                    idbReq.onsuccess = () => {
+                        const db = idbReq.result;
+                        if (db.objectStoreNames.contains('tripSnapshots')) {
+                            const tx = db.transaction('tripSnapshots', 'readwrite');
+                            tx.objectStore('tripSnapshots').put(snap);
+                        }
+                    };
+                } catch(e) {}
+
                 // Störungen und Hinweise IMMER vom VRR laden, unabhängig von der gewählten API-Quelle
                 // (VRR oder DB/Transitous für die Fahrtensuche)
                 const stName = state.currentStation?.name || '';
@@ -1265,7 +1314,7 @@
         async function loadTripDetails(idOrNumber, date) {
             const results = $('trip-search-results');
             const container = $('trip-itinerary-container');
-            const itinerary = $('trip-itinerary-search');
+            const itinerary = $(trip-itinerary-search);
             
             results.innerHTML = `<div class="flex items-center gap-3 py-4"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Fahrtverlauf...</div>`;
             container.classList.remove('hidden');
@@ -1433,4 +1482,3 @@
     </script>
 </body>
 </html>
-                   
