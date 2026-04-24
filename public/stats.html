@@ -615,26 +615,36 @@ function renderList(data) {
         const div = document.createElement('div');
         div.className = 'journey-card relative group';
         const dStr = new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
-        const delayColor = (j.delay || 0) >= 5 ? 'text-red-500' : (j.delay || 0) >= 1 ? 'text-yellow-500' : 'text-green-500';
+        const delayMin   = j.delay || 0;
+        const delayColor = delayMin >= 5 ? 'text-red-500' : delayMin >= 1 ? 'text-yellow-500' : 'text-green-500';
 
-        const depReal    = j.depReal    || null;
         const depPlanned = j.time       || null;
-        const arrReal    = j.arrReal    || null;
         const arrPlanned = j.arrPlanned || null;
-        const isDepLate  = depReal && depPlanned && depReal !== depPlanned;
-        const isArrLate  = arrReal && arrPlanned && arrReal !== arrPlanned;
+
+        // Echtzeiten – falls nicht gespeichert, aus delay berechnen
+        const addMin = (t, mins) => {
+            if (!t || !mins) return null;
+            const [h, m] = t.split(':').map(Number);
+            const total = h * 60 + m + mins;
+            return `${String(Math.floor(((total % 1440) + 1440) % 1440 / 60)).padStart(2,'0')}:${String(((total % 1440) + 1440) % 1440 % 60).padStart(2,'0')}`;
+        };
+        const depReal = j.depReal || (delayMin > 0 && depPlanned ? addMin(depPlanned, j.depDelay || 0) : null);
+        const arrReal = j.arrReal || (delayMin > 0 && arrPlanned ? addMin(arrPlanned, delayMin) : null);
+
+        const isDepLate = depReal && depPlanned && depReal !== depPlanned;
+        const isArrLate = arrReal && arrPlanned && arrReal !== arrPlanned;
 
         const depManualAttr = j.depManual ? 'title="Zeit manuell überschrieben." class="border-b border-dashed border-orange-500 cursor-help"' : '';
         const arrManualAttr = j.arrManual ? 'title="Zeit manuell überschrieben." class="border-b border-dashed border-orange-500 cursor-help"' : '';
 
         const depHtml = isDepLate
-            ? `<span class="line-through text-zinc-600 mr-0.5">${depPlanned}</span><span ${depManualAttr}>${depReal}</span>`
+            ? `<span class="line-through text-zinc-600 mr-0.5">${depPlanned}</span><span class="text-red-400" ${depManualAttr}>${depReal}</span>`
             : `<span ${depManualAttr}>${depPlanned || '--:--'}</span>`;
 
-        const arrHtml = arrReal
+        const arrHtml = (arrReal || arrPlanned)
             ? (isArrLate
-                ? `<span class="mx-0.5 text-zinc-700">→</span><span class="line-through text-zinc-600 mr-0.5">${arrPlanned}</span><span ${arrManualAttr}>${arrReal}</span>`
-                : `<span class="mx-0.5 text-zinc-700">→</span><span ${arrManualAttr}>${arrReal}</span>`)
+                ? `<span class="mx-0.5 text-zinc-700">→</span><span class="line-through text-zinc-600 mr-0.5">${arrPlanned}</span><span class="text-red-400" ${arrManualAttr}>${arrReal}</span>`
+                : `<span class="mx-0.5 text-zinc-700">→</span><span ${arrManualAttr}>${arrReal || arrPlanned}</span>`)
             : '';
 
         div.innerHTML = `
