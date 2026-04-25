@@ -139,38 +139,37 @@
         return data.map(entry => {
             const s = entry.status;
             const ci = s.checkin;
-            const depISO     = ci.manualDeparture   || ci.origin.departurePlanned;
+            const depISO     = ci.manualDeparture || ci.origin.departurePlanned;
             const depRealISO = ci.origin.departureReal || null;
-            const arrISO     = ci.manualArrival     || ci.destination.arrivalPlanned;
+            const arrISO     = ci.manualArrival   || ci.destination.arrivalPlanned;
             const arrRealISO = ci.destination.arrivalReal || null;
 
             const toTime = iso => iso ? new Date(iso).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : null;
             const delay  = arrRealISO && arrISO ? Math.round((new Date(arrRealISO) - new Date(arrISO)) / 60000) : 0;
 
-            // Koordinaten: versuche verschiedene Felder die Träwelling liefert
-            const originLat  = ci.origin.latitude      || ci.origin.lat      || ci.origin.coords?.[0]  || null;
-            const originLng  = ci.origin.longitude     || ci.origin.lng      || ci.origin.coords?.[1]  || null;
-            const destLat    = ci.destination.latitude || ci.destination.lat || ci.destination.coords?.[0] || null;
-            const destLng    = ci.destination.longitude|| ci.destination.lng || ci.destination.coords?.[1] || null;
+            const originLat = ci.origin.latitude      || ci.origin.lat      || ci.origin.coords?.[0]      || null;
+            const originLng = ci.origin.longitude     || ci.origin.lng      || ci.origin.coords?.[1]      || null;
+            const destLat   = ci.destination.latitude || ci.destination.lat || ci.destination.coords?.[0] || null;
+            const destLng   = ci.destination.longitude|| ci.destination.lng || ci.destination.coords?.[1] || null;
 
             return {
-                id:          'trw-' + s.id,
-                date:        new Date(depISO).toISOString().slice(0,10),
-                time:        toTime(depISO),
-                depReal:     toTime(depRealISO),
-                arrPlanned:  toTime(arrISO),
-                arrReal:     toTime(arrRealISO),
-                depManual:   false,
-                arrManual:   false,
-                line:        ci.lineName || ci.number || '?',
-                from:        ci.origin.name,
-                to:          ci.destination.name,
-                mode:        (ci.category || 'train').toLowerCase(),
-                km:          ci.distance ? Math.round(ci.distance / 100) / 10 : null,
-                delay:       delay,
-                note:        s.body || null,
-                fromCoords:  (originLat && originLng) ? [parseFloat(originLat), parseFloat(originLng)] : null,
-                toCoords:    (destLat   && destLng)   ? [parseFloat(destLat),   parseFloat(destLng)]   : null,
+                id:         'trw-' + s.id,
+                date:       new Date(depISO).toISOString().slice(0,10),
+                time:       toTime(depISO),
+                depReal:    toTime(depRealISO),
+                arrPlanned: toTime(arrISO),
+                arrReal:    toTime(arrRealISO),
+                depManual:  false,
+                arrManual:  false,
+                line:       ci.lineName || ci.number || '?',
+                from:       ci.origin.name,
+                to:         ci.destination.name,
+                mode:       (ci.category || 'train').toLowerCase(),
+                km:         ci.distance ? Math.round(ci.distance / 100) / 10 : null,
+                delay:      delay,
+                note:       s.body || null,
+                fromCoords: (originLat && originLng) ? [parseFloat(originLat), parseFloat(originLng)] : null,
+                toCoords:   (destLat   && destLng)   ? [parseFloat(destLat),   parseFloat(destLng)]   : null,
             };
         });
     }
@@ -182,8 +181,8 @@
         return data.map(j => {
             const schedDep = parseFloat(j.sched_dep_ts) * 1000;
             const schedArr = parseFloat(j.sched_arr_ts) * 1000;
-            const rtDep    = j.rt_dep_ts  ? parseFloat(j.rt_dep_ts)  * 1000 : null;
-            const rtArr    = j.rt_arr_ts  ? parseFloat(j.rt_arr_ts)  * 1000 : null;
+            const rtDep    = j.rt_dep_ts ? parseFloat(j.rt_dep_ts) * 1000 : null;
+            const rtArr    = j.rt_arr_ts ? parseFloat(j.rt_arr_ts) * 1000 : null;
 
             let delay = 0;
             if (j.delay_arr != null) delay = Math.round(parseFloat(j.delay_arr) / 60);
