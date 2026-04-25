@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit · Transit Konverter</title>
+    <title>dilaeit · Konverter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0a0a0a">
     <link rel="manifest" href="/manifest.json">
@@ -72,69 +72,6 @@
         </p>
     </div>
 
-    <!-- Schritte -->
-    <div id="steps-traewelling" class="mb-8 space-y-3">
-        <div class="flex items-start gap-3">
-            <div class="step-num">1</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">Träwelling öffnen</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Gehe zu <a href="https://traewelling.de" target="_blank" class="text-red-500 hover:underline">traewelling.de</a> → Profil → <strong class="text-zinc-300">Einstellungen → Daten exportieren</strong></div>
-            </div>
-        </div>
-        <div class="flex items-start gap-3">
-            <div class="step-num">2</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">Export herunterladen</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Klicke auf <strong class="text-zinc-300">„JSON exportieren"</strong> – du erhältst eine <code class="text-zinc-400 bg-zinc-800 px-1 rounded">statuses.json</code></div>
-            </div>
-        </div>
-        <div class="flex items-start gap-3">
-            <div class="step-num">3</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">Datei hier ablegen</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Ziehe die JSON-Datei in das Feld unten oder klicke zum Auswählen. Die Konvertierung startet automatisch.</div>
-            </div>
-        </div>
-        <div class="flex items-start gap-3">
-            <div class="step-num">4</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">In dilaeit importieren</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Lade die konvertierte Datei herunter und öffne <a href="/stats.html" class="text-red-500 hover:underline">dilaeit Stats</a> → <strong class="text-zinc-300">Importieren</strong></div>
-            </div>
-        </div>
-    </div>
-
-    <div id="steps-travelynx" class="mb-8 space-y-3 hidden">
-        <div class="flex items-start gap-3">
-            <div class="step-num">1</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">travelynx.de öffnen</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Gehe zu <a href="https://travelynx.de" target="_blank" class="text-red-500 hover:underline">travelynx.de</a> → <strong class="text-zinc-300">Account → Export</strong></div>
-            </div>
-        </div>
-        <div class="flex items-start gap-3">
-            <div class="step-num">2</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">JSON-Export herunterladen</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Wähle <strong class="text-zinc-300">„Fahrten (JSON)"</strong> – du erhältst eine JSON-Datei mit allen deinen Fahrten</div>
-            </div>
-        </div>
-        <div class="flex items-start gap-3">
-            <div class="step-num">3</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">Datei hier ablegen</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Ziehe die JSON-Datei in das Feld unten oder klicke zum Auswählen.</div>
-            </div>
-        </div>
-        <div class="flex items-start gap-3">
-            <div class="step-num">4</div>
-            <div>
-                <div class="font-semibold text-sm text-zinc-200">In dilaeit importieren</div>
-                <div class="text-xs text-zinc-500 mt-0.5">Lade die konvertierte Datei herunter und öffne <a href="/stats.html" class="text-red-500 hover:underline">dilaeit Stats</a> → <strong class="text-zinc-300">Importieren</strong></div>
-            </div>
-        </div>
-    </div>
-
     <div id="drop-zone" onclick="document.getElementById('file-input').click()">
         <input type="file" id="file-input" accept=".json,.txt" class="hidden">
         <div class="text-5xl mb-4 text-zinc-600"><i class="fas fa-file-import"></i></div>
@@ -174,14 +111,10 @@
         document.getElementById('source-name').textContent = 'travelynx.de';
         document.getElementById('mode-label').textContent = '/ travelynx-konverter';
         document.getElementById('mode-desc').textContent = 'Konvertiere deinen travelynx.de JSON-Export für dilaeit.';
-        document.getElementById('steps-traewelling').classList.add('hidden');
-        document.getElementById('steps-travelynx').classList.remove('hidden');
     } else {
         document.getElementById('source-name').textContent = 'Träwelling';
         document.getElementById('mode-label').textContent = '/ träwelling-konverter';
         document.getElementById('mode-desc').textContent = 'Konvertiere deinen Träwelling JSON-Export für dilaeit.';
-        document.getElementById('steps-traewelling').classList.remove('hidden');
-        document.getElementById('steps-travelynx').classList.add('hidden');
     }
 
     document.getElementById('file-input').onchange = e => {
@@ -206,23 +139,38 @@
         return data.map(entry => {
             const s = entry.status;
             const ci = s.checkin;
-            const depISO = ci.manualDeparture || ci.origin.departurePlanned;
-            const arrISO = ci.manualArrival   || ci.destination.arrivalPlanned;
-            const arrRealISO = ci.destination.arrivalReal  || arrISO;
+            const depISO     = ci.manualDeparture   || ci.origin.departurePlanned;
+            const depRealISO = ci.origin.departureReal || null;
+            const arrISO     = ci.manualArrival     || ci.destination.arrivalPlanned;
+            const arrRealISO = ci.destination.arrivalReal || null;
+
+            const toTime = iso => iso ? new Date(iso).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : null;
+            const delay  = arrRealISO && arrISO ? Math.round((new Date(arrRealISO) - new Date(arrISO)) / 60000) : 0;
+
+            // Koordinaten: versuche verschiedene Felder die Träwelling liefert
+            const originLat  = ci.origin.latitude      || ci.origin.lat      || ci.origin.coords?.[0]  || null;
+            const originLng  = ci.origin.longitude     || ci.origin.lng      || ci.origin.coords?.[1]  || null;
+            const destLat    = ci.destination.latitude || ci.destination.lat || ci.destination.coords?.[0] || null;
+            const destLng    = ci.destination.longitude|| ci.destination.lng || ci.destination.coords?.[1] || null;
 
             return {
-                id: 'trw-' + s.id,
-                date: new Date(depISO).toISOString().slice(0,10),
-                time: new Date(depISO).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}),
-                line: ci.lineName || ci.number || '?',
-                from: ci.origin.name,
-                to: ci.destination.name,
-                mode: (ci.category || 'train').toLowerCase(),
-                km: ci.distance ? Math.round(ci.distance / 100) / 10 : null,
-                delay: Math.round((new Date(arrRealISO) - new Date(arrISO)) / 60000),
-                note: s.body || null,
-                fromCoords: ci.origin.latitude ? [ci.origin.latitude, ci.origin.longitude] : null,
-                toCoords: ci.destination.latitude ? [ci.destination.latitude, ci.destination.longitude] : null
+                id:          'trw-' + s.id,
+                date:        new Date(depISO).toISOString().slice(0,10),
+                time:        toTime(depISO),
+                depReal:     toTime(depRealISO),
+                arrPlanned:  toTime(arrISO),
+                arrReal:     toTime(arrRealISO),
+                depManual:   false,
+                arrManual:   false,
+                line:        ci.lineName || ci.number || '?',
+                from:        ci.origin.name,
+                to:          ci.destination.name,
+                mode:        (ci.category || 'train').toLowerCase(),
+                km:          ci.distance ? Math.round(ci.distance / 100) / 10 : null,
+                delay:       delay,
+                note:        s.body || null,
+                fromCoords:  (originLat && originLng) ? [parseFloat(originLat), parseFloat(originLng)] : null,
+                toCoords:    (destLat   && destLng)   ? [parseFloat(destLat),   parseFloat(destLng)]   : null,
             };
         });
     }
@@ -234,25 +182,33 @@
         return data.map(j => {
             const schedDep = parseFloat(j.sched_dep_ts) * 1000;
             const schedArr = parseFloat(j.sched_arr_ts) * 1000;
-            const rtArr    = parseFloat(j.rt_arr_ts)    * 1000;
-            
+            const rtDep    = j.rt_dep_ts  ? parseFloat(j.rt_dep_ts)  * 1000 : null;
+            const rtArr    = j.rt_arr_ts  ? parseFloat(j.rt_arr_ts)  * 1000 : null;
+
             let delay = 0;
             if (j.delay_arr != null) delay = Math.round(parseFloat(j.delay_arr) / 60);
             else if (rtArr && schedArr) delay = Math.round((rtArr - schedArr) / 60000);
 
+            const toTime = ms => ms ? new Date(ms).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : null;
+
             return {
-                id: 'tlx-' + j.id,
-                date: new Date(schedDep).toISOString().slice(0,10),
-                time: new Date(schedDep).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}),
-                line: (j.type + ' ' + (j.line || j.no || '')).trim(),
-                from: j.from_name,
-                to: j.to_name,
-                mode: j.type?.toLowerCase().includes('bus') ? 'bus' : 'train',
-                km: j.km ? parseFloat(j.km) : null,
-                delay: delay,
-                fromCoords: j.from_latlon,
-                toCoords: j.to_latlon,
-                note: j.user_data?.comment || null
+                id:         'tlx-' + j.id,
+                date:       new Date(schedDep).toISOString().slice(0,10),
+                time:       toTime(schedDep),
+                depReal:    rtDep ? toTime(rtDep) : null,
+                arrPlanned: toTime(schedArr),
+                arrReal:    rtArr ? toTime(rtArr) : null,
+                depManual:  false,
+                arrManual:  false,
+                line:       (j.type + ' ' + (j.line || j.no || '')).trim(),
+                from:       j.from_name,
+                to:         j.to_name,
+                mode:       j.type?.toLowerCase().includes('bus') ? 'bus' : 'train',
+                km:         j.km ? parseFloat(j.km) : null,
+                delay:      delay,
+                fromCoords: j.from_latlon || null,
+                toCoords:   j.to_latlon   || null,
+                note:       j.user_data?.comment || null
             };
         });
     }
