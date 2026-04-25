@@ -621,7 +621,29 @@ function renderList(data) {
         div.className = 'journey-card relative group';
         const dStr = new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
         const delayColor = (j.delay || 0) >= 5 ? 'text-red-500' : (j.delay || 0) >= 1 ? 'text-yellow-500' : 'text-green-500';
-        
+
+        const depPlanned = j.time       || null;
+        const depReal    = j.depReal    || null;
+        const arrPlanned = j.arrPlanned || j.arrivePlanned || null;
+        const arrReal    = j.arrReal    || null;
+        const isDepLate  = depReal && depPlanned && depReal !== depPlanned;
+        const isArrLate  = arrReal && arrPlanned && arrReal !== arrPlanned;
+        const depMA = j.depManual ? ' style="border-bottom:1px dashed #f97316;cursor:help" title="Zeit manuell überschrieben."' : '';
+        const arrMA = j.arrManual ? ' style="border-bottom:1px dashed #f97316;cursor:help" title="Zeit manuell überschrieben."' : '';
+
+        // Soll-Zeit immer, Echtzeit immer daneben (rot wenn verspätet, grün wenn gleich)
+        const depHtml = depPlanned
+            ? (isDepLate
+                ? `<span class="line-through text-zinc-600">${depPlanned}</span> <span class="text-red-400"${depMA}>${depReal}</span>`
+                : `<span${depMA}>${depPlanned}</span>${depReal ? ` <span class="text-green-400"${depMA}>${depReal}</span>` : ''}`)
+            : '<span class="text-zinc-600">--:--</span>';
+
+        const arrHtml = (arrPlanned || arrReal)
+            ? (isArrLate
+                ? `<span class="line-through text-zinc-600">${arrPlanned}</span> <span class="text-red-400"${arrMA}>${arrReal}</span>`
+                : `<span${arrMA}>${arrPlanned || ''}</span>${arrReal ? ` <span class="text-green-400"${arrMA}>${arrReal}</span>` : ''}`)
+            : null;
+
         div.innerHTML = `
             <div class="flex items-center justify-between gap-4">
                 <div class="flex items-center gap-3">
@@ -634,14 +656,15 @@ function renderList(data) {
                             ${j.km ? `<span class="text-[10px] text-zinc-600 font-normal">${j.km} km</span>` : ''}
                         </div>
                         <div class="text-xs text-zinc-400">${j.from} <i class="fas fa-arrow-right mx-1 text-[8px] text-zinc-700"></i> ${j.to}</div>
-                        <div class="text-[10px] text-zinc-500 mt-0.5">${dStr} · ${j.time || '--:--'}</div>
+                        <div class="text-[10px] text-zinc-500 mt-0.5 mono flex items-center gap-1 flex-wrap">
+                            <span>${dStr} ·</span>
+                            <span>ab ${depHtml}</span>
+                            ${arrHtml ? `<span class="text-zinc-700">→</span><span>an ${arrHtml}</span>` : ''}
+                        </div>
                     </div>
                 </div>
-                <div class="flex items-center gap-4">
-                    <div class="text-right">
-                        <div class="text-sm font-black mono ${delayColor}">${(j.delay || 0) > 0 ? '+' : ''}${j.delay || 0}'</div>
-                        <div class="text-[10px] mono text-zinc-600">${j.arrReal || '--:--'}</div>
-                    </div>
+                <div class="flex items-center gap-3">
+                    <div class="text-sm font-black mono ${delayColor}">${(j.delay||0)>0?'+':''}${j.delay||0}'</div>
                     <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onclick="openTripDetails('${j.id}')" class="p-2 text-zinc-500 hover:text-white" title="Details"><i class="fas fa-route"></i></button>
                         <button onclick="openEdit('${j.id}')" class="p-2 text-zinc-500 hover:text-white" title="Bearbeiten"><i class="fas fa-pencil-alt"></i></button>
@@ -759,21 +782,105 @@ async function saveEdit() {
     if (typeof pushToServer === 'function') pushToServer();
 }
 
-// ─── Trip Details ──────────────────────────────────────────────────────────────
+// ─── Trip Details Modal ────────────────────────────────────────────────────────
+let _tdmMap = null;
+
 function openTripDetails(id) {
-    const journey = allJourneys.find(j => j.id === id);
-    if (!journey) return;
-    
-    let details = `Fahrt: ${journey.line}\n`;
-    details += `Von: ${journey.from}\n`;
-    details += `Nach: ${journey.to}\n`;
-    details += `Datum: ${journey.date}\n`;
-    details += `Zeit: ${journey.time || '--:--'}\n`;
-    details += `Verspätung: ${journey.delay || 0}'\n`;
-    if (journey.km) details += `Distanz: ${journey.km} km\n`;
-    if (journey.note) details += `Bemerkung: ${journey.note}`;
-    
-    alert(details);
+    const j = allJourneys.find(x => x.id === id);
+    if (!j) return;
+
+    // Ensure modal exists
+    if (!document.getElementById('trip-detail-modal')) {
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="trip-detail-modal" class="fixed inset-0 z-[1100] bg-black/80 backdrop-blur hidden items-center justify-center p-4">
+            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950 z-10">
+                    <div><div class="font-black text-white text-base" id="tdm-line">—</div><div class="text-xs text-zinc-500" id="tdm-route">—</div></div>
+                    <button onclick="closeTripDetailModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="px-5 py-4 space-y-4">
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono text-white" id="tdm-time">--:--</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Abfahrt</div></div>
+                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono text-white" id="tdm-arr">--:--</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Ankunft</div></div>
+                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono" id="tdm-delay">+0'</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Verspätung</div></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-base font-black text-white" id="tdm-km">—</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Distanz</div></div>
+                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-sm font-black text-white" id="tdm-date">—</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Datum</div></div>
+                    </div>
+                    <div id="tdm-map" style="height:280px;border-radius:12px;overflow:hidden;background:#111;"></div>
+                    <div id="tdm-note" class="hidden text-xs text-zinc-400 italic bg-zinc-900 p-3 rounded-xl border border-zinc-800"></div>
+                </div>
+            </div>
+        </div>`);
+    }
+
+    document.getElementById('tdm-line').textContent  = j.line || '—';
+    document.getElementById('tdm-route').textContent = `${j.from||'—'} → ${j.to||'—'}`;
+    document.getElementById('tdm-date').textContent  = j.date ? new Date(j.date+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+    document.getElementById('tdm-km').textContent    = j.km ? `${j.km} km` : '—';
+    document.getElementById('tdm-time').textContent  = j.depReal || j.time || '--:--';
+    document.getElementById('tdm-arr').textContent   = j.arrReal || '--:--';
+    const delay = j.delay || 0;
+    const de = document.getElementById('tdm-delay');
+    de.textContent = (delay>0?'+':'')+delay+"'";
+    de.className = `text-lg font-black mono ${delay>=5?'text-red-500':delay>=1?'text-yellow-500':'text-green-500'}`;
+    const noteEl = document.getElementById('tdm-note');
+    if (j.note) { noteEl.textContent=j.note; noteEl.classList.remove('hidden'); } else noteEl.classList.add('hidden');
+
+    const modal = document.getElementById('trip-detail-modal');
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+
+    setTimeout(async () => {
+        const mapEl = document.getElementById('tdm-map');
+        if (!_tdmMap) {
+            _tdmMap = L.map(mapEl, { zoomControl:true });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:18 }).addTo(_tdmMap);
+        } else {
+            _tdmMap.eachLayer(l => { if (!(l instanceof L.TileLayer)) _tdmMap.removeLayer(l); });
+        }
+
+        const greenIcon = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#22c55e;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
+        const redIcon   = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#ef4444;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
+        const bounds = []; let routeDrawn = false;
+
+        // Detaillierten Fahrtverlauf via tripId laden
+        if (j.tripId) {
+            try {
+                const isT = j.tripId.startsWith('de-DELFI') || j.tripId.startsWith('de:');
+                const r = await fetch(isT ? `/api/train-details/${encodeURIComponent(j.tripId)}` : `/api/trips/${encodeURIComponent(j.tripId)}`);
+                if (r.ok) {
+                    const data = await r.json();
+                    const pts = (data.stopovers||[]).map(s=>s.stop?.location?[s.stop.location.latitude,s.stop.location.longitude]:null).filter(Boolean);
+                    if (pts.length>1) {
+                        L.polyline(pts,{color:'#ef4444',weight:3,opacity:0.75}).addTo(_tdmMap);
+                        data.stopovers.forEach((s,i)=>{
+                            if(!s.stop?.location) return;
+                            const ll=[s.stop.location.latitude,s.stop.location.longitude];
+                            const isF=i===0, isL=i===data.stopovers.length-1;
+                            const sz=(isF||isL)?14:8; const bg=isF?'#22c55e':isL?'#ef4444':'#6b7280';
+                            L.marker(ll,{icon:L.divIcon({className:'',html:`<div style="width:${sz}px;height:${sz}px;background:${bg};border-radius:50%;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,iconAnchor:[sz/2,sz/2]})}).addTo(_tdmMap).bindPopup(`<b>${s.stop.name}</b>`);
+                            bounds.push(ll);
+                        }); routeDrawn=true;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        const fromLL = j.fromCoords?(Array.isArray(j.fromCoords)?j.fromCoords:[j.fromCoords[0],j.fromCoords[1]]):null;
+        const toLL   = j.toCoords  ?(Array.isArray(j.toCoords)  ?j.toCoords  :[j.toCoords[0],  j.toCoords[1]])  :null;
+        if (fromLL) { L.marker(fromLL,{icon:greenIcon}).addTo(_tdmMap).bindPopup(`<b>Einstieg</b><br>${j.from}`); bounds.push(fromLL); }
+        if (toLL)   { L.marker(toLL,  {icon:redIcon  }).addTo(_tdmMap).bindPopup(`<b>Ausstieg</b><br>${j.to}`);  bounds.push(toLL);   }
+        if (!routeDrawn&&fromLL&&toLL) L.polyline([fromLL,toLL],{color:'#ef4444',weight:2,opacity:0.5,dashArray:'6,4'}).addTo(_tdmMap);
+        if (bounds.length) _tdmMap.fitBounds(bounds,{padding:[40,40]});
+        else mapEl.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#4b5563;font-size:14px">Keine Koordinaten – Geocoding starten</div>';
+        _tdmMap.invalidateSize();
+    }, 150);
+}
+
+function closeTripDetailModal() {
+    const m = document.getElementById('trip-detail-modal');
+    if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
 }
 
 // ─── Sync Modal ────────────────────────────────────────────────────────────────
