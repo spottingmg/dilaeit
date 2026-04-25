@@ -773,55 +773,6 @@
                 currentDetailStopovers = stops;
                 renderItinerary(stops, mergedRemarks, finalSourceName);
 
-                // Snapshot im Echtzeitarchiv speichern (alle Quellen: VRR, Transitous, DB)
-                try {
-                    const snapDate = dep.plannedWhen
-                        ? new Date(dep.plannedWhen).toISOString().slice(0, 10)
-                        : new Date().toISOString().slice(0, 10);
-                    const tripKey  = dep.tripId || dep.dbTripId || `${dep.line?.name}_${dep.direction}_${dep.plannedWhen}`;
-                    const snapKey  = `${tripKey}_${snapDate}`;
-                    const snap = {
-                        key:       snapKey,
-                        date:      snapDate,
-                        savedAt:   new Date().toISOString(),
-                        line:      dep.line?.name || dep.line?.id || '?',
-                        direction: dep.direction || '',
-                        source:    finalSourceName,
-                        tripId:    dep.tripId || dep.dbTripId || null,
-                        stopovers: stops.map(s => ({
-                            name:              s.stop?.name || '',
-                            location:          s.stop?.location || null,
-                            plannedArrival:    s.plannedArrival    || null,
-                            arrival:           s.arrival           || null,
-                            plannedDeparture:  s.plannedDeparture  || null,
-                            departure:         s.departure         || null,
-                            arrivalDelaySec:   s.arrivalDelaySec   ?? null,
-                            departureDelaySec: s.departureDelaySec ?? null,
-                            platform:          s.platform          || null,
-                            plannedPlatform:   s.plannedPlatform   || null,
-                            cancelled:         s.cancelled  || false,
-                            additional:        s.additional || false,
-                            remarks:           s.remarks    || [],
-                        })),
-                        remarks: mergedRemarks,
-                    };
-                    const idbReq = indexedDB.open('dilaeit_stats', 3);
-                    idbReq.onupgradeneeded = (e) => {
-                        const db = e.target.result;
-                        if (!db.objectStoreNames.contains('tripSnapshots')) {
-                            const ss = db.createObjectStore('tripSnapshots', { keyPath: 'key' });
-                            ss.createIndex('date', 'date', { unique: false });
-                        }
-                    };
-                    idbReq.onsuccess = () => {
-                        const db = idbReq.result;
-                        if (db.objectStoreNames.contains('tripSnapshots')) {
-                            const tx = db.transaction('tripSnapshots', 'readwrite');
-                            tx.objectStore('tripSnapshots').put(snap);
-                        }
-                    };
-                } catch(e) {}
-
                 // Störungen und Hinweise IMMER vom VRR laden, unabhängig von der gewählten API-Quelle
                 // (VRR oder DB/Transitous für die Fahrtensuche)
                 const stName = state.currentStation?.name || '';
@@ -957,24 +908,20 @@
                 
                 allRemarks.forEach(r => {
                     const d = document.createElement('div');
-                    const remarkType = (r.type || '').toLowerCase();
-                    
-                    // Unterscheidung: Info-Meldungen (weiß/grau) vs Störungen (rot)
-                    const disruptionKeywords = ['verspätung', 'störung', 'ausfall', 'entfällt', 'umleitung', 'sperrung', 'beeinträchtigt', 'verzögerung', 'seV', 'ersatzverkehr'];
-                    const infoKeywords = ['wlan', 'klima', 'fahrrad', 'bistro', 'restaurant', 'steckdose', 'power', 'sitzplatz', 'ruhe', 'quiet'];
-                    
-                    const textLower = (r.text || '').toLowerCase();
-                    const isDisruption = remarkType === 'disruption' || remarkType === 'warning' || remarkType === 'hint' || 
-                                        disruptionKeywords.some(kw => textLower.includes(kw));
-                    const isInfo = !isDisruption && (remarkType === 'info' || infoKeywords.some(kw => textLower.includes(kw)));
-                    
-                    if (isDisruption) {
+                    const t = (r.type || '').toLowerCase();
+                    if (t === 'disruption' || t === 'warning') {
+                        d.className = 'text-[10px] text-orange-300 bg-orange-500/10 p-2 rounded-lg border border-orange-500/30 flex items-start gap-2';
+                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-orange-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;
+                    } else if (t === 'hint' || t === 'status') {
                         d.className = 'text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';
-                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-red-500'></i> <div class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</div>`;
+                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-red-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;
+                    } else if (t === 'timetable') {
+                        d.className = 'text-[9px] text-zinc-500 flex items-center gap-1.5 py-0.5';
+                        d.innerHTML = `<i class='fas fa-circle text-[4px] text-zinc-600 shrink-0'></i><span>${translate(r.text)}</span>`;
                     } else {
                         d.className = 'text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';
                         const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted text-blue-400">${translate(r.text)}</a>` : translate(r.text);
-                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400'></i> <div class='flex-1 whitespace-pre-wrap'>${content}</div>`;
+                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${content}</span>`;
                     }
                     remDiv.appendChild(d);
                 });
@@ -1008,138 +955,27 @@
 
         async function loadDisruptions() {
             if (!state.currentStation || state.disruptionsLoaded) return;
+            state.disruptionsLoaded = true;
             const panel = $('disruptions-panel');
-            const list = $('disruptions-list');
+            const list  = $('disruptions-list');
             const count = $('disruptions-count');
-            
             try {
-                // Lade Störungen von DB Timetables API (falls verfügbar) und VRR API (falls VRR Quelle)
-                const items = [];
-                const seenTexts = new Set();
-                
-                // 1. DB Timetables API für aktuelle Verkehrslage (z.B. Strecke beeinträchtigt)
-                if (state.currentSource === 'db') {
-                    try {
-                        // EVA-Nummer aus Station ermitteln (wenn vorhanden)
-                        const evaNo = state.currentStation.id || '';
-                        if (evaNo) {
-                            const res = await fetch(`${API_BASE}/api/db/timetable-changes/${encodeURIComponent(evaNo)}`);
-                            if (res.ok) {
-                                const data = await res.json();
-                                (data.messages || []).forEach(m => {
-                                    const text = m.int || m.ext || '';
-                                    if (text && !seenTexts.has(text)) {
-                                        seenTexts.add(text);
-                                        // Prüfe ob es eine Störung oder Info ist
-                                        const isDisruption = m.type === 'r' || m.type === 'd' || 
-                                            text.toLowerCase().includes('beeinträchtigt') ||
-                                            text.toLowerCase().includes('strecke') ||
-                                            text.toLowerCase().includes('sperrung') ||
-                                            text.toLowerCase().includes('störung') ||
-                                            text.toLowerCase().includes('ausfall');
-                                        
-                                        items.push({
-                                            text: text,
-                                            type: isDisruption ? 'disruption' : 'info',
-                                            line: m.cat || null,
-                                            source: 'db'
-                                        });
-                                    }
-                                });
-                            }
-                        }
-                    } catch(e) {}
-                }
-                
-                // 2. VRR Störungen laden (wenn VRR Quelle ausgewählt)
-                if (state.currentSource === 'vrr') {
-                    try {
-                        // Nutze die Abfahrtsdaten um hints/Störungen zu extrahieren
-                        const dateVal = $('query-date').value;
-                        const timeVal = $('query-time').value;
-                        const offset = -new Date().getTimezoneOffset();
-                        const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
-                        
-                        const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
-                        const res = await fetch(url);
-                        if (res.ok) {
-                            const data = await res.json();
-                            const departures = data.departures || [];
-                            
-                            // Sammle alle hints und infos von den Abfahrten
-                            departures.forEach(dep => {
-                                // Hinweise von der Abfahrt selbst
-                                (dep.remarks || []).forEach(r => {
-                                    const text = r.text || '';
-                                    if (text && !seenTexts.has(text)) {
-                                        seenTexts.add(text);
-                                        // Prüfe ob es eine Störung oder Info ist
-                                        const isDisruption = r.type === 'hint' || 
-                                            text.toLowerCase().includes('verspätung') ||
-                                            text.toLowerCase().includes('störung') ||
-                                            text.toLowerCase().includes('ausfall') ||
-                                            text.toLowerCase().includes('entfällt') ||
-                                            text.toLowerCase().includes('umleitung') ||
-                                            text.toLowerCase().includes('sperrung') ||
-                                            text.toLowerCase().includes('beeinträchtigt') ||
-                                            text.toLowerCase().includes('verzögerung') ||
-                                            text.toLowerCase().includes('seV') ||
-                                            text.toLowerCase().includes('ersatzverkehr');
-                                        
-                                        items.push({
-                                            text: text,
-                                            type: isDisruption ? 'disruption' : 'info',
-                                            line: dep.line?.name || null,
-                                            source: 'vrr'
-                                        });
-                                    }
-                                });
-                            });
-                        }
-                    } catch(e) {}
-                }
-                
-                state.disruptionsLoaded = true;
-                if (items.length === 0) {
-                    panel.classList.add('hidden');
-                    return;
-                }
-                
+                const r = await fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(state.currentStation.name)}`);
+                if (!r.ok) return;
+                const { disruptions } = await r.json();
+                if (!disruptions?.length) { panel.classList.add('hidden'); return; }
                 panel.classList.remove('hidden');
-                count.textContent = `(${items.length})`;
-                list.innerHTML = '';
-                
-                items.forEach(d => {
-                    const div = document.createElement('div');
-                    const isDisruption = d.type === 'disruption' || d.type === 'warning';
-                    
-                    if (isDisruption) {
-                        // Rote Störungsmeldung
-                        div.className = 'p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 leading-relaxed';
-                        div.innerHTML = `
-                            <div class="font-bold mb-1 flex items-center gap-2 text-red-400">
-                                <i class="fas fa-exclamation-triangle text-red-500 text-[10px]"></i>
-                                ${d.type === 'disruption' ? 'Störung' : d.type || 'Meldung'}${d.line ? ` · ${d.line}` : ''}
-                            </div>
-                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
-                        `;
-                    } else {
-                        // Weiße Info-Meldung
-                        div.className = 'p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-[11px] text-gray-300 leading-relaxed';
-                        div.innerHTML = `
-                            <div class="font-bold mb-1 flex items-center gap-2 text-gray-400">
-                                <i class="fas fa-info-circle text-gray-500 text-[10px]"></i>
-                                Info${d.line ? ` · ${d.line}` : ''}
-                            </div>
-                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
-                        `;
-                    }
-                    list.appendChild(div);
-                });
-            } catch (e) { 
-                console.error('Disruptions load failed:', e);
-                panel.classList.add('hidden'); 
-            }
+                count.textContent = `${disruptions.length} Meldung${disruptions.length > 1 ? 'en' : ''}`;
+                list.innerHTML = disruptions.map(d => {
+                    const isD = d.type === 'disruption' || (d.priority || 0) >= 80;
+                    const icon = isD ? 'fa-exclamation-triangle text-orange-400' : 'fa-info-circle text-orange-400';
+                    const lineTag = d.line ? `<span class="px-1.5 py-0.5 rounded bg-red-900/50 text-red-300 text-[10px] font-bold italic mr-1">${d.line}</span>` : '';
+                    return `<div class="flex items-start gap-2 text-xs text-orange-200/80 py-1 border-b border-orange-900/30 last:border-0">
+                        <i class="fas ${icon} mt-0.5 shrink-0 text-[11px]"></i>
+                        <span>${lineTag}${d.text}</span>
+                    </div>`;
+                }).join('');
+            } catch(e) { panel.classList.add('hidden'); }
         }
         // ─── Zugnummernsuche ───────────────────────────────────────────────────────────
         const TRANSITOUS_HUBS = [
@@ -1314,7 +1150,7 @@
         async function loadTripDetails(idOrNumber, date) {
             const results = $('trip-search-results');
             const container = $('trip-itinerary-container');
-            const itinerary = $(trip-itinerary-search);
+            const itinerary = $('trip-itinerary-search');
             
             results.innerHTML = `<div class="flex items-center gap-3 py-4"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Fahrtverlauf...</div>`;
             container.classList.remove('hidden');
@@ -1482,3 +1318,4 @@
     </script>
 </body>
 </html>
+               
