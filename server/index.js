@@ -1040,27 +1040,6 @@ app.get('/api/disruptions', async (req, res) => {
             }
         }
 
-        // "Immer gemeldete" Störungen simulieren/ergänzen falls NRW
-        const lowerName = name.toLowerCase();
-        if (lowerName.includes('mönchengladbach') || lowerName.includes('krefeld') || lowerName.includes('viersen') || lowerName.includes('rheydt')) {
-            const commonNrw = [
-                { text: 'Strecke MG - Krefeld beeinträchtigt', line: 'RE42' },
-                { text: 'Reparatur an der Oberleitung', line: 'RB33' },
-                { text: 'Streckensperrung zwischen Viersen und Venlo', line: 'RE13' },
-                { text: 'Verspätung aus vorheriger Fahrt', line: 'S8' }
-            ];
-            commonNrw.forEach(st => {
-                if (!seenTexts.has(st.text)) {
-                    seenTexts.add(st.text);
-                    disruptions.push({
-                        type: 'disruption',
-                        text: st.text,
-                        line: st.line
-                    });
-                }
-            });
-        }
-
         res.json({ disruptions });
     } catch (e) {
         console.error('[Disruptions API]', e.message);
