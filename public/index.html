@@ -840,14 +840,25 @@
                 return o;
             };
 
-            const fmt = (sched, actual) => {
+            // fmt: zeigt Soll+Prognose nur wenn delaySec gesetzt (= Fzg. angemeldet)
+            // isPast: Fahrzeug hat bereits abgefahren/angekommen
+            const fmt = (sched, actual, delaySec, isPast) => {
                 if (!sched) return '';
                 const p = sched.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                if (!actual) return `<span class="text-zinc-400">${p}</span>`;
+                // Keine Echtzeit vorhanden (delaySec === null/undefined) → nur Soll-Zeit grau
+                if (delaySec === null || delaySec === undefined) {
+                    return `<span class="text-zinc-400">${p}</span>`;
+                }
+                const diffMin = Math.round(delaySec / 60);
+                if (diffMin === 0) {
+                    // Pünktlich: Soll klein grau + Echtzeit grün dünn
+                    const weight = isPast ? 'font-semibold' : 'font-normal';
+                    return `<span class="text-zinc-500 text-[9px] mr-0.5">${p}</span><span class="text-green-400 ${weight}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                }
+                // Verspätet: Soll grau klein + Echtzeit rot (dünn wenn Prognose, fett wenn vergangen)
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                const diffMin = Math.round((actual - sched) / 60000);
-                if (diffMin >= 1) return `<span class="line-through text-zinc-600 text-[9px] mr-0.5">${p}</span><span class="text-red-400 font-bold">${a}</span>`;
-                return `<span class="text-zinc-400 text-[9px] mr-0.5">${p}</span><span class="text-green-400 font-bold">${a}</span>`;
+                const weight = isPast ? 'font-semibold' : 'font-normal';
+                return `<span class="text-zinc-500 text-[9px] mr-0.5">${p}</span><span class="text-red-400 ${weight}">${a}</span>`;
             };
 
             const sorted = [...stopovers].sort((a,b) =>
@@ -881,9 +892,9 @@
                 el.style.minHeight = '2.4rem';
                 el.innerHTML = `
                     <div class="w-[5.5rem] shrink-0 flex flex-col justify-center items-end pr-2 text-[10px] mono gap-px leading-tight">
-                        ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr, actualArr)}</div>` : ''}
-                        ${showDep ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep, actualDep)}</div>` : ''}
-                        ${!showArr && !showDep && schedDep ? `<div>${fmt(schedDep, actualDep)}</div>` : ''}
+                        ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr, actualArr, stop.arrivalDelaySec, isPast)}</div>` : ''}
+                        ${showDep ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
+                        ${!showArr && !showDep && schedDep ? `<div>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
                     </div>
                     <div class="flex flex-col items-center w-3 shrink-0">
                         <div class="w-px flex-1" style="background:${isFirst?'transparent':lineColor}"></div>
@@ -1437,4 +1448,3 @@
     </script>
 </body>
 </html>
-                       
