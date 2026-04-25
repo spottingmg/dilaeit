@@ -374,6 +374,37 @@ app.get('/api/db/locations', async (req, res) => {
 
 
 
+// ─── Stationssuche VRR ───────────────────────────────────────────────────────
+
+app.get('/api/stations', async (req, res) => {
+    const q = (req.query.query || '').trim();
+    if (!q) return res.json([]);
+    try {
+        const url = new URL('https://openservice.vrr.de/vrr2/XML_STOPFINDER_REQUEST');
+        url.searchParams.set('outputFormat',    'rapidJSON');
+        url.searchParams.set('type_sf',         'any');
+        url.searchParams.set('name_sf',         q);
+        url.searchParams.set('coordOutputFormat','WGS84[DD.ddddd]');
+        url.searchParams.set('version',         '10.4.18.18');
+        const r = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+        const data = await r.json();
+        const locations = (data.locations || [])
+            .filter(l => l.type === 'stop' || l.type === 'platform')
+            .slice(0, 10)
+            .map(l => ({
+                id:   l.id,
+                name: l.name || l.disassembledName,
+                lat:  l.coord ? l.coord[0] / 1e5 : null,
+                lng:  l.coord ? l.coord[1] / 1e5 : null,
+            }))
+            .filter(l => l.lat && l.lng);
+        res.json(locations);
+    } catch(e) {
+        console.error('[Stations]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
+
 // ─── Abfahrten VRR ───────────────────────────────────────────────────────────
 
 app.get('/api/stops/:stopId/departures', async (req, res) => {
@@ -405,12 +436,12 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 
             const eD = toIsoStringOrNull(ev.departureTimeEstimated);
 
-            // Echtzeit nur wenn Fahrzeug tatsächlich angemeldet UND geschätzte Zeit vorhanden
-            // MONITORED ohne eD = Fahrt bekannt aber noch keine Prognose (z.B. übermorgen, IBIS-Störung)
+            // Echtzeit wenn monitored oder prediction (falls zeitlich plausibel)
             const rtStatus = ev.location?.properties?.realtimeStatus || ev.realtimeStatus || [];
             const rtArr    = Array.isArray(rtStatus) ? rtStatus : [rtStatus];
-            const hasRT    = (rtArr.includes('MONITORED') || rtArr.includes('PREDICTION')) && !!eD;
-            const delaySec = hasRT && eD && pD ? Math.round((new Date(eD) - new Date(pD)) / 1000) : null;
+            const isSoon   = pD && Math.abs(new Date(pD) - new Date()) < 24 * 3600 * 1000;
+            const hasRT    = rtArr.includes('MONITORED') || (rtArr.includes('PREDICTION') && isSoon);
+            const delaySec = hasRT && eD && pD ? Math.round((new Date(eD) - new Date(pD)) / 1000) : (hasRT ? 0 : null);
 
             const lineName = ev.transportation?.number || ev.transportation?.name || ev.transportation?.disassembledName || '?';
 
