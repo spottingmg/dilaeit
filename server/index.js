@@ -374,31 +374,28 @@ app.get('/api/db/locations', async (req, res) => {
 
 
 
-// ─── Stationssuche VRR ───────────────────────────────────────────────────────
+// ─── Stationssuche (Nominatim) ────────────────────────────────────────────────
 
 app.get('/api/stations', async (req, res) => {
     const q = (req.query.query || '').trim();
     if (!q) return res.json([]);
     try {
-        const url = new URL('https://openservice.vrr.de/vrr2/XML_STOPFINDER_REQUEST');
-        url.searchParams.set('outputFormat',    'rapidJSON');
-        url.searchParams.set('type_sf',         'any');
-        url.searchParams.set('name_sf',         q);
-        url.searchParams.set('coordOutputFormat','WGS84[DD.ddddd]');
-        url.searchParams.set('version',         '10.4.18.18');
-        const r = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+        // Direkt Nominatim: schnell, WGS84, keine Koordinaten-Umrechnung nötig
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&accept-language=de&addressdetails=0`;
+        const r = await fetch(url, {
+            headers: { 'User-Agent': 'dilaeit/1.0' },
+            signal: AbortSignal.timeout(6000)
+        });
         const data = await r.json();
-        const locations = (data.locations || [])
-            .filter(l => l.type === 'stop' || l.type === 'platform')
-            .slice(0, 10)
-            .map(l => ({
-                id:   l.id,
-                name: l.name || l.disassembledName,
-                lat:  l.coord ? l.coord[0] / 1e5 : null,
-                lng:  l.coord ? l.coord[1] / 1e5 : null,
-            }))
-            .filter(l => l.lat && l.lng);
-        res.json(locations);
+        const results = data
+            .filter(d => d.lat && d.lon)
+            .map(d => ({
+                id:   d.osm_id,
+                name: d.display_name.split(',').slice(0, 2).join(', '),
+                lat:  parseFloat(d.lat),
+                lng:  parseFloat(d.lon),
+            }));
+        res.json(results);
     } catch(e) {
         console.error('[Stations]', e.message);
         res.status(502).json({ error: e.message });
