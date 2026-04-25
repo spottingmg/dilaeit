@@ -326,17 +326,6 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs text-zinc-500 mono block mb-1">ABF SOLL (OPTIONAL)</label>
-                        <input type="time" id="ci-dep-planned">
-                    </div>
-                    <div>
-                        <label class="text-xs text-zinc-500 mono block mb-1">ANK SOLL (OPTIONAL)</label>
-                        <input type="time" id="ci-arr-planned">
-                    </div>
-                </div>
-
                 <div>
                     <label class="text-xs text-zinc-500 mono block mb-1">BEMERKUNG</label>
                     <input type="text" id="ci-note" placeholder="Optional...">
@@ -470,9 +459,10 @@ input[type=time]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(
 
 <script>
 // ─── DB & State ──────────────────────────────────────────────────────────────
-const DB_NAME = 'dilaeit_stats';
-const STORE   = 'journeys';
-const DB_VER  = 2;
+const DB_NAME   = 'dilaeit_stats';
+const STORE     = 'journeys';
+const SNAPSTORE = 'tripSnapshots';
+const DB_VER    = 3;
 
 let allJourneys = [];
 let currentYear = 'all';
@@ -487,6 +477,10 @@ async function openDB() {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(STORE)) {
                 db.createObjectStore(STORE, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(SNAPSTORE)) {
+                const ss = db.createObjectStore(SNAPSTORE, { keyPath: 'key' });
+                ss.createIndex('date', 'date', { unique: false });
             }
         };
         req.onsuccess = () => res(req.result);
@@ -1365,10 +1359,8 @@ async function saveCheckin() {
     const delayVal    = document.getElementById('ci-delay').value;
     const depDelayVal = document.getElementById('ci-dep-delay').value;
     const kmVal       = document.getElementById('ci-km').value;
-    const depRealEl    = document.getElementById('ci-dep-real');
-    const arrRealEl    = document.getElementById('ci-arr-real');
-    const depPlannedEl = document.getElementById('ci-dep-planned');
-    const arrPlannedEl = document.getElementById('ci-arr-planned');
+    const depRealEl   = document.getElementById('ci-dep-real');
+    const arrRealEl   = document.getElementById('ci-arr-real');
 
     const getCoords = (prefix) => {
         const la = parseFloat(document.getElementById(`${prefix}-lat`)?.value);
@@ -1385,10 +1377,8 @@ async function saveCheckin() {
         delay:      delayVal    !== '' ? Number(delayVal)    : null,
         depDelay:   depDelayVal !== '' ? Number(depDelayVal) : null,
         km:         kmVal       !== '' ? Number(kmVal)       : null,
-        depReal:    depRealEl?.value    || null,
-        arrReal:    arrRealEl?.value    || null,
-        depPlanned: depPlannedEl?.value || time || null,
-        arrPlanned: arrPlannedEl?.value || null,
+        depReal:    depRealEl?.value  || null,
+        arrReal:    arrRealEl?.value  || null,
         depManual:  depRealEl?.getAttribute('data-manual') === 'true',
         arrManual:  arrRealEl?.getAttribute('data-manual') === 'true',
         note:  document.getElementById('ci-note').value.trim() || null,
@@ -1401,7 +1391,7 @@ async function saveCheckin() {
     updateAll();
     closeCheckin();
 
-    ['ci-line','ci-from','ci-to','ci-dep-real','ci-arr-real','ci-dep-planned','ci-arr-planned','ci-delay','ci-dep-delay','ci-km','ci-note',
+    ['ci-line','ci-from','ci-to','ci-dep-real','ci-arr-real','ci-delay','ci-dep-delay','ci-km','ci-note',
      'ci-from-id','ci-from-lat','ci-from-lon','ci-to-id','ci-to-lat','ci-to-lon']
         .forEach(id => { const el = document.getElementById(id); if (el) { el.value = ''; el.removeAttribute('data-manual'); } });
 }
