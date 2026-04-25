@@ -266,7 +266,7 @@
                         <span id="trip-source-display">QUELLE: --</span>
                     </div>
                 </div>
-                <div id="trip-itinerary" class="space-y-0 relative"></div>
+                <div id="trip-itinerary-search" class="space-y-0 relative"></div>
             </div>
         </div>
 
@@ -310,7 +310,19 @@
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
-      
+        <!-- Störungsmeldungen -->
+        <div id="disruptions-panel" class="hidden mt-4 rounded-2xl border border-orange-800/50 bg-orange-950/30 overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none" onclick="toggleDisruptions()">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                    <span class="text-xs font-bold uppercase tracking-wider text-orange-300">Störungsmeldungen</span>
+                    <span id="disruptions-count" class="text-[10px] text-orange-600 mono"></span>
+                </div>
+                <i id="disruptions-chevron" class="fas fa-chevron-down text-[10px] text-orange-600 transition-transform duration-200" style="transform:rotate(180deg)"></i>
+            </div>
+            <div id="disruptions-list" class="px-4 pb-3 space-y-2"></div>
+        </div>
+
             <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
                 <div>
                     <h2 id="station-display-name" class="text-2xl font-bold tracking-tight"></h2>
@@ -834,9 +846,7 @@
                 if (!actual) return `<span class="text-zinc-400">${p}</span>`;
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
                 const diffMin = Math.round((actual - sched) / 60000);
-                const late = diffMin >= 1;
-                const earlyOrOnTime = diffMin <= 0;
-                if (late) return `<span class="line-through text-zinc-600 text-[9px] mr-0.5">${p}</span><span class="text-red-400 font-bold">${a}</span>`;
+                if (diffMin >= 1) return `<span class="line-through text-zinc-600 text-[9px] mr-0.5">${p}</span><span class="text-red-400 font-bold">${a}</span>`;
                 return `<span class="text-zinc-400 text-[9px] mr-0.5">${p}</span><span class="text-green-400 font-bold">${a}</span>`;
             };
 
@@ -847,32 +857,28 @@
             sorted.forEach((stop, idx) => {
                 const isFirst = idx === 0;
                 const isLast  = idx === sorted.length - 1;
-                const schedArr = stop.plannedArrival  ? new Date(stop.plannedArrival)  : null;
-                const actualArr= stop.arrival         ? new Date(stop.arrival)         : null;
-                const schedDep = stop.plannedDeparture? new Date(stop.plannedDeparture): null;
-                const actualDep= stop.departure       ? new Date(stop.departure)       : null;
-                const cancelled = stop.cancelled;
+                const schedArr = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
+                const actualArr= stop.arrival          ? new Date(stop.arrival)          : null;
+                const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const actualDep= stop.departure        ? new Date(stop.departure)        : null;
+                const cancelled  = stop.cancelled;
                 const additional = stop.additional;
                 const isPast = (actualDep||actualArr) ? (actualDep||actualArr) < now : false;
 
-                // Platf
-                const platPlan = stop.plannedPlatform || null;
-                const platReal = stop.platform || null;
+                const platPlan    = stop.plannedPlatform || null;
+                const platReal    = stop.platform        || null;
                 const platChanged = platReal && platPlan && platReal !== platPlan;
-                const platStr = platReal || platPlan;
+                const platStr     = platReal || platPlan;
 
-                // Farbe der Linie
                 const lineColor = cancelled ? '#3f3f46' : isPast ? '#52525b' : '#ef4444';
                 const dotColor  = cancelled ? '#3f3f46' : additional ? '#22c55e' : isPast ? '#52525b' : '#ef4444';
+
+                const showArr = !isFirst && schedArr;
+                const showDep = !isLast  && schedDep;
 
                 const el = document.createElement('div');
                 el.className = `flex items-stretch gap-0 ${cancelled ? 'opacity-40' : ''}`;
                 el.style.minHeight = '2.4rem';
-
-                // Zeitblock links – kompakt: nur AN wenn nicht erste, nur AB wenn nicht letzte
-                const showArr = !isFirst && schedArr;
-                const showDep = !isLast  && schedDep;
-
                 el.innerHTML = `
                     <div class="w-[5.5rem] shrink-0 flex flex-col justify-center items-end pr-2 text-[10px] mono gap-px leading-tight">
                         ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr, actualArr)}</div>` : ''}
@@ -880,15 +886,15 @@
                         ${!showArr && !showDep && schedDep ? `<div>${fmt(schedDep, actualDep)}</div>` : ''}
                     </div>
                     <div class="flex flex-col items-center w-3 shrink-0">
-                        <div class="w-px flex-1" style="background:${isFirst ? 'transparent' : lineColor}"></div>
+                        <div class="w-px flex-1" style="background:${isFirst?'transparent':lineColor}"></div>
                         <div class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${dotColor};border:2px solid #09090b"></div>
-                        <div class="w-px flex-1" style="background:${isLast ? 'transparent' : lineColor}"></div>
+                        <div class="w-px flex-1" style="background:${isLast?'transparent':lineColor}"></div>
                     </div>
                     <div class="flex-1 pl-2 flex flex-col justify-center py-1">
                         <div class="flex items-center gap-2 flex-wrap">
-                            <span class="text-sm font-semibold ${cancelled ? 'line-through text-zinc-500' : additional ? 'text-green-400' : 'text-white'} leading-tight">${stop.stop.name}</span>
+                            <span class="text-sm font-semibold leading-tight ${cancelled ? 'line-through text-zinc-500' : additional ? 'text-green-400' : 'text-white'}">${stop.stop.name}</span>
                             ${platStr ? `<span class="text-[9px] mono ${platChanged ? 'text-orange-400 font-bold' : 'text-zinc-600'}">${platChanged ? `Gl.${platPlan}→${platReal}` : `Gl.${platStr}`}</span>` : ''}
-                            ${cancelled ? '<span class="text-[9px] text-red-500 font-bold uppercase">Entfällt</span>' : ''}
+                            ${cancelled  ? '<span class="text-[9px] text-red-500 font-bold uppercase">Entfällt</span>' : ''}
                             ${additional ? '<span class="text-[9px] text-green-500 font-bold uppercase">Zusatzhalt</span>' : ''}
                         </div>
                         ${(stop.remarks||[]).map(r => {
@@ -900,13 +906,11 @@
                 container.appendChild(el);
             });
 
-            // Globale Remarks (Störungen/Hinweise)
+            // Globale Remarks
             const globalRemarks = [...tripRemarks];
-            // Duplikate mit Stop-Remarks entfernen
             stopovers.forEach(s => (s.remarks||[]).forEach(r => {
                 if (r.type !== 'timetable' && !globalRemarks.find(e => e.text === r.text)) globalRemarks.push(r);
             }));
-
             if (globalRemarks.length) {
                 const remDiv = document.createElement('div');
                 remDiv.className = 'mt-3 pt-3 border-t border-zinc-800 space-y-1.5';
@@ -1265,7 +1269,7 @@
         async function loadTripDetails(idOrNumber, date) {
             const results = $('trip-search-results');
             const container = $('trip-itinerary-container');
-            const itinerary = $('trip-itinerary');
+            const itinerary = $('trip-itinerary-search');
             
             results.innerHTML = `<div class="flex items-center gap-3 py-4"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Fahrtverlauf...</div>`;
             container.classList.remove('hidden');
@@ -1352,7 +1356,7 @@
         }
 
         function renderTripItinerary(stopovers, tripRemarks = []) {
-            const container = $('trip-itinerary');
+            const container = $('trip-itinerary-search');
             container.innerHTML = '';
             
             const now = Date.now();
@@ -1433,4 +1437,4 @@
     </script>
 </body>
 </html>
-                        
+                       
