@@ -433,12 +433,17 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
 
             const eD = toIsoStringOrNull(ev.departureTimeEstimated);
 
-            // Echtzeit wenn monitored oder prediction (falls zeitlich plausibel)
+            // Echtzeit nur wenn MONITORED UND geschätzte Zeit vorhanden
             const rtStatus = ev.location?.properties?.realtimeStatus || ev.realtimeStatus || [];
             const rtArr    = Array.isArray(rtStatus) ? rtStatus : [rtStatus];
-            const isSoon   = pD && Math.abs(new Date(pD) - new Date()) < 24 * 3600 * 1000;
-            const hasRT    = rtArr.includes('MONITORED') || (rtArr.includes('PREDICTION') && isSoon);
-            const delaySec = hasRT && eD && pD ? Math.round((new Date(eD) - new Date(pD)) / 1000) : (hasRT ? 0 : null);
+            const hasRT    = (rtArr.includes('MONITORED') || rtArr.includes('PREDICTION')) && !!eD;
+
+            let delaySec = null;
+            if (hasRT && eD && pD) {
+                const raw = Math.round((new Date(eD) - new Date(pD)) / 1000);
+                // Plausibilitätsprüfung: max ±2h (7200s), sonst Datumsfehler (Mitternacht)
+                delaySec = (Math.abs(raw) <= 7200) ? raw : null;
+            }
 
             const lineName = ev.transportation?.number || ev.transportation?.name || ev.transportation?.disassembledName || '?';
 
@@ -697,15 +702,35 @@ app.get('/api/trips/:tripId', async (req, res) => {
 
             return res.status(400).json({ error: 'tripId missing fields' });
 
-        const params = {
-            outputFormat: 'rapidJSON', version: EFA_VERSION,
-            mode: 'direct', line, stopID, itdDate: date, itdTime: time,
-            tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
+        const buildParams = (d) => {
+            const p = {
+                outputFormat: 'rapidJSON', version: EFA_VERSION,
+                mode: 'direct', line, stopID, itdDate: d, itdTime: time,
+                tStOTType: 'ALL', useRealtime: 1, itdDateTimeDepArr: 'dep'
+            };
+            if (tripCode && tripCode !== 'null' && tripCode !== 'undefined') p.tripCode = tripCode;
+            return p;
         };
-        // tripCode nur senden wenn vorhanden, manche EFA Versionen mögen '0' nicht
-        if (tripCode && tripCode !== 'null' && tripCode !== 'undefined') params.tripCode = tripCode;
 
-        const data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', params);
+        let data = await efaGet('XML_TRIPSTOPTIMES_REQUEST', buildParams(date));
+
+        // Falls keine RT-Daten: nochmal mit UTC-Datum versuchen (Mitternacht-Problem)
+        // Lokales Datum kann +1 sein gegenüber UTC-Datum das VRR intern nutzt
+        const hasAnyRT = (data.transportation?.locationSequence || [])
+            .some(s => s.arrivalTimeEstimated || s.departureTimeEstimated);
+
+        if (!hasAnyRT) {
+            // Berechne das UTC-Datum aus date+time (time ist lokal HHmm)
+            const [h, m] = [parseInt(time.slice(0,2)), parseInt(time.slice(2,4))];
+            const localDt = new Date(`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00+02:00`);
+            const utcDate = toYyyymmddUtc(localDt.toISOString());
+            if (utcDate !== date) {
+                const retryData = await efaGet('XML_TRIPSTOPTIMES_REQUEST', buildParams(utcDate));
+                const retryHasRT = (retryData.transportation?.locationSequence || [])
+                    .some(s => s.arrivalTimeEstimated || s.departureTimeEstimated);
+                if (retryHasRT) data = retryData;
+            }
+        }
 
         const seq = data.transportation?.locationSequence || [];
         const tripRemarks = [];
