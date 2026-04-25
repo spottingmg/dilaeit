@@ -779,13 +779,10 @@ async function saveEdit() {
     if (typeof pushToServer === 'function') pushToServer();
 }
 
-// ─── Geocoding via Nominatim ─────────────────────────────────────────────────
+// ─── Geocoding ────────────────────────────────────────────────────────────────
 async function geocodeStation(name) {
     try {
-        const q = encodeURIComponent(name + ' Bahnhof');
-        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`, {
-            headers: { 'Accept-Language': 'de' }
-        });
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&limit=1&accept-language=de`);
         const d = await r.json();
         if (d.length) return [parseFloat(d[0].lat), parseFloat(d[0].lon)];
     } catch(e) {}
@@ -793,60 +790,69 @@ async function geocodeStation(name) {
 }
 
 // ─── Trip Details Modal ────────────────────────────────────────────────────────
-let _tdmMap = null;
-let _tdmCurrentId = null;
+let _tdmMapInstance = null;
+let _tdmCurrentId   = null;
+let _tdmMapEl       = null;
+
+function _ensureTdmModal() {
+    if (document.getElementById('trip-detail-modal')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+    <div id="trip-detail-modal" class="fixed inset-0 z-[1100] bg-black/80 backdrop-blur hidden items-center justify-center p-4">
+        <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950 z-10">
+                <div><div class="font-black text-white text-base" id="tdm-line">—</div><div class="text-xs text-zinc-500" id="tdm-route">—</div></div>
+                <div class="flex items-center gap-2">
+                    <button onclick="openWaypointEditor()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-800" title="Zwischenhalte"><i class="fas fa-pencil-alt text-xs"></i></button>
+                    <button onclick="closeTripDetailModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            <div class="px-5 py-4 space-y-4">
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono text-white" id="tdm-time">--:--</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Abfahrt</div></div>
+                    <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono text-white" id="tdm-arr">--:--</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Ankunft</div></div>
+                    <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono" id="tdm-delay">+0'</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Verspätung</div></div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-base font-black text-white" id="tdm-km">—</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Distanz</div></div>
+                    <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-sm font-black text-white" id="tdm-date">—</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Datum</div></div>
+                </div>
+                <div id="tdm-map" style="height:280px;border-radius:12px;overflow:hidden;background:#18181b;"></div>
+                <div id="tdm-note" class="hidden text-xs text-zinc-400 italic bg-zinc-900 p-3 rounded-xl border border-zinc-800"></div>
+            </div>
+        </div>
+    </div>
+    <div id="waypoint-modal" class="fixed inset-0 z-[1200] bg-black/85 backdrop-blur hidden items-center justify-center p-4">
+        <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900">
+                <div class="font-black text-white text-sm">Zwischenhalte</div>
+                <button onclick="closeWaypointEditor()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+                <div id="waypoint-list" class="space-y-2 max-h-40 overflow-y-auto"></div>
+                <div class="space-y-2">
+                    <div class="flex gap-2">
+                        <input id="wp-station-search" type="text" placeholder="Stationsname suchen…" class="flex-1 text-xs">
+                        <button onclick="searchWpStation()" class="shrink-0 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-xs rounded-lg text-white">Suchen</button>
+                    </div>
+                    <div id="wp-search-results" class="space-y-1 max-h-32 overflow-y-auto hidden"></div>
+                    <div class="flex gap-2 items-center">
+                        <div class="text-[10px] text-zinc-600">oder manuell:</div>
+                        <input id="wp-name" type="text" placeholder="Name" class="flex-1 text-xs">
+                        <input id="wp-coords" type="text" placeholder="lat,lng" class="w-24 text-xs mono">
+                    </div>
+                </div>
+                <button onclick="addWaypointManual()" class="w-full bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold py-2 rounded-xl">+ Manuell hinzufügen</button>
+                <button onclick="saveWaypoints()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 rounded-xl">Speichern & Karte</button>
+            </div>
+        </div>
+    </div>`);
+}
 
 function openTripDetails(id) {
     _tdmCurrentId = id;
+    _ensureTdmModal();
     const j = allJourneys.find(x => x.id === id);
     if (!j) return;
-
-    if (!document.getElementById('trip-detail-modal')) {
-        document.body.insertAdjacentHTML('beforeend', `
-        <div id="trip-detail-modal" class="fixed inset-0 z-[1100] bg-black/80 backdrop-blur hidden items-center justify-center p-4">
-            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
-                <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950 z-10">
-                    <div><div class="font-black text-white text-base" id="tdm-line">—</div><div class="text-xs text-zinc-500" id="tdm-route">—</div></div>
-                    <div class="flex items-center gap-2">
-                        <button onclick="openWaypointEditor()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-800" title="Zwischenhalte bearbeiten"><i class="fas fa-pencil-alt text-xs"></i></button>
-                        <button onclick="closeTripDetailModal()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
-                    </div>
-                </div>
-                <div class="px-5 py-4 space-y-4">
-                    <div class="grid grid-cols-3 gap-3">
-                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono text-white" id="tdm-time">--:--</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Abfahrt</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono text-white" id="tdm-arr">--:--</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Ankunft</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-lg font-black mono" id="tdm-delay">+0'</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Verspätung</div></div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-base font-black text-white" id="tdm-km">—</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Distanz</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-3 text-center"><div class="text-sm font-black text-white" id="tdm-date">—</div><div class="text-[10px] text-zinc-500 uppercase mt-0.5">Datum</div></div>
-                    </div>
-                    <div id="tdm-map" style="height:280px;border-radius:12px;overflow:hidden;background:#111;"></div>
-                    <div id="tdm-note" class="hidden text-xs text-zinc-400 italic bg-zinc-900 p-3 rounded-xl border border-zinc-800"></div>
-                </div>
-            </div>
-        </div>
-        <!-- Waypoint Editor -->
-        <div id="waypoint-modal" class="fixed inset-0 z-[1200] bg-black/85 backdrop-blur hidden items-center justify-center p-4">
-            <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm">
-                <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900">
-                    <div class="font-black text-white text-sm">Zwischenhalte</div>
-                    <button onclick="closeWaypointEditor()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="px-5 py-4 space-y-3">
-                    <div class="text-xs text-zinc-500">Format: <span class="mono text-zinc-400">lat,lng</span> – z.B. <span class="mono text-zinc-400">51.2345,6.4321</span></div>
-                    <div id="waypoint-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
-                    <div class="flex gap-2">
-                        <input id="wp-name" type="text" placeholder="Name (optional)" class="flex-1 text-xs">
-                        <input id="wp-coords" type="text" placeholder="lat,lng" class="w-28 text-xs mono">
-                    </div>
-                    <button onclick="addWaypoint()" class="w-full bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold py-2 rounded-xl">+ Halt hinzufügen</button>
-                    <button onclick="saveWaypoints()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 rounded-xl">Speichern & Karte</button>
-                </div>
-            </div>
-        </div>`);
-    }
 
     document.getElementById('tdm-line').textContent  = j.line || '—';
     document.getElementById('tdm-route').textContent = `${j.from||'—'} → ${j.to||'—'}`;
@@ -864,86 +870,118 @@ function openTripDetails(id) {
     const modal = document.getElementById('trip-detail-modal');
     modal.classList.remove('hidden'); modal.classList.add('flex');
 
-    setTimeout(() => renderTdmMap(j), 150);
+    // Karte mit kleinem Delay laden damit das Modal sichtbar ist
+    requestAnimationFrame(() => setTimeout(() => _loadTdmMap(j), 80));
 }
 
-async function renderTdmMap(j) {
+async function _loadTdmMap(j) {
     const mapEl = document.getElementById('tdm-map');
-    mapEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#6b7280;font-size:13px"><i class="fas fa-circle-notch fa-spin mr-2"></i>Lade Karte…</div>';
+    if (!mapEl) return;
 
-    // Koordinaten geocoden falls fehlend
+    // Geocode fehlende Koordinaten automatisch
     if (!j.fromCoords && j.from) {
         const ll = await geocodeStation(j.from);
-        if (ll) { j.fromCoords = ll; await saveJourney(j); }
+        if (ll) { j.fromCoords = ll; saveJourney(j); }
     }
     if (!j.toCoords && j.to) {
         const ll = await geocodeStation(j.to);
-        if (ll) { j.toCoords = ll; await saveJourney(j); }
+        if (ll) { j.toCoords = ll; saveJourney(j); }
     }
 
-    mapEl.innerHTML = '';
-    if (!_tdmMap) {
-        _tdmMap = L.map(mapEl, { zoomControl:true });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:18 }).addTo(_tdmMap);
-    } else {
-        _tdmMap.eachLayer(l => { if (!(l instanceof L.TileLayer)) _tdmMap.removeLayer(l); });
+    // Karte neu erstellen wenn nötig (z.B. nach Modal-Schließen)
+    if (_tdmMapInstance) {
+        try { _tdmMapInstance.remove(); } catch(e) {}
+        _tdmMapInstance = null;
     }
+    mapEl.innerHTML = '';
+
+    _tdmMapInstance = L.map(mapEl, { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 18
+    }).addTo(_tdmMapInstance);
 
     const greenIcon = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#22c55e;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
     const redIcon   = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#ef4444;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
+    const midIcon   = L.divIcon({ className:'', html:'<div style="width:8px;height:8px;background:#6b7280;border-radius:50%;border:1.5px solid white"></div>', iconAnchor:[4,4] });
 
-    const fromLL = j.fromCoords ? (Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0],j.fromCoords[1]]) : null;
-    const toLL   = j.toCoords   ? (Array.isArray(j.toCoords)   ? j.toCoords   : [j.toCoords[0],  j.toCoords[1]])   : null;
-    const waypoints = j.waypoints || [];
+    const fromLL = j.fromCoords ? (Array.isArray(j.fromCoords)?j.fromCoords:[j.fromCoords[0],j.fromCoords[1]]) : null;
+    const toLL   = j.toCoords   ? (Array.isArray(j.toCoords)  ?j.toCoords  :[j.toCoords[0],  j.toCoords[1]])   : null;
+    const wps    = j.waypoints  || [];
 
-    const allPoints = [];
-    if (fromLL) allPoints.push({ ll: fromLL, label: j.from, type: 'from' });
-    waypoints.forEach(wp => allPoints.push({ ll: [wp.lat, wp.lng], label: wp.name||'', type: 'mid' }));
-    if (toLL) allPoints.push({ ll: toLL, label: j.to, type: 'to' });
+    const pts = [];
+    if (fromLL) pts.push({ ll: fromLL, label: j.from, icon: greenIcon });
+    wps.forEach(wp => pts.push({ ll: [wp.lat, wp.lng], label: wp.name||'', icon: midIcon }));
+    if (toLL)   pts.push({ ll: toLL,   label: j.to,   icon: redIcon   });
 
-    if (allPoints.length >= 2) {
-        L.polyline(allPoints.map(p=>p.ll), { color:'#ef4444', weight:3, opacity:0.75 }).addTo(_tdmMap);
-    } else if (fromLL && toLL) {
-        L.polyline([fromLL, toLL], { color:'#ef4444', weight:2, opacity:0.5, dashArray:'6,4' }).addTo(_tdmMap);
-    }
+    if (pts.length >= 2) L.polyline(pts.map(p=>p.ll), { color:'#ef4444', weight:3, opacity:0.75 }).addTo(_tdmMapInstance);
+    else if (fromLL && toLL) L.polyline([fromLL,toLL], { color:'#ef4444', weight:2, opacity:0.5, dashArray:'6,4' }).addTo(_tdmMapInstance);
 
-    allPoints.forEach(p => {
-        const icon = p.type==='from' ? greenIcon : p.type==='to' ? redIcon
-            : L.divIcon({className:'',html:'<div style="width:8px;height:8px;background:#6b7280;border-radius:50%;border:1.5px solid white"></div>',iconAnchor:[4,4]});
-        L.marker(p.ll, { icon }).addTo(_tdmMap).bindPopup(`<b>${p.label}</b>`);
-    });
+    pts.forEach(p => L.marker(p.ll, { icon: p.icon }).addTo(_tdmMapInstance).bindPopup(`<b>${p.label}</b>`));
 
-    const bounds = allPoints.map(p=>p.ll);
-    if (bounds.length) _tdmMap.fitBounds(bounds, { padding:[40,40] });
-    else mapEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#4b5563;font-size:13px">Keine Koordinaten gefunden</div>';
-    _tdmMap.invalidateSize();
+    if (pts.length) _tdmMapInstance.fitBounds(pts.map(p=>p.ll), { padding:[40,40] });
+    setTimeout(() => { if (_tdmMapInstance) _tdmMapInstance.invalidateSize(); }, 200);
 }
 
+// ─── Waypoint Editor ──────────────────────────────────────────────────────────
 function openWaypointEditor() {
-    const j = allJourneys.find(x => x.id === _tdmCurrentId);
+    const j = allJourneys.find(x=>x.id===_tdmCurrentId);
     if (!j) return;
-    renderWaypointList(j.waypoints || []);
-    const m = document.getElementById('waypoint-modal');
-    m.classList.remove('hidden'); m.classList.add('flex');
+    _renderWpList(j.waypoints||[]);
+    document.getElementById('wp-search-results').classList.add('hidden');
+    document.getElementById('wp-station-search').value = '';
+    document.getElementById('waypoint-modal').classList.remove('hidden');
+    document.getElementById('waypoint-modal').classList.add('flex');
 }
 function closeWaypointEditor() {
     document.getElementById('waypoint-modal').classList.add('hidden');
     document.getElementById('waypoint-modal').classList.remove('flex');
 }
-function renderWaypointList(wps) {
+function _renderWpList(wps) {
     const list = document.getElementById('waypoint-list');
     if (!wps.length) { list.innerHTML = '<div class="text-xs text-zinc-600 text-center py-2">Keine Zwischenhalte</div>'; return; }
     list.innerHTML = wps.map((wp,i) => `
         <div class="flex items-center gap-2 bg-zinc-900 rounded-lg px-3 py-2">
             <div class="flex-1"><div class="text-xs font-semibold text-white">${wp.name||'—'}</div><div class="text-[10px] mono text-zinc-500">${wp.lat}, ${wp.lng}</div></div>
-            <button onclick="removeWaypoint(${i})" class="text-zinc-600 hover:text-red-500 p-1"><i class="fas fa-times text-xs"></i></button>
+            <button onclick="_removeWp(${i})" class="text-zinc-600 hover:text-red-500 p-1"><i class="fas fa-times text-xs"></i></button>
         </div>`).join('');
 }
-function addWaypoint() {
-    const name = document.getElementById('wp-name').value.trim();
+async function searchWpStation() {
+    const q = document.getElementById('wp-station-search').value.trim();
+    if (!q) return;
+    const res = document.getElementById('wp-search-results');
+    res.innerHTML = '<div class="text-xs text-zinc-600 py-1 px-2"><i class="fas fa-circle-notch fa-spin mr-1"></i>Suche…</div>';
+    res.classList.remove('hidden');
+    try {
+        const r = await fetch(`/api/stations?query=${encodeURIComponent(q)}`);
+        const d = await r.json();
+        const stations = d.locations || d.stops || d;
+        if (!Array.isArray(stations) || !stations.length) {
+            res.innerHTML = '<div class="text-xs text-zinc-600 py-1 px-2">Keine Ergebnisse</div>'; return;
+        }
+        res.innerHTML = stations.slice(0,8).map(s => {
+            const lat = s.latitude  || s.lat || s.coord?.[1] || s.location?.latitude;
+            const lng = s.longitude || s.lng || s.coord?.[0] || s.location?.longitude;
+            if (!lat || !lng) return '';
+            const name = s.name || s.disassembledName || '?';
+            return `<button onclick="_addWpFromSearch('${name.replace(/'/g,"\\'")}',${lat},${lng})"
+                class="w-full text-left px-3 py-2 text-xs rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white">${name}</button>`;
+        }).filter(Boolean).join('');
+    } catch(e) { res.innerHTML = `<div class="text-xs text-red-400 py-1 px-2">${e.message}</div>`; }
+}
+function _addWpFromSearch(name, lat, lng) {
+    const j = allJourneys.find(x=>x.id===_tdmCurrentId);
+    if (!j) return;
+    if (!j.waypoints) j.waypoints = [];
+    j.waypoints.push({ name, lat, lng });
+    _renderWpList(j.waypoints);
+    document.getElementById('wp-search-results').classList.add('hidden');
+    document.getElementById('wp-station-search').value = '';
+}
+function addWaypointManual() {
+    const name   = document.getElementById('wp-name').value.trim();
     const coords = document.getElementById('wp-coords').value.trim();
     if (!coords) return;
-    const parts = coords.split(',').map(s=>parseFloat(s.trim()));
+    const parts  = coords.split(',').map(s=>parseFloat(s.trim()));
     if (parts.length!==2||isNaN(parts[0])||isNaN(parts[1])) { alert('Format: lat,lng'); return; }
     const j = allJourneys.find(x=>x.id===_tdmCurrentId);
     if (!j) return;
@@ -951,20 +989,20 @@ function addWaypoint() {
     j.waypoints.push({ name: name||`Halt ${j.waypoints.length+1}`, lat: parts[0], lng: parts[1] });
     document.getElementById('wp-name').value='';
     document.getElementById('wp-coords').value='';
-    renderWaypointList(j.waypoints);
+    _renderWpList(j.waypoints);
 }
-function removeWaypoint(idx) {
+function _removeWp(idx) {
     const j = allJourneys.find(x=>x.id===_tdmCurrentId);
     if (!j||!j.waypoints) return;
     j.waypoints.splice(idx,1);
-    renderWaypointList(j.waypoints);
+    _renderWpList(j.waypoints);
 }
 async function saveWaypoints() {
     const j = allJourneys.find(x=>x.id===_tdmCurrentId);
     if (!j) return;
     await saveJourney(j);
     closeWaypointEditor();
-    renderTdmMap(j);
+    _loadTdmMap(j);
 }
 function closeTripDetailModal() {
     const m = document.getElementById('trip-detail-modal');
