@@ -620,10 +620,10 @@ function renderList(data) {
         const dStr = new Date(j.date).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
         const delayColor = (j.delay || 0) >= 5 ? 'text-red-500' : (j.delay || 0) >= 1 ? 'text-yellow-500' : 'text-green-500';
 
-        const depPlanned = j.time       || null;
-        const depReal    = j.depReal    || null;
+        const depPlanned = j.time || null;
+        const depReal    = j.depReal || null;
         const arrPlanned = j.arrPlanned || j.arrivePlanned || null;
-        const arrReal    = j.arrReal    || null;
+        const arrReal    = j.arrReal || null;
         const isDepLate  = depReal && depPlanned && depReal !== depPlanned;
         const isArrLate  = arrReal && arrPlanned && arrReal !== arrPlanned;
         const depMA = j.depManual ? ' style="border-bottom:1px dashed #f97316;cursor:help" title="Zeit manuell überschrieben."' : '';
@@ -779,6 +779,19 @@ async function saveEdit() {
     if (typeof pushToServer === 'function') pushToServer();
 }
 
+// ─── Geocoding via Nominatim ─────────────────────────────────────────────────
+async function geocodeStation(name) {
+    try {
+        const q = encodeURIComponent(name + ' Bahnhof');
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`, {
+            headers: { 'Accept-Language': 'de' }
+        });
+        const d = await r.json();
+        if (d.length) return [parseFloat(d[0].lat), parseFloat(d[0].lon)];
+    } catch(e) {}
+    return null;
+}
+
 // ─── Trip Details Modal ────────────────────────────────────────────────────────
 let _tdmMap = null;
 let _tdmCurrentId = null;
@@ -814,7 +827,7 @@ function openTripDetails(id) {
                 </div>
             </div>
         </div>
-        <!-- Waypoint Editor Modal -->
+        <!-- Waypoint Editor -->
         <div id="waypoint-modal" class="fixed inset-0 z-[1200] bg-black/85 backdrop-blur hidden items-center justify-center p-4">
             <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm">
                 <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900">
@@ -822,14 +835,14 @@ function openTripDetails(id) {
                     <button onclick="closeWaypointEditor()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
                 </div>
                 <div class="px-5 py-4 space-y-3">
-                    <div class="text-xs text-zinc-500">Füge Halte mit Koordinaten hinzu. Format: <span class="mono text-zinc-400">lat,lng</span> oder Haltestellenname suchen.</div>
+                    <div class="text-xs text-zinc-500">Format: <span class="mono text-zinc-400">lat,lng</span> – z.B. <span class="mono text-zinc-400">51.2345,6.4321</span></div>
                     <div id="waypoint-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
                     <div class="flex gap-2">
                         <input id="wp-name" type="text" placeholder="Name (optional)" class="flex-1 text-xs">
                         <input id="wp-coords" type="text" placeholder="lat,lng" class="w-28 text-xs mono">
                     </div>
-                    <button onclick="addWaypoint()" class="w-full bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold py-2 rounded-xl transition-colors">+ Halt hinzufügen</button>
-                    <button onclick="saveWaypoints()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 rounded-xl transition-colors">Speichern & Karte aktualisieren</button>
+                    <button onclick="addWaypoint()" class="w-full bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold py-2 rounded-xl">+ Halt hinzufügen</button>
+                    <button onclick="saveWaypoints()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 rounded-xl">Speichern & Karte</button>
                 </div>
             </div>
         </div>`);
@@ -840,7 +853,7 @@ function openTripDetails(id) {
     document.getElementById('tdm-date').textContent  = j.date ? new Date(j.date+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
     document.getElementById('tdm-km').textContent    = j.km ? `${j.km} km` : '—';
     document.getElementById('tdm-time').textContent  = j.depReal || j.time || '--:--';
-    document.getElementById('tdm-arr').textContent   = j.arrReal || '--:--';
+    document.getElementById('tdm-arr').textContent   = j.arrReal || j.arrPlanned || '--:--';
     const delay = j.delay || 0;
     const de = document.getElementById('tdm-delay');
     de.textContent = (delay>0?'+':'')+delay+"'";
@@ -854,8 +867,21 @@ function openTripDetails(id) {
     setTimeout(() => renderTdmMap(j), 150);
 }
 
-function renderTdmMap(j) {
+async function renderTdmMap(j) {
     const mapEl = document.getElementById('tdm-map');
+    mapEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#6b7280;font-size:13px"><i class="fas fa-circle-notch fa-spin mr-2"></i>Lade Karte…</div>';
+
+    // Koordinaten geocoden falls fehlend
+    if (!j.fromCoords && j.from) {
+        const ll = await geocodeStation(j.from);
+        if (ll) { j.fromCoords = ll; await saveJourney(j); }
+    }
+    if (!j.toCoords && j.to) {
+        const ll = await geocodeStation(j.to);
+        if (ll) { j.toCoords = ll; await saveJourney(j); }
+    }
+
+    mapEl.innerHTML = '';
     if (!_tdmMap) {
         _tdmMap = L.map(mapEl, { zoomControl:true });
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:18 }).addTo(_tdmMap);
@@ -865,32 +891,31 @@ function renderTdmMap(j) {
 
     const greenIcon = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#22c55e;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
     const redIcon   = L.divIcon({ className:'', html:'<div style="width:14px;height:14px;background:#ef4444;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>', iconAnchor:[7,7] });
-    const midIcon   = (bg) => L.divIcon({ className:'', html:`<div style="width:8px;height:8px;background:${bg};border-radius:50%;border:1.5px solid white;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`, iconAnchor:[4,4] });
 
     const fromLL = j.fromCoords ? (Array.isArray(j.fromCoords) ? j.fromCoords : [j.fromCoords[0],j.fromCoords[1]]) : null;
     const toLL   = j.toCoords   ? (Array.isArray(j.toCoords)   ? j.toCoords   : [j.toCoords[0],  j.toCoords[1]])   : null;
+    const waypoints = j.waypoints || [];
 
-    // Alle Punkte: Einstieg + manuelle Zwischenhalte + Ausstieg
-    const waypoints = j.waypoints || []; // [{name, lat, lng}]
     const allPoints = [];
     if (fromLL) allPoints.push({ ll: fromLL, label: j.from, type: 'from' });
-    waypoints.forEach(wp => allPoints.push({ ll: [wp.lat, wp.lng], label: wp.name || '', type: 'mid' }));
+    waypoints.forEach(wp => allPoints.push({ ll: [wp.lat, wp.lng], label: wp.name||'', type: 'mid' }));
     if (toLL) allPoints.push({ ll: toLL, label: j.to, type: 'to' });
 
     if (allPoints.length >= 2) {
-        L.polyline(allPoints.map(p => p.ll), { color:'#ef4444', weight:3, opacity:0.75 }).addTo(_tdmMap);
+        L.polyline(allPoints.map(p=>p.ll), { color:'#ef4444', weight:3, opacity:0.75 }).addTo(_tdmMap);
     } else if (fromLL && toLL) {
         L.polyline([fromLL, toLL], { color:'#ef4444', weight:2, opacity:0.5, dashArray:'6,4' }).addTo(_tdmMap);
     }
 
     allPoints.forEach(p => {
-        const icon = p.type === 'from' ? greenIcon : p.type === 'to' ? redIcon : midIcon('#6b7280');
+        const icon = p.type==='from' ? greenIcon : p.type==='to' ? redIcon
+            : L.divIcon({className:'',html:'<div style="width:8px;height:8px;background:#6b7280;border-radius:50%;border:1.5px solid white"></div>',iconAnchor:[4,4]});
         L.marker(p.ll, { icon }).addTo(_tdmMap).bindPopup(`<b>${p.label}</b>`);
     });
 
-    const bounds = allPoints.map(p => p.ll);
+    const bounds = allPoints.map(p=>p.ll);
     if (bounds.length) _tdmMap.fitBounds(bounds, { padding:[40,40] });
-    else mapEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#4b5563;font-size:14px">Keine Koordinaten – Geocoding starten</div>';
+    else mapEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#4b5563;font-size:13px">Keine Koordinaten gefunden</div>';
     _tdmMap.invalidateSize();
 }
 
@@ -901,57 +926,46 @@ function openWaypointEditor() {
     const m = document.getElementById('waypoint-modal');
     m.classList.remove('hidden'); m.classList.add('flex');
 }
-
 function closeWaypointEditor() {
-    const m = document.getElementById('waypoint-modal');
-    m.classList.add('hidden'); m.classList.remove('flex');
+    document.getElementById('waypoint-modal').classList.add('hidden');
+    document.getElementById('waypoint-modal').classList.remove('flex');
 }
-
 function renderWaypointList(wps) {
     const list = document.getElementById('waypoint-list');
     if (!wps.length) { list.innerHTML = '<div class="text-xs text-zinc-600 text-center py-2">Keine Zwischenhalte</div>'; return; }
-    list.innerHTML = wps.map((wp, i) => `
+    list.innerHTML = wps.map((wp,i) => `
         <div class="flex items-center gap-2 bg-zinc-900 rounded-lg px-3 py-2">
-            <div class="flex-1">
-                <div class="text-xs font-semibold text-white">${wp.name || '—'}</div>
-                <div class="text-[10px] mono text-zinc-500">${wp.lat}, ${wp.lng}</div>
-            </div>
+            <div class="flex-1"><div class="text-xs font-semibold text-white">${wp.name||'—'}</div><div class="text-[10px] mono text-zinc-500">${wp.lat}, ${wp.lng}</div></div>
             <button onclick="removeWaypoint(${i})" class="text-zinc-600 hover:text-red-500 p-1"><i class="fas fa-times text-xs"></i></button>
         </div>`).join('');
 }
-
 function addWaypoint() {
-    const name   = document.getElementById('wp-name').value.trim();
+    const name = document.getElementById('wp-name').value.trim();
     const coords = document.getElementById('wp-coords').value.trim();
     if (!coords) return;
-    const parts = coords.split(',').map(s => parseFloat(s.trim()));
-    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
-        alert('Format: lat,lng – z.B. 51.2345,6.4321'); return;
-    }
-    const j = allJourneys.find(x => x.id === _tdmCurrentId);
+    const parts = coords.split(',').map(s=>parseFloat(s.trim()));
+    if (parts.length!==2||isNaN(parts[0])||isNaN(parts[1])) { alert('Format: lat,lng'); return; }
+    const j = allJourneys.find(x=>x.id===_tdmCurrentId);
     if (!j) return;
-    if (!j.waypoints) j.waypoints = [];
-    j.waypoints.push({ name: name || `Halt ${j.waypoints.length+1}`, lat: parts[0], lng: parts[1] });
-    document.getElementById('wp-name').value   = '';
-    document.getElementById('wp-coords').value = '';
+    if (!j.waypoints) j.waypoints=[];
+    j.waypoints.push({ name: name||`Halt ${j.waypoints.length+1}`, lat: parts[0], lng: parts[1] });
+    document.getElementById('wp-name').value='';
+    document.getElementById('wp-coords').value='';
     renderWaypointList(j.waypoints);
 }
-
 function removeWaypoint(idx) {
-    const j = allJourneys.find(x => x.id === _tdmCurrentId);
-    if (!j || !j.waypoints) return;
-    j.waypoints.splice(idx, 1);
+    const j = allJourneys.find(x=>x.id===_tdmCurrentId);
+    if (!j||!j.waypoints) return;
+    j.waypoints.splice(idx,1);
     renderWaypointList(j.waypoints);
 }
-
 async function saveWaypoints() {
-    const j = allJourneys.find(x => x.id === _tdmCurrentId);
+    const j = allJourneys.find(x=>x.id===_tdmCurrentId);
     if (!j) return;
     await saveJourney(j);
     closeWaypointEditor();
     renderTdmMap(j);
 }
-
 function closeTripDetailModal() {
     const m = document.getElementById('trip-detail-modal');
     if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
