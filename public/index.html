@@ -310,19 +310,7 @@
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
-        <!-- Störungsmeldungen -->
-        <div id="disruptions-panel" class="hidden mt-4 rounded-2xl border border-orange-800/50 bg-orange-950/30 overflow-hidden">
-            <div class="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none" onclick="toggleDisruptions()">
-                <div class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-                    <span class="text-xs font-bold uppercase tracking-wider text-orange-300">Störungsmeldungen</span>
-                    <span id="disruptions-count" class="text-[10px] text-orange-600 mono"></span>
-                </div>
-                <i id="disruptions-chevron" class="fas fa-chevron-down text-[10px] text-orange-600 transition-transform duration-200" style="transform:rotate(180deg)"></i>
-            </div>
-            <div id="disruptions-list" class="px-4 pb-3 space-y-2"></div>
-        </div>
-
+      
             <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
                 <div>
                     <h2 id="station-display-name" class="text-2xl font-bold tracking-tight"></h2>
@@ -801,9 +789,7 @@
 
             // Aktuelles Ziel: letzter nicht ausgefallener Halt
             const lastActive = [...stopovers].reverse().find(s => !s.cancelled);
-            if (lastActive?.stop?.name) {
-                $('detail-train-direction').textContent = lastActive.stop.name;
-            }
+            if (lastActive?.stop?.name) $('detail-train-direction').textContent = lastActive.stop.name;
 
             const translationMap = {
                 "technical defect on the route": "Reparatur an der Strecke",
@@ -835,103 +821,111 @@
                 "storm": "Sturm",
                 "flooding": "Überflutung"
             };
-
-            const translate = (text) => {
-                if (!text) return text;
-                let out = translationMap[text] || text;
-                // Spezielle Ersetzungen für Transitous
-                out = out.replace(/Continues as line (.*)/i, "Fährt weiter als Linie $1");
-                return out;
+            const translate = t => {
+                if (!t) return t;
+                let o = translationMap[t] || t;
+                o = o.replace(/Continues as line (.*)/i, "Fährt weiter als Linie $1");
+                return o;
             };
-            const allRemarks = [...tripRemarks];
-            stopovers.forEach(s => (s.remarks || []).forEach(r => { if (!allRemarks.find(ex => ex.text === r.text)) allRemarks.push(r); }));
 
-            const sorted = [...stopovers].sort((a,b) => new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
+            const fmt = (sched, actual) => {
+                if (!sched) return '';
+                const p = sched.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+                if (!actual) return `<span class="text-zinc-400">${p}</span>`;
+                const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+                const diffMin = Math.round((actual - sched) / 60000);
+                const late = diffMin >= 1;
+                const earlyOrOnTime = diffMin <= 0;
+                if (late) return `<span class="line-through text-zinc-600 text-[9px] mr-0.5">${p}</span><span class="text-red-400 font-bold">${a}</span>`;
+                return `<span class="text-zinc-400 text-[9px] mr-0.5">${p}</span><span class="text-green-400 font-bold">${a}</span>`;
+            };
+
+            const sorted = [...stopovers].sort((a,b) =>
+                new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
+            const now = Date.now();
+
             sorted.forEach((stop, idx) => {
-                const schedArr = stop.plannedArrival ? new Date(stop.plannedArrival) : null;
-                const actualArr = stop.arrival ? new Date(stop.arrival) : null;
-                const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
-                const actualDep = stop.departure ? new Date(stop.departure) : null;
-                const isCancelled = stop.cancelled;
+                const isFirst = idx === 0;
+                const isLast  = idx === sorted.length - 1;
+                const schedArr = stop.plannedArrival  ? new Date(stop.plannedArrival)  : null;
+                const actualArr= stop.arrival         ? new Date(stop.arrival)         : null;
+                const schedDep = stop.plannedDeparture? new Date(stop.plannedDeparture): null;
+                const actualDep= stop.departure       ? new Date(stop.departure)       : null;
+                const cancelled = stop.cancelled;
+                const additional = stop.additional;
+                const isPast = (actualDep||actualArr) ? (actualDep||actualArr) < now : false;
 
-                const formatTime = (sched, actual, hasDeparted) => {
-                    if (!sched) return '';
-                    const planStr = `<span class="text-gray-500 text-[9px] mr-1">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
-                    
-                    // Wenn keine Echtzeit da ist, nur Planzeit (nicht fett)
-                    if (!actual) return `<span class="text-gray-300 font-mono font-normal">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
-                    
-                    const timeStr = actual.toLocaleTimeString('de-DE', { 
-                        hour: '2-digit', 
-                        minute: '2-digit', 
-                        second: hasDeparted ? '2-digit' : undefined 
-                    });
-                    
-                    const diffSec = Math.round((actual - sched) / 1000);
-                    // Rot erst ab +60s, sonst grün (±0)
-                    const isDelayed = diffSec >= 60;
-                    const color = isDelayed ? 'text-red-400' : 'text-green-400';
-                    const delayText = (Math.abs(diffSec) < 60) ? ' ±0' : (diffSec > 0 ? ` +${Math.floor(diffSec/60)}'` : ` ${Math.ceil(diffSec/60)}'`);
-                    
-                    // Prognose für Zukunft NICHT fett (hasDeparted ist false)
-                    const weightClass = hasDeparted ? 'font-bold' : 'font-normal';
-                    return `${planStr}<span class="${color} ${weightClass} mono">${timeStr}${delayText}</span>`;
-                };
+                // Platf
+                const platPlan = stop.plannedPlatform || null;
+                const platReal = stop.platform || null;
+                const platChanged = platReal && platPlan && platReal !== platPlan;
+                const platStr = platReal || platPlan;
 
-                const isPast = (actualDep && actualDep < Date.now()) || (actualArr && actualArr < Date.now());
-                const hasDeparted = (actualDep && actualDep < Date.now());
-                
-                const stopItem = document.createElement('div');
-                stopItem.className = `relative flex items-stretch py-1 ${isCancelled ? 'opacity-40' : ''}`;
-                stopItem.innerHTML = `
-                    <div class="w-24 text-right pr-2 text-[10px]">
-                        ${schedArr ? `<div><span class="text-gray-600 mr-1">AN</span>${formatTime(schedArr, actualArr, isPast)}</div>` : ''}
-                        ${schedDep ? `<div><span class="text-gray-600 mr-1">AB</span>${formatTime(schedDep, actualDep, hasDeparted)}</div>` : ''}
+                // Farbe der Linie
+                const lineColor = cancelled ? '#3f3f46' : isPast ? '#52525b' : '#ef4444';
+                const dotColor  = cancelled ? '#3f3f46' : additional ? '#22c55e' : isPast ? '#52525b' : '#ef4444';
+
+                const el = document.createElement('div');
+                el.className = `flex items-stretch gap-0 ${cancelled ? 'opacity-40' : ''}`;
+                el.style.minHeight = '2.4rem';
+
+                // Zeitblock links – kompakt: nur AN wenn nicht erste, nur AB wenn nicht letzte
+                const showArr = !isFirst && schedArr;
+                const showDep = !isLast  && schedDep;
+
+                el.innerHTML = `
+                    <div class="w-[5.5rem] shrink-0 flex flex-col justify-center items-end pr-2 text-[10px] mono gap-px leading-tight">
+                        ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr, actualArr)}</div>` : ''}
+                        ${showDep ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep, actualDep)}</div>` : ''}
+                        ${!showArr && !showDep && schedDep ? `<div>${fmt(schedDep, actualDep)}</div>` : ''}
                     </div>
-                    <div class="w-4 flex flex-col items-center">
-                        <div class="w-0.5 flex-1 bg-gray-700"></div>
-                        <div class="w-2.5 h-2.5 rounded-full ${isCancelled ? 'bg-gray-600' : 'bg-red-600'} border border-zinc-950 z-10 shrink-0 my-0.5"></div>
-                        <div class="w-0.5 flex-1 bg-gray-700"></div>
+                    <div class="flex flex-col items-center w-3 shrink-0">
+                        <div class="w-px flex-1" style="background:${isFirst ? 'transparent' : lineColor}"></div>
+                        <div class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${dotColor};border:2px solid #09090b"></div>
+                        <div class="w-px flex-1" style="background:${isLast ? 'transparent' : lineColor}"></div>
                     </div>
-                    <div class="flex-1 pl-2">
-                        <div class="text-sm font-semibold ${isCancelled ? 'line-through' : ''}">${stop.stop.name}</div>
-                        <div class="text-[10px] text-gray-500">${stop.platform || '---'}</div>
-                        ${(stop.remarks || []).map(r => `<div class="text-red-400 text-[9px] mt-1 bg-red-400/5 p-1 rounded border border-red-400/10 w-full">${translate(r.text)}</div>`).join('')}
+                    <div class="flex-1 pl-2 flex flex-col justify-center py-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-sm font-semibold ${cancelled ? 'line-through text-zinc-500' : additional ? 'text-green-400' : 'text-white'} leading-tight">${stop.stop.name}</span>
+                            ${platStr ? `<span class="text-[9px] mono ${platChanged ? 'text-orange-400 font-bold' : 'text-zinc-600'}">${platChanged ? `Gl.${platPlan}→${platReal}` : `Gl.${platStr}`}</span>` : ''}
+                            ${cancelled ? '<span class="text-[9px] text-red-500 font-bold uppercase">Entfällt</span>' : ''}
+                            ${additional ? '<span class="text-[9px] text-green-500 font-bold uppercase">Zusatzhalt</span>' : ''}
+                        </div>
+                        ${(stop.remarks||[]).map(r => {
+                            const t = (r.type||'').toLowerCase();
+                            if (t === 'timetable') return `<div class="text-[9px] text-zinc-600 flex items-center gap-1 mt-0.5"><i class="fas fa-circle text-[3px]"></i>${translate(r.text)}</div>`;
+                            return `<div class="text-[9px] text-orange-300 mt-0.5">${translate(r.text)}</div>`;
+                        }).join('')}
                     </div>`;
-                container.appendChild(stopItem);
+                container.appendChild(el);
             });
 
-            // Störungsmeldungen und Hinweise unterhalb des Fahrtverlaufs anzeigen
-            if (allRemarks.length > 0) {
+            // Globale Remarks (Störungen/Hinweise)
+            const globalRemarks = [...tripRemarks];
+            // Duplikate mit Stop-Remarks entfernen
+            stopovers.forEach(s => (s.remarks||[]).forEach(r => {
+                if (r.type !== 'timetable' && !globalRemarks.find(e => e.text === r.text)) globalRemarks.push(r);
+            }));
+
+            if (globalRemarks.length) {
                 const remDiv = document.createElement('div');
-                remDiv.className = 'mt-4 pt-4 border-t border-zinc-800 space-y-2';
-                
-                // Titel für den Abschnitt
-                const titleDiv = document.createElement('div');
-                titleDiv.className = 'text-xs font-bold uppercase tracking-wider text-gray-500 mb-2';
-                titleDiv.textContent = 'Hinweise & Störungen';
-                remDiv.appendChild(titleDiv);
-                
-                allRemarks.forEach(r => {
+                remDiv.className = 'mt-3 pt-3 border-t border-zinc-800 space-y-1.5';
+                globalRemarks.forEach(r => {
                     const d = document.createElement('div');
-                    const remarkType = (r.type || '').toLowerCase();
-                    
-                    // Unterscheidung: Info-Meldungen (weiß/grau) vs Störungen (rot)
-                    const disruptionKeywords = ['verspätung', 'störung', 'ausfall', 'entfällt', 'umleitung', 'sperrung', 'beeinträchtigt', 'verzögerung', 'seV', 'ersatzverkehr'];
-                    const infoKeywords = ['wlan', 'klima', 'fahrrad', 'bistro', 'restaurant', 'steckdose', 'power', 'sitzplatz', 'ruhe', 'quiet'];
-                    
-                    const textLower = (r.text || '').toLowerCase();
-                    const isDisruption = remarkType === 'disruption' || remarkType === 'warning' || remarkType === 'hint' || 
-                                        disruptionKeywords.some(kw => textLower.includes(kw));
-                    const isInfo = !isDisruption && (remarkType === 'info' || infoKeywords.some(kw => textLower.includes(kw)));
-                    
-                    if (isDisruption) {
+                    const t = (r.type||'').toLowerCase();
+                    if (t === 'disruption' || t === 'warning') {
+                        d.className = 'text-[10px] text-orange-300 bg-orange-500/10 p-2 rounded-lg border border-orange-500/30 flex items-start gap-2';
+                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-orange-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;
+                    } else if (t === 'hint') {
                         d.className = 'text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';
-                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-red-500'></i> <div class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</div>`;
+                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-red-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;
+                    } else if (t === 'timetable') {
+                        d.className = 'text-[9px] text-zinc-500 flex items-center gap-1.5 py-0.5';
+                        d.innerHTML = `<i class='fas fa-circle text-[3px] text-zinc-600 shrink-0'></i><span>${translate(r.text)}</span>`;
                     } else {
                         d.className = 'text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';
                         const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted text-blue-400">${translate(r.text)}</a>` : translate(r.text);
-                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400'></i> <div class='flex-1 whitespace-pre-wrap'>${content}</div>`;
+                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${content}</span>`;
                     }
                     remDiv.appendChild(d);
                 });
@@ -1439,4 +1433,4 @@
     </script>
 </body>
 </html>
-                    
+                        
