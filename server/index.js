@@ -450,11 +450,9 @@ app.get('/api/stops/:stopId/departures', async (req, res) => {
                         priority: (h.type === 'RTIncidentCall' || h.type === 'RTInfoCall') ? 80 : 20,
                     })),
                     ...(Array.isArray(ev.infos) ? ev.infos : []).map(i => {
-                        // Volltext aus content (HTML-Tags entfernen), Fallback auf subtitle/urlText
-                        const fullText = i.content
-                            ? i.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&auml;/g, 'ä').replace(/&ouml;/g, 'ö').replace(/&uuml;/g, 'ü').replace(/&szlig;/g, 'ß').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
-                            : (i.subtitle || i.urlText || i.title || '');
-                        return { text: fullText, type: 'disruption', priority: 70, url: i.url || null };
+                        const stripHtml = s => (s||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&auml;/g,'ä').replace(/&ouml;/g,'ö').replace(/&uuml;/g,'ü').replace(/&szlig;/g,'ß').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
+                        const txt = i.content ? stripHtml(i.content) : (i.subtitle || i.urlText || i.title || '');
+                        return { text: txt, type: 'disruption', priority: 70, url: i.url || null };
                     }),
                 ].filter(r => r.text && r.text !== 'null'),
 
@@ -689,10 +687,10 @@ app.get('/api/trips/:tripId', async (req, res) => {
         const gHints = Array.isArray(data.hints) ? data.hints : [];
         const tHints = Array.isArray(data.transportation?.hints) ? data.transportation.hints : [];
 
-        const stripHtml = s => (s || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g,' ').replace(/&auml;/g,'ä').replace(/&ouml;/g,'ö').replace(/&uuml;/g,'ü').replace(/&szlig;/g,'ß').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
+        const stripHtmlTrip = s => (s||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&auml;/g,'ä').replace(/&ouml;/g,'ö').replace(/&uuml;/g,'ü').replace(/&szlig;/g,'ß').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
 
         gInfos.forEach(i => {
-            const txt = i.content ? stripHtml(i.content) : (i.subtitle || i.urlText || i.title || '');
+            const txt = i.content ? stripHtmlTrip(i.content) : (i.subtitle || i.urlText || i.title || '');
             if (txt && txt !== 'null') tripRemarks.push({ text: txt, type: 'disruption', priority: 70, url: i.url });
         });
         gHints.concat(tHints).forEach(h => {
@@ -1045,27 +1043,6 @@ app.get('/api/disruptions', async (req, res) => {
             } catch (e) {
                 console.warn('[HAFAS fallback disruptions]', e.message);
             }
-        }
-
-        // "Immer gemeldete" Störungen simulieren/ergänzen falls NRW
-        const lowerName = name.toLowerCase();
-        if (lowerName.includes('mönchengladbach') || lowerName.includes('krefeld') || lowerName.includes('viersen') || lowerName.includes('rheydt')) {
-            const commonNrw = [
-                { text: 'Strecke MG - Krefeld beeinträchtigt', line: 'RE42' },
-                { text: 'Reparatur an der Oberleitung', line: 'RB33' },
-                { text: 'Streckensperrung zwischen Viersen und Venlo', line: 'RE13' },
-                { text: 'Verspätung aus vorheriger Fahrt', line: 'S8' }
-            ];
-            commonNrw.forEach(st => {
-                if (!seenTexts.has(st.text)) {
-                    seenTexts.add(st.text);
-                    disruptions.push({
-                        type: 'disruption',
-                        text: st.text,
-                        line: st.line
-                    });
-                }
-            });
         }
 
         res.json({ disruptions });
