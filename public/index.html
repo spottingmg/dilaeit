@@ -849,10 +849,10 @@
                     return `<span class="text-white-400">${p}</span>`;
                 }
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                const weight = isPast ? 'font-semibold' : 'font-normal';
+                const weight = isPast ? 'font-bold' : 'font-normal';
                 // Rot erst ab genau 60 Sekunden, Verfrühung und pünktlich immer grün
                 const color = delaySec >= 60 ? 'text-red-400' : 'text-green-400';
-                return `<span class="text-white-500 text-[9px] mr-0.5">${p}</span><span class="${color} ${weight}">${a}</span>`;
+                return `<span class="text-white-500 text-[10px] mr-0.5">${p}</span><span class="${color} ${weight}">${a}</span>`;
             };
 
             const sorted = [...stopovers].sort((a,b) =>
