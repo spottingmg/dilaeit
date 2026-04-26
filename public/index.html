@@ -149,7 +149,7 @@
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
         <header class="flex justify-between items-center mb-8">
-        <a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
+<a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
          <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
         </a>
             <div class="flex items-center gap-3">
@@ -160,6 +160,9 @@
                 <a href="/stats.html" title="Statistiken" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform text-gray-500 hover:text-red-500">
                     <i class="fas fa-chart-bar"></i>
                 </a>
+                <button id="api-base-btn" class="hidden px-3 py-2 rounded-xl bg-gray-100 dark:bg-zinc-900 text-xs font-semibold hover:text-red-500 transition-colors">
+                    Backend-URL
+                </button>
                 <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform">
                     <i class="fas fa-moon dark:hidden"></i>
                     <i class="fas fa-sun hidden dark:block text-yellow-500"></i>
@@ -848,9 +851,10 @@
                     return `<span class="text-zinc-400 text-[15px]">${p}</span>`;
                 }
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                const weight = isPast ? 'font-extrabold' : 'font-light';
+                const aFull = actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+                const fw = isPast ? '800' : '300';
                 const color = delaySec >= 60 ? 'text-red-400' : 'text-green-400';
-                return `<span class="text-zinc-500 text-[15px] mr-0.5">${p}</span><span class="${color} ${weight} text-[15px]">${a}</span>`;
+                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px]" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
             };
 
             const sorted = [...stopovers].sort((a,b) =>
@@ -1440,4 +1444,4 @@
     </script>
 </body>
 </html>
-                    
+                       
