@@ -801,10 +801,6 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
-            // Aktuelles Ziel: letzter nicht ausgefallener Halt
-            const lastActive = [...stopovers].reverse().find(s => !s.cancelled);
-            if (lastActive?.stop?.name) $('detail-train-direction').textContent = lastActive.stop.name;
-
             const translationMap = {
                 "technical defect on the route": "Reparatur an der Strecke",
                 "repair to the line": "Reparatur an der Strecke",
@@ -835,6 +831,7 @@
                 "storm": "Sturm",
                 "flooding": "Überflutung"
             };
+
             const translate = t => {
                 if (!t) return t;
                 let o = translationMap[t] || t;
@@ -842,19 +839,16 @@
                 return o;
             };
 
-            // fmt: zeigt Soll+Prognose nur wenn delaySec gesetzt (= Fzg. angemeldet)
-            // isPast: Fahrzeug hat bereits abgefahren/angekommen
             const fmt = (sched, actual, delaySec, isPast) => {
                 if (!sched) return '';
                 const p = sched.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                if (delaySec === null || delaySec === undefined) {
-                    return `<span class="text-zinc-400 text-[15px]">${p}</span>`;
-                }
+                if (!actual) return `<span class="text-zinc-400 text-[15px]">${p}</span>`;
+                const ds = (delaySec !== null && delaySec !== undefined) ? delaySec : Math.round((actual - sched) / 1000);
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
                 const aFull = actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
                 const fw = isPast ? '800' : '300';
-                const color = delaySec >= 60 ? 'text-red-400' : 'text-green-400';
-                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px]" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
+                const color = ds >= 60 ? 'text-red-400' : 'text-green-400';
+                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px] cursor-help" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
             };
 
             const sorted = [...stopovers].sort((a,b) =>
@@ -887,7 +881,7 @@
                 el.className = `flex items-stretch gap-0 ${cancelled ? 'opacity-40' : ''}`;
                 el.style.minHeight = '2.4rem';
                 el.innerHTML = `
-                    <div class="w-32 shrink-0 flex flex-col justify-center items-end pr-2 text-[15px] mono gap-px leading-tight">
+                    <div class="w-32 shrink-0 flex flex-col justify-center items-end pr-2 mono gap-px leading-tight">
                         ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr, actualArr, stop.arrivalDelaySec, isPast)}</div>` : ''}
                         ${showDep ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
                         ${!showArr && !showDep && schedDep ? `<div>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
@@ -913,7 +907,6 @@
                 container.appendChild(el);
             });
 
-            // Globale Remarks
             const globalRemarks = [...tripRemarks];
             stopovers.forEach(s => (s.remarks||[]).forEach(r => {
                 if (r.type !== 'timetable' && !globalRemarks.find(e => e.text === r.text)) globalRemarks.push(r);
@@ -943,7 +936,6 @@
                 container.appendChild(remDiv);
             }
         }
-
         function closeTripDetails() { $('detail-view').classList.remove('active'); }
 
         // ─── Helfer ──────────────────────────────────────────────────────────────────
@@ -1444,4 +1436,4 @@
     </script>
 </body>
 </html>
-                       
+                     
