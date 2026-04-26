@@ -149,9 +149,7 @@
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
         <header class="flex justify-between items-center mb-8">
-<a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
-         <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
-        </a>
+            <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
             <div class="flex items-center gap-3">
                 <div class="flex flex-col items-end text-xs mono text-gray-500">
                     <span id="current-date">--.--.----</span>
@@ -845,7 +843,11 @@
                 if (!actual) return `<span class="text-zinc-400 text-[15px]">${p}</span>`;
                 const ds = (delaySec !== null && delaySec !== undefined) ? delaySec : Math.round((actual - sched) / 1000);
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                const aFull = actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+                // Sekunden nur im Tooltip anzeigen wenn ungleich 0 (VRR trips rundet auf Minute)
+                const secs = actual.getSeconds();
+                const aFull = secs !== 0
+                    ? actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})
+                    : actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
                 const fw = isPast ? '800' : '300';
                 const color = ds >= 60 ? 'text-red-400' : 'text-green-400';
                 return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px] cursor-help" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
@@ -1436,4 +1438,4 @@
     </script>
 </body>
 </html>
-                     
+                        
