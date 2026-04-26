@@ -149,7 +149,7 @@
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
         <header class="flex justify-between items-center mb-8">
-            <a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
+        <a href="/" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
          <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
         </a>
             <div class="flex items-center gap-3">
@@ -160,9 +160,6 @@
                 <a href="/stats.html" title="Statistiken" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform text-gray-500 hover:text-red-500">
                     <i class="fas fa-chart-bar"></i>
                 </a>
-                <button id="api-base-btn" class="hidden px-3 py-2 rounded-xl bg-gray-100 dark:bg-zinc-900 text-xs font-semibold hover:text-red-500 transition-colors">
-                    Backend-URL
-                </button>
                 <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-zinc-900 hover:scale-110 transition-transform">
                     <i class="fas fa-moon dark:hidden"></i>
                     <i class="fas fa-sun hidden dark:block text-yellow-500"></i>
@@ -851,7 +848,7 @@
                     return `<span class="text-zinc-400 text-[15px]">${p}</span>`;
                 }
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                const weight = isPast ? 'font-extrabold' : 'font-extralight';
+                const weight = isPast ? 'font-extrabold' : 'font-light';
                 const color = delaySec >= 60 ? 'text-red-400' : 'text-green-400';
                 return `<span class="text-zinc-500 text-[15px] mr-0.5">${p}</span><span class="${color} ${weight} text-[15px]">${a}</span>`;
             };
@@ -886,7 +883,7 @@
                 el.className = `flex items-stretch gap-0 ${cancelled ? 'opacity-40' : ''}`;
                 el.style.minHeight = '2.4rem';
                 el.innerHTML = `
-                    <div class="w-[5.5rem] shrink-0 flex flex-col justify-center items-end pr-2 text-[10px] mono gap-px leading-tight">
+                    <div class="w-32 shrink-0 flex flex-col justify-center items-end pr-2 text-[15px] mono gap-px leading-tight">
                         ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr, actualArr, stop.arrivalDelaySec, isPast)}</div>` : ''}
                         ${showDep ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
                         ${!showArr && !showDep && schedDep ? `<div>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
@@ -1443,4 +1440,4 @@
     </script>
 </body>
 </html>
-                     
+                    
