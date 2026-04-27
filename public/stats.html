@@ -526,12 +526,15 @@ async function init() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('mode') === 'checkin') {
         openCheckin();
-        if (params.get('line')) document.getElementById('ci-line').value = params.get('line');
-        if (params.get('from')) document.getElementById('ci-from').value = params.get('from');
-        if (params.get('to'))   document.getElementById('ci-to').value   = params.get('to');
-        if (params.get('date')) document.getElementById('ci-date').value = params.get('date');
-        if (params.get('time')) document.getElementById('ci-time').value = params.get('time').replace(':','');
-        // URL bereinigen ohne Reload
+        // Kurz warten bis Modal geöffnet
+        setTimeout(() => {
+            if (params.get('line')) document.getElementById('ci-line').value = params.get('line');
+            if (params.get('from')) document.getElementById('ci-from').value = params.get('from');
+            if (params.get('to'))   document.getElementById('ci-to').value   = params.get('to');
+            if (params.get('date')) document.getElementById('ci-date').value = params.get('date');
+            // time kommt als "14:23" – passt direkt für <input type="time">
+            if (params.get('time')) document.getElementById('ci-time').value = params.get('time');
+        }, 100);
         window.history.replaceState({}, '', '/stats.html');
     }
 }
