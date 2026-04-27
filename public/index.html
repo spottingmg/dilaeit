@@ -149,7 +149,7 @@
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
         <header class="flex justify-between items-center mb-8">
-          <a href="/index.html">  <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1> </a>
+           <a href="/index.html"> <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1></a>
             <div class="flex items-center gap-3">
                 <div class="flex flex-col items-end text-xs mono text-gray-500">
                     <span id="current-date">--.--.----</span>
@@ -799,37 +799,13 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
-            const translationMap = {
-                "technical defect on the route": "Reparatur an der Strecke",
-                "repair to the line": "Reparatur an der Strecke",
-                "repair to the track": "Reparatur an der Strecke",
-                "repair at the track": "Reparatur an der Strecke",
-                "repair on the line": "Reparatur an der Strecke",
-                "repair at the overhead line": "Reparatur an der Oberleitung",
-                "repair on the overhead line": "Reparatur an der Oberleitung",
-                "person on the track": "Personen auf der Strecke",
-                "unauthorized persons on the track": "unbefugte Personen auf der Strecke",
-                "delay of a preceding train": "Verspätung eines vorausfahrenden Zuges",
-                "delayed staff from previous journey": "verspätetes Personal aus vorheriger Fahrt",
-                "technical defect on another train": "technischer Defekt an einem anderen Zug",
-                "technical defect on the train": "technischer Defekt am Zug",
-                "operational delays": "Verzögerungen im Betriebsablauf",
-                "delay from previous trip": "Verspätung aus vorheriger Fahrt",
-                "Platform change": "Gleiswechsel.",
-                "Stop cancelled": "Halt entfällt.",
-                "Train is cancelled": "Zug fällt aus.",
-                "signal failure": "Signalstörung",
-                "external influence": "äußerer Einfluss",
-                "animals on the track": "Tiere auf der Strecke",
-                "medical emergency": "medizinischer Notfall",
-                "police investigation": "Polizeieinsatz",
-                "fire on the track": "Feuerwehreinsatz auf der Strecke.",
-                "weather conditions": "witterungsbedingte Störung",
-                "heavy snow": "starker Schneefall",
-                "storm": "Sturm",
-                "flooding": "Überflutung"
-            };
+            // Aktuelles Ziel: letzter nicht ausgefallener Halt
+            const lastActive = [...stopovers].reverse().find(s => !s.cancelled);
+            if (lastActive?.stop?.name) $('detail-train-direction').textContent = lastActive.stop.name;
 
+            const translationMap = {
+                "technical defect on the route":"Reparatur an der Strecke","repair to the line":"Reparatur an der Strecke","repair to the track":"Reparatur an der Strecke","repair at the track":"Reparatur an der Strecke","repair on the line":"Reparatur an der Strecke","repair at the overhead line":"Reparatur an der Oberleitung","repair on the overhead line":"Reparatur an der Oberleitung","person on the track":"Personen auf der Strecke","unauthorized persons on the track":"unbefugte Personen auf der Strecke","delay of a preceding train":"Verspätung eines vorausfahrenden Zuges","delayed staff from previous journey":"verspätetes Personal aus vorheriger Fahrt","technical defect on another train":"technischer Defekt an einem anderen Zug","technical defect on the train":"technischer Defekt am Zug","operational delays":"Verzögerungen im Betriebsablauf","delay from previous trip":"Verspätung aus vorheriger Fahrt","Platform change":"Gleiswechsel.","Stop cancelled":"Halt entfällt.","Train is cancelled":"Zug fällt aus.","signal failure":"Signalstörung","external influence":"äußerer Einfluss","animals on the track":"Tiere auf der Strecke","medical emergency":"medizinischer Notfall","police investigation":"Polizeieinsatz","fire on the track":"Feuerwehreinsatz auf der Strecke.","weather conditions":"witterungsbedingte Störung","heavy snow":"starker Schneefall","storm":"Sturm","flooding":"Überflutung"
+            };
             const translate = t => {
                 if (!t) return t;
                 let o = translationMap[t] || t;
@@ -843,47 +819,37 @@
                 if (!actual) return `<span class="text-zinc-400 text-[15px]">${p}</span>`;
                 const ds = (delaySec !== null && delaySec !== undefined) ? delaySec : Math.round((actual - sched) / 1000);
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
-                // Sekunden immer im Tooltip – VRR Trips rundet auf Minute, zeigt trotzdem :00
                 const aFull = actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
                 const fw = isPast ? '900' : '300';
                 const color = ds >= 60 ? 'text-red-400' : 'text-green-400';
-                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px]" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
+                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px] cursor-help" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
             };
 
-            const sorted = [...stopovers].sort((a,b) =>
-                new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
+            const sorted = [...stopovers].sort((a,b) => new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
             const now = Date.now();
 
             sorted.forEach((stop, idx) => {
-                const isFirst = idx === 0;
-                const isLast  = idx === sorted.length - 1;
+                const isFirst = idx === 0, isLast = idx === sorted.length - 1;
                 const schedArr = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
                 const actualArr= stop.arrival          ? new Date(stop.arrival)          : null;
                 const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
                 const actualDep= stop.departure        ? new Date(stop.departure)        : null;
-                const cancelled  = stop.cancelled;
-                const additional = stop.additional;
+                const cancelled = stop.cancelled, additional = stop.additional;
                 const isPast = (actualDep||actualArr) ? (actualDep||actualArr) < now : false;
-
-                const platPlan    = stop.plannedPlatform || null;
-                const platReal    = stop.platform        || null;
+                const platPlan = stop.plannedPlatform || null, platReal = stop.platform || null;
                 const platChanged = platReal && platPlan && platReal !== platPlan;
-                const platStr     = platReal || platPlan;
-
+                const platStr = platReal || platPlan;
                 const lineColor = cancelled ? '#3f3f46' : isPast ? '#52525b' : '#ef4444';
                 const dotColor  = cancelled ? '#3f3f46' : additional ? '#22c55e' : isPast ? '#52525b' : '#ef4444';
-
-                const showArr = !isFirst && schedArr;
-                const showDep = !isLast  && schedDep;
-
+                const showArr = !isFirst && schedArr, showDep = !isLast && schedDep;
                 const el = document.createElement('div');
                 el.className = `flex items-stretch gap-0 ${cancelled ? 'opacity-40' : ''}`;
                 el.style.minHeight = '2.4rem';
                 el.innerHTML = `
                     <div class="w-32 shrink-0 flex flex-col justify-center items-end pr-2 mono gap-px leading-tight">
-                        ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr, actualArr, stop.arrivalDelaySec, isPast)}</div>` : ''}
-                        ${showDep ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
-                        ${!showArr && !showDep && schedDep ? `<div>${fmt(schedDep, actualDep, stop.departureDelaySec, isPast)}</div>` : ''}
+                        ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr,actualArr,stop.arrivalDelaySec,isPast)}</div>` : ''}
+                        ${showDep ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep,actualDep,stop.departureDelaySec,isPast)}</div>` : ''}
+                        ${!showArr&&!showDep&&schedDep ? `<div>${fmt(schedDep,actualDep,stop.departureDelaySec,isPast)}</div>` : ''}
                     </div>
                     <div class="flex flex-col items-center w-3 shrink-0">
                         <div class="w-px flex-1" style="background:${isFirst?'transparent':lineColor}"></div>
@@ -892,44 +858,28 @@
                     </div>
                     <div class="flex-1 pl-2 flex flex-col justify-center py-1">
                         <div class="flex items-center gap-2 flex-wrap">
-                            <span class="text-sm font-semibold leading-tight ${cancelled ? 'line-through text-zinc-500' : additional ? 'text-green-400' : 'text-white'}">${stop.stop.name}</span>
-                            ${platStr ? `<span class="text-[9px] mono ${platChanged ? 'text-orange-400 font-bold' : 'text-zinc-600'}">${platChanged ? `Gl.${platPlan}→${platReal}` : `Gl.${platStr}`}</span>` : ''}
-                            ${cancelled  ? '<span class="text-[9px] text-red-500 font-bold uppercase">Entfällt</span>' : ''}
-                            ${additional ? '<span class="text-[9px] text-green-500 font-bold uppercase">Zusatzhalt</span>' : ''}
+                            <span class="text-sm font-semibold leading-tight ${cancelled?'line-through text-zinc-500':additional?'text-green-400':'text-white'}">${stop.stop.name}</span>
+                            ${platStr?`<span class="text-[9px] mono ${platChanged?'text-orange-400 font-bold':'text-zinc-600'}">${platChanged?`Gl.${platPlan}→${platReal}`:`Gl.${platStr}`}</span>`:''}
+                            ${cancelled?'<span class="text-[9px] text-red-500 font-bold uppercase">Entfällt</span>':''}
+                            ${additional?'<span class="text-[9px] text-green-500 font-bold uppercase">Zusatzhalt</span>':''}
                         </div>
-                        ${(stop.remarks||[]).map(r => {
-                            const t = (r.type||'').toLowerCase();
-                            if (t === 'timetable') return `<div class="text-[9px] text-zinc-600 flex items-center gap-1 mt-0.5"><i class="fas fa-circle text-[3px]"></i>${translate(r.text)}</div>`;
-                            return `<div class="text-[9px] text-orange-300 mt-0.5">${translate(r.text)}</div>`;
-                        }).join('')}
+                        ${(stop.remarks||[]).map(r=>{const t=(r.type||'').toLowerCase();if(t==='timetable')return `<div class="text-[9px] text-zinc-600 flex items-center gap-1 mt-0.5"><i class="fas fa-circle text-[3px]"></i>${translate(r.text)}</div>`;return `<div class="text-[9px] text-orange-300 mt-0.5">${translate(r.text)}</div>`;}).join('')}
                     </div>`;
                 container.appendChild(el);
             });
 
             const globalRemarks = [...tripRemarks];
-            stopovers.forEach(s => (s.remarks||[]).forEach(r => {
-                if (r.type !== 'timetable' && !globalRemarks.find(e => e.text === r.text)) globalRemarks.push(r);
-            }));
+            stopovers.forEach(s=>(s.remarks||[]).forEach(r=>{if(r.type!=='timetable'&&!globalRemarks.find(e=>e.text===r.text))globalRemarks.push(r);}));
             if (globalRemarks.length) {
                 const remDiv = document.createElement('div');
                 remDiv.className = 'mt-3 pt-3 border-t border-zinc-800 space-y-1.5';
                 globalRemarks.forEach(r => {
                     const d = document.createElement('div');
                     const t = (r.type||'').toLowerCase();
-                    if (t === 'disruption' || t === 'warning') {
-                        d.className = 'text-[10px] text-orange-300 bg-orange-500/10 p-2 rounded-lg border border-orange-500/30 flex items-start gap-2';
-                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-orange-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;
-                    } else if (t === 'hint') {
-                        d.className = 'text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';
-                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-red-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;
-                    } else if (t === 'timetable') {
-                        d.className = 'text-[9px] text-zinc-500 flex items-center gap-1.5 py-0.5';
-                        d.innerHTML = `<i class='fas fa-circle text-[3px] text-zinc-600 shrink-0'></i><span>${translate(r.text)}</span>`;
-                    } else {
-                        d.className = 'text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';
-                        const content = r.url ? `<a href="${r.url}" target="_blank" class="underline decoration-dotted text-blue-400">${translate(r.text)}</a>` : translate(r.text);
-                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${content}</span>`;
-                    }
+                    if (t==='disruption'||t==='warning') { d.className='text-[10px] text-orange-300 bg-orange-500/10 p-2 rounded-lg border border-orange-500/30 flex items-start gap-2'; d.innerHTML=`<i class='fas fa-exclamation-triangle mt-0.5 text-orange-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`; }
+                    else if (t==='hint') { d.className='text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2'; d.innerHTML=`<i class='fas fa-info-circle mt-0.5 text-red-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`; }
+                    else if (t==='timetable') { d.className='text-[9px] text-zinc-500 flex items-center gap-1.5 py-0.5'; d.innerHTML=`<i class='fas fa-circle text-[3px] text-zinc-600 shrink-0'></i><span>${translate(r.text)}</span>`; }
+                    else { d.className='text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2'; const content=r.url?`<a href="${r.url}" target="_blank" class="underline decoration-dotted text-blue-400">${translate(r.text)}</a>`:translate(r.text); d.innerHTML=`<i class='fas fa-info-circle mt-0.5 text-gray-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${content}</span>`; }
                     remDiv.appendChild(d);
                 });
                 container.appendChild(remDiv);
@@ -1431,8 +1381,27 @@
         function startRouteSearch() {}
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
+        // ─── Check-In ─────────────────────────────────────────────────────────────────
+        let checkinDep = null;
+
+        function quickCheckin(idx) {
+            const dep = state.departures[idx];
+            if (!dep) return;
+            checkinDep = dep;
+            showTripDetails(dep);
+            // Nach kurzem Delay (Fahrtverlauf lädt) Check-In Modus aktivieren
+            setTimeout(() => {
+                $('checkin-mode-banner').classList.remove('hidden');
+            }, 800);
+        }
+
+        function cancelCheckinMode() {
+            checkinDep = null;
+            $('checkin-mode-banner').classList.add('hidden');
+        }
+
         init();
     </script>
 </body>
 </html>
-                        
+                       
