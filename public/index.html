@@ -149,7 +149,7 @@
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
         <header class="flex justify-between items-center mb-8">
-           <a href="/index.html"> <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1></a>
+            <a href="/index.html"><h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1></a>
             <div class="flex items-center gap-3">
                 <div class="flex flex-col items-end text-xs mono text-gray-500">
                     <span id="current-date">--.--.----</span>
@@ -843,8 +843,11 @@
                 const dotColor  = cancelled ? '#3f3f46' : additional ? '#22c55e' : isPast ? '#52525b' : '#ef4444';
                 const showArr = !isFirst && schedArr, showDep = !isLast && schedDep;
                 const el = document.createElement('div');
-                el.className = `flex items-stretch gap-0 ${cancelled ? 'opacity-40' : ''}`;
+                el.className = `flex items-stretch gap-0 ${cancelled ? 'opacity-40' : ''} ${checkinDep && !cancelled ? 'cursor-pointer hover:bg-green-900/20 rounded-lg transition-colors' : ''}`;
                 el.style.minHeight = '2.4rem';
+                if (checkinDep && !cancelled) {
+                    el.onclick = () => selectCheckinExit(stop);
+                }
                 el.innerHTML = `
                     <div class="w-32 shrink-0 flex flex-col justify-center items-end pr-2 mono gap-px leading-tight">
                         ${showArr ? `<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr,actualArr,stop.arrivalDelaySec,isPast)}</div>` : ''}
@@ -1389,15 +1392,35 @@
             if (!dep) return;
             checkinDep = dep;
             showTripDetails(dep);
-            // Nach kurzem Delay (Fahrtverlauf lädt) Check-In Modus aktivieren
             setTimeout(() => {
                 $('checkin-mode-banner').classList.remove('hidden');
-            }, 800);
+                // Fahrtverlauf neu rendern damit Halte klickbar werden
+                if (currentDetailStopovers) renderItinerary(currentDetailStopovers, [], '');
+            }, 900);
         }
 
         function cancelCheckinMode() {
             checkinDep = null;
             $('checkin-mode-banner').classList.add('hidden');
+            if (currentDetailStopovers) renderItinerary(currentDetailStopovers, [], '');
+        }
+
+        function selectCheckinExit(stop) {
+            if (!checkinDep) return;
+            const dep = checkinDep;
+            checkinDep = null;
+            $('checkin-mode-banner').classList.add('hidden');
+            closeTripDetails();
+
+            // Zu stats.html navigieren mit vorausgefüllten Daten
+            const from = dep.stop?.name || dep.direction?.split(' → ')[0] || state.currentStation?.name || '';
+            const to   = stop.stop?.name || '';
+            const line = dep.line?.name || '';
+            const date = dep.plannedWhen ? new Date(dep.plannedWhen).toISOString().slice(0,10) : $('query-date').value;
+            const time = dep.plannedWhen ? new Date(dep.plannedWhen).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+
+            const params = new URLSearchParams({ from, to, line, date, time, mode: 'checkin' });
+            window.location.href = `/stats.html?${params.toString()}`;
         }
 
         init();
