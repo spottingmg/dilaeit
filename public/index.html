@@ -149,7 +149,7 @@
 <body class="dark transition-colors duration-300">
     <div class="max-w-4xl mx-auto px-4 py-6 min-h-screen">
         <header class="flex justify-between items-center mb-8">
-            <a href="/index.html"><h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1></a>
+            <h1 class="text-3xl font-black text-red-600 tracking-tighter italic">dilaeit</h1>
             <div class="flex items-center gap-3">
                 <div class="flex flex-col items-end text-xs mono text-gray-500">
                     <span id="current-date">--.--.----</span>
@@ -1412,12 +1412,16 @@
             $('checkin-mode-banner').classList.add('hidden');
             closeTripDetails();
 
-            // Zu stats.html navigieren mit vorausgefüllten Daten
-            const from = dep.stop?.name || dep.direction?.split(' → ')[0] || state.currentStation?.name || '';
+            const from = state.currentStation?.name || '';
             const to   = stop.stop?.name || '';
             const line = dep.line?.name || '';
-            const date = dep.plannedWhen ? new Date(dep.plannedWhen).toISOString().slice(0,10) : $('query-date').value;
-            const time = dep.plannedWhen ? new Date(dep.plannedWhen).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+            const date = dep.plannedWhen
+                ? new Date(dep.plannedWhen).toISOString().slice(0,10)
+                : $('query-date').value;
+            // time im Format HH:MM für <input type="time">
+            const time = dep.plannedWhen
+                ? new Date(dep.plannedWhen).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'})
+                : '';
 
             const params = new URLSearchParams({ from, to, line, date, time, mode: 'checkin' });
             window.location.href = `/stats.html?${params.toString()}`;
@@ -1427,4 +1431,3 @@
     </script>
 </body>
 </html>
-                       
