@@ -820,9 +820,9 @@
                 const ds = (delaySec !== null && delaySec !== undefined) ? delaySec : Math.round((actual - sched) / 1000);
                 const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
                 const aFull = actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
-                const fw = isPast ? '900' : '300';
+                const fw = isPast ? '900' : '200';
                 const color = ds >= 60 ? 'text-red-400' : 'text-green-400';
-                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px] cursor-help" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
+                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px]" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
             };
 
             const sorted = [...stopovers].sort((a,b) => new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
