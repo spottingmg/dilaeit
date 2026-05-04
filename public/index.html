@@ -698,6 +698,7 @@
         // ─── Fahrtverlauf Details ───────────────────────────────────────────────────
         let currentTripDep = null;
         let currentDetailStopovers = null;
+        let checkinDep = null;
 
         async function showTripDetails(dep) {
             currentTripDep = dep;
@@ -791,7 +792,7 @@
                 } else {
                     renderItinerary(stops, mergedRemarks, finalSourceName);
                 }
-            } catch (e) { itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden.</div>`; }
+            } catch (e) { console.error('Trip details error:', e); itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden: ${e.message}</div>`; }
         }
 
         function renderItinerary(stopovers, tripRemarks = [], sourceName = 'API') {
@@ -1513,8 +1514,40 @@
         function startRouteSearch() {}
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
+        // ─── Check-In ─────────────────────────────────────────────────────────────────
+        function quickCheckin(idx) {
+            const dep = state.departures[idx];
+            if (!dep) return;
+            checkinDep = dep;
+            showTripDetails(dep);
+            setTimeout(() => {
+                $('checkin-mode-banner').classList.remove('hidden');
+                if (currentDetailStopovers) renderItinerary(currentDetailStopovers, [], '');
+            }, 900);
+        }
+
+        function cancelCheckinMode() {
+            checkinDep = null;
+            $('checkin-mode-banner').classList.add('hidden');
+            if (currentDetailStopovers) renderItinerary(currentDetailStopovers, [], '');
+        }
+
+        function selectCheckinExit(stop) {
+            if (!checkinDep) return;
+            const dep = checkinDep;
+            checkinDep = null;
+            $('checkin-mode-banner').classList.add('hidden');
+            closeTripDetails();
+            const from = state.currentStation?.name || '';
+            const to   = stop.stop?.name || '';
+            const line = dep.line?.name || '';
+            const date = dep.plannedWhen ? new Date(dep.plannedWhen).toISOString().slice(0,10) : $('query-date').value;
+            const time = dep.plannedWhen ? new Date(dep.plannedWhen).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+            const params = new URLSearchParams({ from, to, line, date, time, mode: 'checkin' });
+            window.location.href = `/stats.html?${params.toString()}`;
+        }
+
         init();
     </script>
 </body>
 </html>
-                    
