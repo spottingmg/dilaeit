@@ -251,13 +251,23 @@ app.get('/api/db/stops/:stopId/departures', async (req, res) => {
 
         const departures = times.map(t => {
             const place   = t.place || {};
-            // Transitous gibt scheduled* als Soll-Zeit und departure/arrival als RT
-            const planned = place.scheduledDeparture || place.scheduledArrival || null;
-            const actual  = (place.departure !== place.scheduledDeparture ? place.departure : null)
-                         || (place.arrival   !== place.scheduledArrival   ? place.arrival   : null)
-                         || planned;
-            const delaySec = planned && actual && actual !== planned
-                ? Math.round((new Date(actual) - new Date(planned)) / 1000) : null;
+            const plannedDep = place.scheduledDeparture || null;
+            const plannedArr = place.scheduledArrival   || null;
+            const actualDep   = place.departure || null;
+            const actualArr   = place.arrival   || null;
+
+            const planned = plannedDep || plannedArr;
+            // Numerischer Vergleich (nicht String!) – verschiedene ISO-Formate derselben Zeit sind "gleich"
+            const depDiffers = plannedDep && actualDep && new Date(plannedDep).getTime() !== new Date(actualDep).getTime();
+            const arrDiffers = plannedArr && actualArr && new Date(plannedArr).getTime() !== new Date(actualArr).getTime();
+            const actual = depDiffers ? actualDep : (arrDiffers ? actualArr : planned);
+
+            const delaySec = planned && actual
+                ? (() => {
+                    const diff = Math.round((new Date(actual).getTime() - new Date(planned).getTime()) / 1000);
+                    return diff !== 0 ? diff : null; // 0 = kein RT-Signal, nicht "pünktlich"
+                })()
+                : null;
             return {
                 plannedWhen:     planned,
                 when:            actual,
