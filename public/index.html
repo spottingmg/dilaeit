@@ -1438,6 +1438,7 @@
 
             const date = $('route-date').value || $('query-date').value;
             const time = $('route-time').value || $('query-time').value;
+            lastRouteSearchDate = new Date(`${date}T${time}`).toLocaleDateString('de-DE');
             const offset = -new Date().getTimezoneOffset();
             const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
             const datetime = `${date}T${time}:00${tz}`;
@@ -1458,19 +1459,34 @@
             }
         }
 
+        let lastRouteSearchDate = null;
+        let lastItineraries = [];
+
         function renderRouteResults(itineraries) {
             const results = $('route-results');
+            lastItineraries = itineraries;
             if (!itineraries.length) { results.innerHTML = '<span class="text-gray-500">Keine Verbindungen gefunden.</span>'; return; }
             results.innerHTML = '';
-            itineraries.forEach(it => {
+            itineraries.forEach((it, idx) => {
                 const start = new Date(it.startTime), end = new Date(it.endTime);
                 const durMin = Math.round(it.duration / 60);
+                const startDateStr = start.toLocaleDateString('de-DE');
+                const isOtherDay = lastRouteSearchDate && startDateStr !== lastRouteSearchDate;
+
+                const realLegs = it.legs.filter(l => l.mode !== 'WALK');
+                const hasRT = realLegs.some(l => l.realTime === true);
+                const allRT = realLegs.length > 0 && realLegs.every(l => l.realTime === true);
+
                 const card = document.createElement('div');
                 card.className = 'p-3 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 mb-2';
-                const legsHtml = it.legs.filter(l => l.mode !== 'WALK').map(leg => {
+                const legsHtml = realLegs.map(leg => {
                     const t1 = new Date(leg.from.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
                     const t2 = new Date(leg.to.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                    const rtDot = leg.realTime
+                        ? '<span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" title="Echtzeit aktiv"></span>'
+                        : '<span class="w-1.5 h-1.5 rounded-full bg-zinc-500 inline-block" title="Nur Soll-Zeit"></span>';
                     return `<div class="flex items-center gap-2 text-xs py-1">
+                        ${rtDot}
                         <span class="px-1.5 py-0.5 rounded bg-red-600 text-white font-black italic text-[10px]">${leg.routeShortName || leg.mode}</span>
                         <span class="text-gray-500 mono">${t1}</span>
                         <span class="font-medium">${leg.from.name}</span>
@@ -1479,14 +1495,69 @@
                         <span class="font-medium">${leg.to.name}</span>
                     </div>`;
                 }).join('');
+
+                const rtBadge = realLegs.length === 0 ? ''
+                    : allRT ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 text-green-400 font-semibold flex items-center gap-1"><i class="fas fa-satellite-dish text-[9px]"></i>Echtzeit</span>'
+                    : hasRT ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-yellow-600/20 text-yellow-400 font-semibold flex items-center gap-1"><i class="fas fa-satellite-dish text-[9px]"></i>Teilweise Echtzeit</span>'
+                    : '<span class="text-[10px] px-2 py-0.5 rounded-full bg-zinc-600/20 text-zinc-400 font-semibold flex items-center gap-1"><i class="fas fa-clock text-[9px]"></i>Nur Soll-Zeit</span>';
+
                 card.innerHTML = `
                     <div class="flex items-center justify-between mb-2">
-                        <span class="font-bold">${start.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} → ${end.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold">${start.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} → ${end.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
+                            ${isOtherDay ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-orange-600/20 text-orange-400 font-semibold">📅 ${startDateStr} (anderer Tag)</span>` : ''}
+                        </div>
                         <span class="text-xs text-gray-500">${durMin} min · ${Math.max(0,it.transfers)} Umstieg${it.transfers===1?'':'e'}</span>
+                    </div>
+                    <div class="flex items-center justify-between mb-2">
+                        ${rtBadge}
+                        <button onclick="openRouteDetails(${idx})" class="text-[11px] font-semibold text-red-500 hover:text-red-400 flex items-center gap-1">
+                            Details <i class="fas fa-chevron-right text-[9px]"></i>
+                        </button>
                     </div>
                     ${legsHtml}`;
                 results.appendChild(card);
             });
+        }
+
+        function openRouteDetails(idx) {
+            const it = lastItineraries[idx];
+            if (!it) return;
+            const realLegs = it.legs.filter(l => l.mode !== 'WALK');
+
+            const modalHtml = `
+            <div id="route-detail-modal" class="fixed inset-0 z-[1300] bg-black/85 backdrop-blur flex items-center justify-center p-4">
+                <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto">
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950">
+                        <div class="font-black text-white text-sm">Verbindungsdetails</div>
+                        <button onclick="document.getElementById('route-detail-modal').remove()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="px-5 py-4 space-y-3">
+                        ${realLegs.map((leg, i) => {
+                            const t1 = new Date(leg.from.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                            const t2 = new Date(leg.to.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                            const durMin = Math.round(leg.duration / 60);
+                            return `
+                            <div class="bg-zinc-900 rounded-xl p-3">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="px-2 py-1 rounded bg-red-600 text-white font-black italic text-xs">${leg.routeShortName || leg.mode}</span>
+                                    ${leg.realTime
+                                        ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 text-green-400 font-semibold"><i class="fas fa-satellite-dish text-[9px] mr-1"></i>Echtzeit</span>'
+                                        : '<span class="text-[10px] px-2 py-0.5 rounded-full bg-zinc-600/20 text-zinc-400 font-semibold"><i class="fas fa-clock text-[9px] mr-1"></i>Nur Soll-Zeit</span>'}
+                                </div>
+                                <div class="text-sm text-white font-semibold">${leg.from.name}</div>
+                                <div class="text-xs text-zinc-500 mono">ab ${t1}${leg.from.track ? ` · Gl. ${leg.from.track}` : ''}</div>
+                                <div class="text-[10px] text-zinc-600 my-1">↓ ${durMin} min</div>
+                                <div class="text-sm text-white font-semibold">${leg.to.name}</div>
+                                <div class="text-xs text-zinc-500 mono">an ${t2}${leg.to.track ? ` · Gl. ${leg.to.track}` : ''}</div>
+                                ${leg.headsign ? `<div class="text-[10px] text-zinc-600 mt-1">Richtung: ${leg.headsign}</div>` : ''}
+                                ${leg.agencyName ? `<div class="text-[10px] text-zinc-600">${leg.agencyName}</div>` : ''}
+                            </div>`;
+                        }).join('<div class="text-center text-[10px] text-zinc-600">↓ Umstieg ↓</div>')}
+                    </div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
         }
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
