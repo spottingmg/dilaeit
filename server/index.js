@@ -374,6 +374,61 @@ app.get('/api/db/locations', async (req, res) => {
 
 
 
+// ─── Verbindungssuche Transitous ──────────────────────────────────────────────
+
+app.get('/api/plan', async (req, res) => {
+    try {
+        const { fromId, toId, viaId, datetime, mode } = req.query;
+        if (!fromId || !toId) return res.status(400).json({ error: 'fromId und toId erforderlich' });
+
+        // Transitmodi je nach Filter (MOTIS/Transitous Standard-Modi)
+        // mode: 'all' | 'local' | 'longdistance' | 'bus' | 'tram'
+        let transitModes = null;
+        if (mode === 'local') transitModes = ['REGIONAL_RAIL', 'REGIONAL_FAST_RAIL', 'BUS', 'TRAM', 'SUBWAY'];
+        else if (mode === 'longdistance') transitModes = ['HIGHSPEED_RAIL', 'LONG_DISTANCE', 'NIGHT_RAIL'];
+        else if (mode === 'bus') transitModes = ['BUS'];
+        else if (mode === 'tram') transitModes = ['TRAM'];
+
+        const params = new URLSearchParams({
+            fromPlace: fromId,
+            toPlace:   toId,
+            time:      datetime || new Date().toISOString(),
+            arriveBy:  'false',
+            numItineraries: '6',
+        });
+        if (viaId) params.set('via', viaId);
+        if (transitModes) params.set('transitModes', transitModes.join(','));
+
+        const r = await fetch(`${TRANSITOUS}/plan?${params}`, {
+            signal: AbortSignal.timeout(15000), headers: TR_HEADERS
+        });
+        if (!r.ok) throw new Error(`Transitous plan ${r.status}: ${await r.text().catch(()=>'')}`);
+        const data = await r.json();
+
+        const itineraries = (data.itineraries || []).map(it => ({
+            startTime: it.startTime, endTime: it.endTime,
+            duration:  it.duration,
+            transfers: (it.legs || []).filter(l => l.mode !== 'WALK').length - 1,
+            legs: (it.legs || []).map(leg => ({
+                mode:        leg.mode,
+                tripId:      leg.tripId || null,
+                routeShortName: leg.routeShortName || leg.displayName || leg.tripShortName || '',
+                headsign:    leg.headsign || '',
+                from:        { name: leg.from?.name || '', time: leg.startTime, track: leg.from?.track || null },
+                to:          { name: leg.to?.name   || '', time: leg.endTime,   track: leg.to?.track   || null },
+                realTime:    leg.realTime === true,
+                duration:    leg.duration,
+                agencyName:  leg.agencyName || null,
+            })),
+        }));
+
+        res.json({ itineraries });
+    } catch (e) {
+        console.error('[Plan]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
+
 // ─── Abfahrten VRR ───────────────────────────────────────────────────────────
 
 app.get('/api/stops/:stopId/departures', async (req, res) => {
@@ -596,18 +651,16 @@ app.get('/api/train-details/:tripId', async (req, res) => {
             const pA = s.scheduledArrival   || null;
             const pD = s.scheduledDeparture || null;
 
-            // Nur wenn legHasRT UND eine echte Echtzeit vorhanden ist → arrival/departure setzen
-            // Sonst null lassen (KEIN Fallback auf Planzeit!) damit Frontend "keine RT" erkennt
-            const aA = (legHasRT && s.arrival)   ? s.arrival   : null;
-            const aD = (legHasRT && s.departure) ? s.departure : null;
+            const aA = legHasRT ? (s.arrival || pA) : null;
+            const aD = legHasRT ? (s.departure || pD) : null;
 
             return {
                 stop: { name: s.name || '', id: s.stopId || null,
                         location: (s.lat && s.lon) ? { latitude: s.lat, longitude: s.lon } : null },
-                plannedArrival:    pA, arrival:   aA,
-                plannedDeparture:  pD, departure: aD,
-                arrivalDelaySec:   (aA && pA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
-                departureDelaySec: (aD && pD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                plannedArrival:    pA, arrival:   aA || pA,
+                plannedDeparture:  pD, departure: aD || pD,
+                arrivalDelaySec:   (legHasRT && pA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (legHasRT && pD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
                 platform:        s.track          || null,
                 plannedPlatform: s.scheduledTrack || null,
                 cancelled: s.cancelled || false, additional: false, 
@@ -693,8 +746,8 @@ app.get('/api/trips/:tripId', async (req, res) => {
             const eD = toIsoStringOrNull(s.departureTimeEstimated);
 
             const hasRT = !!(eA || eD);
-            const aA = eA || null;
-            const aD = eD || null;
+            const aA = eA || pA;
+            const aD = eD || pD;
 
             const stopRemarks = [];
             // Stop-spezifische Hints und Infos
