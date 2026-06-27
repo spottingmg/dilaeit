@@ -168,28 +168,12 @@
             </div>
         </header>
 
-        <!-- Beta-Plattform Banner -->
-        <div id="beta-banner" class="hidden mb-6 bg-gradient-to-r from-purple-900/30 to-zinc-900 border border-purple-700/40 rounded-xl px-4 py-3 flex items-center gap-3">
-            <i class="fas fa-flask text-purple-400 shrink-0"></i>
-            <div class="flex-1 min-w-0">
-                <span class="text-sm text-purple-200 font-semibold">Neu in Entwicklung:</span>
-                <span class="text-sm text-zinc-400">eigene Echtzeit-Engine (selbst gehostet) – noch in Beta.</span>
-            </div>
-            <a href="https://dilaeitengine.onrender.com" target="_blank" rel="noopener"
-                class="shrink-0 bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
-                Beta testen <i class="fas fa-arrow-right ml-1"></i>
-            </a>
-            <button onclick="dismissBetaBanner()" class="shrink-0 text-zinc-500 hover:text-white transition-colors px-1">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-
         <div class="search-container space-y-4">
             <div class="flex flex-col gap-3">
                 <!-- Quelle-Umschalter -->
                 <div class="flex bg-gray-100 dark:bg-zinc-900 p-1 rounded-xl self-start">
                     <button id="source-vrr" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm">VRR</button>
-                    <button id="source-db" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300">Deutsche Bahn</button>
+                    <button id="source-db" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300">Transitous</button>
                 </div>
                 
                 <div class="flex gap-2">
@@ -204,11 +188,11 @@
                         <i class="fas fa-search absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 text-xl"></i>
                         <div id="search-results" class="absolute top-full left-0 w-full mt-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl overflow-hidden hidden z-50 border border-gray-100 dark:border-zinc-800 search-as-you-type-results"></div>
                     </div>
-                    <a href="trip-search.html" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2 shadow-lg shadow-red-600/20">
+                    <button onclick="toggleTripSearch()" class="px-4 py-5 bg-red-600 text-white rounded-2xl font-semibold hover:bg-red-500 transition flex items-center gap-2 shadow-lg shadow-red-600/20">
                         <i class="fas fa-train"></i>
-                        <span class="hidden md:inline">Zug-/Busnummer</span>
+                        <span class="hidden md:inline">Zugnummer suchen</span>
                         <span class="md:hidden">Nummer</span>
-                    </a>
+                    </button>
                 </div>
             </div>
 
@@ -248,7 +232,49 @@
                 <input id="route-date" type="date" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
                 <input id="route-time" type="time" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
             </div>
+            <div class="flex gap-2 flex-wrap">
+                <button data-mode="all"          class="route-mode-btn px-3 py-1.5 rounded-xl text-xs font-bold border bg-red-600 border-red-600 text-white">Alle</button>
+                <button data-mode="local"        class="route-mode-btn px-3 py-1.5 rounded-xl text-xs font-bold border bg-transparent border-gray-600 text-gray-400 hover:border-red-400">Nahverkehr (Deutschlandticket)</button>
+                <button data-mode="longdistance"  class="route-mode-btn px-3 py-1.5 rounded-xl text-xs font-bold border bg-transparent border-gray-600 text-gray-400 hover:border-red-400">Nur Fernverkehr</button>
+                <button data-mode="bus"          class="route-mode-btn px-3 py-1.5 rounded-xl text-xs font-bold border bg-transparent border-gray-600 text-gray-400 hover:border-red-400">Nur Bus</button>
+                <button data-mode="tram"         class="route-mode-btn px-3 py-1.5 rounded-xl text-xs font-bold border bg-transparent border-gray-600 text-gray-400 hover:border-red-400">Nur Straßenbahn</button>
+            </div>
             <div id="route-results" class="mt-2 text-sm text-gray-600 dark:text-gray-300"></div>
+        </div>
+
+        <!-- Zugnummernsuche Panel (inline) -->
+        <div id="trip-search-panel" class="hidden mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Zugnummer suchen</h3>
+                <button onclick="toggleTripSearch()" class="text-gray-400 hover:text-red-500 transition-colors">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="relative group md:col-span-2">
+                    <input id="trip-number-input" type="text" placeholder="Zug-/Busnummer (z.B. IC2201, 10612)" autocomplete="off" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-lg focus:ring-2 focus:ring-red-500/50 outline-none transition-all" />
+                    <i class="fas fa-search absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 transition-colors"></i>
+                    <div id="trip-dropdown" class="absolute top-full left-0 w-full mt-2 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl overflow-hidden hidden z-[100] border border-gray-100 dark:border-zinc-800 max-h-80 overflow-y-auto"></div>
+                </div>
+                <div class="relative">
+                    <input id="trip-date-input" type="date" class="w-full rounded-xl p-3 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 outline-none focus:ring-2 focus:ring-red-500/50 transition-all" />
+                </div>
+            </div>
+            <div id="trip-search-results" class="mt-4 text-sm text-gray-600 dark:text-gray-300 min-h-[24px]"></div>
+            
+            <!-- Fahrtverlauf Ergebnis -->
+            <div id="trip-itinerary-container" class="hidden mt-4 pt-4 border-t border-gray-200 dark:border-zinc-700">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h4 class="font-bold">Fahrtverlauf</h4>
+                        <div id="trip-operator-display" class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5"></div>
+                    </div>
+                    <div class="text-sm text-gray-500 text-right">
+                        <span id="trip-source-display">QUELLE: --</span>
+                    </div>
+                </div>
+                <div id="trip-itinerary-search" class="space-y-0 relative"></div>
+            </div>
         </div>
 
         <div id="trip-archive" class="mt-6 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 overflow-hidden">
@@ -291,6 +317,19 @@
         </div>
 
         <div id="board-container" class="mt-8 space-y-6">
+        <!-- Störungsmeldungen -->
+        <div id="disruptions-panel" class="hidden mt-4 rounded-2xl border border-orange-800/50 bg-orange-950/30 overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none" onclick="toggleDisruptions()">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                    <span class="text-xs font-bold uppercase tracking-wider text-orange-300">Störungsmeldungen</span>
+                    <span id="disruptions-count" class="text-[10px] text-orange-600 mono"></span>
+                </div>
+                <i id="disruptions-chevron" class="fas fa-chevron-down text-[10px] text-orange-600 transition-transform duration-200" style="transform:rotate(180deg)"></i>
+            </div>
+            <div id="disruptions-list" class="px-4 pb-3 space-y-2"></div>
+        </div>
+
             <div id="board-header" class="hidden flex justify-between items-end border-b border-gray-100 dark:border-zinc-800 pb-4">
                 <div>
                     <h2 id="station-display-name" class="text-2xl font-bold tracking-tight"></h2>
@@ -338,7 +377,7 @@
                 <!-- Check-In Modus Banner -->
                 <div id="checkin-mode-banner" class="hidden mx-3 mt-3 mb-1 bg-green-900/40 border border-green-600/40 rounded-xl px-3 py-2 flex items-center gap-2">
                     <i class="fas fa-map-marker-alt text-green-400 text-xs"></i>
-                    <span class="text-xs text-green-300 font-semibold">Wähle deinen Ausstieg</span>
+                    <span class="text-xs text-green-300 font-semibold">Wähle deinen Ausstieg.</span>
                     <button onclick="cancelCheckinMode()" class="ml-auto text-green-600 hover:text-red-400 text-xs transition-colors">
                         <i class="fas fa-times"></i> Abbrechen
                     </button>
@@ -401,420 +440,127 @@
 
     <script>
         // ─── Konfiguration ───────────────────────────────────────────────────────────
-        // Abfahrtstafel + Details nutzen unseren Proxy (/api/*), der VRR OpenService nutzt.
-        // Verbindungssuche bleibt über DB (v6.db.transport.rest), damit ganz Deutschland abgedeckt ist.
-        //
-        // Wenn du die Seite statisch über GitHub Pages hostest, brauchst du zusätzlich eine Backend-URL.
-        // Du kannst sie im UI unter "Backend-URL" setzen (wird in localStorage gespeichert).
-        const DEFAULT_REMOTE_API_BASE = ''; // optional hart setzen, z.B. 'https://dilaeit.onrender.com'
-        const API_BASE = (() => {
-            const saved = localStorage.getItem('dilaeit_api_base');
-            if (saved) return saved;
-            if (DEFAULT_REMOTE_API_BASE) return DEFAULT_REMOTE_API_BASE;
-            // Wenn wir auf einem Host laufen, der selbst /api/health hat, nutzen wir same-origin.
-            // (z.B. Render/localhost)
-            return '';
-        })();
-
-        function setApiBaseFromPrompt() {
-            const current = localStorage.getItem('dilaeit_api_base') || DEFAULT_REMOTE_API_BASE || '';
-            const next = prompt('Backend-URL (z.B. https://dein-service.onrender.com). Leer lassen = same-origin.', current);
-            if (next === null) return;
-            const trimmed = next.trim();
-            if (!trimmed) {
-                localStorage.removeItem('dilaeit_api_base');
-            } else {
-                localStorage.setItem('dilaeit_api_base', trimmed.replace(/\/+$/, ''));
-            }
-            location.reload();
-        }
-        const REFRESH_INTERVAL = 60000;
-
-        // ─── FIX 1: Rate-Limit-Cooldown von 1500 ms → 200 ms ────────────────────────
-        // War der Hauptgrund: jeder Klick auf eine Station blockierte 1,5 Sekunden.
-        const REQUEST_COOLDOWN_MS = 200;
-
-        let state = {
-            currentStation:  null,
-            currentRegion:   'NRW',
-            departures:      [],
-            refreshTimer:    null,
-            searchTimer:     null,
-            lastSearchQuery: '',
-            isRateLimited:   false,
-            lastRequestTime: 0,
-            searchCache:     new Map(),
-            // FIX 2: Departures-Cache – gleiche Station+Zeit nicht nochmal fetchen
-            departureCache:  new Map(),
-            source:          'VRR' // Standardquelle für die Suche
-        };
+        const API_BASE = window.location.hostname === 'localhost' ? '' : 'https://dilaeit.onrender.com';
+        const REFRESH_INTERVAL = 30000;
+        const REQUEST_COOLDOWN_MS = 2000;
 
         const $ = id => document.getElementById(id);
 
-        // ─── FIX 3: Schnellster API-Endpunkt wird gemerkt und zuerst verwendet ───────
-        // Statt jedes Mal alle Endpunkte der Reihe nach zu probieren,
-        // speichern wir welcher zuletzt funktioniert hat.
-        let fastestDepartureApi = null;
+        let state = {
+            currentStation: null,
+            currentRegion: 'DEUTSCHLAND',
+            currentSource: 'vrr',
+            departures: [],
+            lastRequestTime: 0,
+            refreshTimer: null,
+            disruptionsLoaded: false
+        };
 
-        // VRR-Zugriff passiert serverseitig über /api; wir brauchen keine DNS-Workarounds im Browser.
-
-        function setSource(src) {
-            state.source = src;
-            const vrrBtn = $('source-vrr');
-            const dbBtn = $('source-db');
-            const input = $('station-search');
-
-            if (src === 'VRR') {
-                vrrBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
-                dbBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
-                input.placeholder = 'Haltestelle suchen (VRR)...';
-            } else {
-                dbBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
-                vrrBtn.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
-                input.placeholder = 'Haltestelle suchen (Deutsche Bahn)...';
-            }
-            
-            // Suche zurücksetzen
-            input.value = '';
-            $('search-results').innerHTML = '';
-            $('search-results').classList.add('hidden');
-            state.lastSearchQuery = '';
-        }
-
-        function detectRegion(stationName) {
-            if (!stationName) return 'NATIONAL';
-            const name = stationName.toLowerCase();
-            const nrwKeywords = ['düsseldorf','duisburg','essen','bochum','dortmund','gelsenkirchen',
-                'mönchengladbach','wuppertal','oberhausen','krefeld','hagen','hamm','mülheim',
-                'leverkusen','solingen','neuss','herne','rheydt','viersen','korschenbroich',
-                'kleinenbroich','büttgen','jüchen','erkelenz','hückelhoven','baal','wassenberg',
-                'wegberg','mg','moenchengladbach',
-                // Spezifische NRW-Orte / Schreibvarianten
-                'neersen','willich'];
-            if (nrwKeywords.some(k => name.includes(k))) return 'NRW';
-            // Stationsnamen enden oft mit Zusatz wie "(Westf)" oder "(Westfalen)"
-            if (/\((?:westf|westfalen)\)/i.test(stationName)) return 'NRW';
-            if (name.includes('berlin') || name.includes('potsdam') || name.includes('cottbus')) return 'BERLIN';
-            if (name.includes('hamburg') || name.includes('lübeck') || name.includes('kiel')) return 'HAMBURG';
-            return 'NATIONAL';
-        }
-
-        function calculateSimilarity(query, target) {
-            const q = query.toLowerCase();
-            const t = target.toLowerCase();
-            if (t.includes(q)) return 1.0;
-            const qWords = q.split(/[\s,.-]+/).filter(w => w.length >= 2);
-            if (qWords.length === 0) return 0;
-            let matches = 0;
-            qWords.forEach(w => { if (t.includes(w)) matches++; });
-            let boost = t.startsWith(qWords[0]) ? 0.2 : 0;
-            return Math.min(1.0, (matches / qWords.length) + boost);
-        }
-
-        // ─── Init ────────────────────────────────────────────────────────────────────
-        // ─── Beta-Plattform Banner ─────────────────────────────────────────────────
-        function initBetaBanner() {
-            const dismissedAt = localStorage.getItem('dilaeit_beta_banner_dismissed');
-            // Banner nach Dismiss für 14 Tage ausblenden, danach wieder zeigen
-            if (dismissedAt && Date.now() - Number(dismissedAt) < 14 * 24 * 3600 * 1000) return;
-            document.getElementById('beta-banner')?.classList.remove('hidden');
-        }
-        function dismissBetaBanner() {
-            localStorage.setItem('dilaeit_beta_banner_dismissed', String(Date.now()));
-            document.getElementById('beta-banner')?.classList.add('hidden');
-        }
-
+        // ─── Initialisierung ─────────────────────────────────────────────────────────
         function init() {
-            setupClock();
-            setupDefaultDateTime();
-            attachEventListeners();
-            renderArchive();
-            initBetaBanner();
-            // Button "Backend-URL" nur anzeigen, wenn wir statisch laufen (kein /api/health).
-            // Dann kann man die Backend-URL einmalig speichern.
-            (async () => {
-                const btn = document.getElementById('api-base-btn');
-                if (!btn) return;
-                try {
-                    const r = await fetch(`${API_BASE}/api/health`, { cache: 'no-store' });
-                    if (r.ok) {
-                        btn.classList.add('hidden');
-                    } else {
-                        btn.classList.remove('hidden');
-                    }
-                } catch {
-                    btn.classList.remove('hidden');
-                }
-            })();
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible' && state.currentStation && !state.isRateLimited) {
-                    refreshDepartures();
-                }
-            });
-        }
+            updateClock();
+            setInterval(updateClock, 1000);
 
-        function setupClock() {
-            const update = () => {
-                const now = new Date();
-                $('current-date').textContent = now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                $('current-time').textContent = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            };
-            setInterval(update, 1000);
-            update();
-        }
+            $('station-search').addEventListener('input', debounce(onStationSearch, 300));
+            $('reset-query').onclick = () => { setNow(); refreshDepartures(true); };
+            $('prev-day').onclick   = () => { changeDate(-1); refreshDepartures(true); };
+            $('next-day').onclick   = () => { changeDate(1); refreshDepartures(true); };
+            $('theme-toggle').onclick = toggleTheme;
+            $('close-detail').onclick = closeTripDetails;
+            $('reload-trip').onclick  = () => { if (currentTripDep) showTripDetails(currentTripDep); };
+            
+            // Verbindungssuche
+            $('route-search').onclick = startRouteSearch;
+            setupRouteAutocomplete('route-start', 'route-start-results', 'start');
+            setupRouteAutocomplete('route-via',   'route-via-results',   'via');
+            setupRouteAutocomplete('route-dest',  'route-dest-results',  'dest');
+            setupRouteModeButtons();
+            
+            setNow();
+            loadLastStation();
 
-        function setupDefaultDateTime() {
-            const now = new Date();
-            const year  = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day   = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            const mins  = String(now.getMinutes()).padStart(2, '0');
-            $('query-date').value = `${year}-${month}-${day}`;
-            $('query-time').value = `${hours}:${mins}`;
-        }
-
-        function attachEventListeners() {
-            $('station-search').addEventListener('input', e => handleSearchInput(e.target.value));
-            $('station-search').addEventListener('focus', () => {
-                if ($('search-results').children.length > 0) $('search-results').classList.remove('hidden');
-            });
-
-            // Quelle-Umschalter
-            $('source-vrr').addEventListener('click', () => setSource('VRR'));
-            $('source-db').addEventListener('click', () => setSource('DB'));
-
-            $('reset-query').addEventListener('click', () => {
-                setupDefaultDateTime();
-                if (state.currentStation) refreshDepartures(true);
-            });
-            $('theme-toggle').addEventListener('click', () => document.body.classList.toggle('dark'));
-            const apiBtn = document.getElementById('api-base-btn');
-            if (apiBtn) apiBtn.addEventListener('click', setApiBaseFromPrompt);
-            $('close-detail').addEventListener('click', () => {
-                $('detail-view').classList.remove('active');
-                if (tripMapTimer) { clearInterval(tripMapTimer); tripMapTimer = null; }
-                currentDetailStopovers = null;
-                cancelCheckinMode();
-                switchDetailTab('itinerary');
-            });
+            // Klick außerhalb schließt Suchergebnisse
             document.addEventListener('click', e => {
-                if (!e.target.closest('.search-container')) $('search-results').classList.add('hidden');
-            });
-            $('query-date').addEventListener('change', () => state.currentStation && refreshDepartures(true));
-            $('query-time').addEventListener('change', () => state.currentStation && refreshDepartures(true));
-            $('query-time').addEventListener('input', () => {
-                if (($('query-time').value || '').length === 5 && state.currentStation) {
-                    clearTimeout(state.searchTimer);
-                    state.searchTimer = setTimeout(() => refreshDepartures(true), 600);
+                if (!$('search-results').contains(e.target) && e.target !== $('station-search')) {
+                    $('search-results').classList.add('hidden');
                 }
             });
-            $('prev-day').addEventListener('click', () => {
-                const d = new Date($('query-date').value);
-                d.setDate(d.getDate() - 1);
-                $('query-date').value = d.toISOString().slice(0, 10);
-                if (state.currentStation) refreshDepartures(true);
-            });
-            $('next-day').addEventListener('click', () => {
-                const d = new Date($('query-date').value);
-                d.setDate(d.getDate() + 1);
-                $('query-date').value = d.toISOString().slice(0, 10);
-                if (state.currentStation) refreshDepartures(true);
-            });
-            $('route-search').addEventListener('click', performRouteSearch);
-            $('reload-trip').addEventListener('click', async () => {
-                if (!currentTripDetail) return;
-                $('trip-itinerary').innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i></div>`;
-                await showTripDetails(currentTripDetail);
-            });
+
+            // Quelle-Umschalter (Visual Only for now, backend auto-selects)
+            $('source-vrr').onclick = () => switchSource('vrr');
+            $('source-db').onclick  = () => switchSource('db');
+
+            // API-Base Button (Debug)
+            $('api-base-btn').onclick = () => {
+                const n = prompt('Backend URL:', API_BASE);
+                if (n) window.location.href = `?api=${encodeURIComponent(n)}`;
+            };
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('api')) $('api-base-btn').classList.remove('hidden');
+
+            initArchive();
+        }
+
+        function updateClock() {
+            const now = new Date();
+            $('current-date').textContent = now.toLocaleDateString('de-DE');
+            $('current-time').textContent = now.toLocaleTimeString('de-DE');
+        }
+
+        function setNow() {
+            const now = new Date();
+            $('query-date').value = now.toISOString().slice(0, 10);
+            $('query-time').value = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            $('route-date').value = $('query-date').value;
+            $('route-time').value = $('query-time').value;
+        }
+
+        function changeDate(days) {
+            const d = new Date($('query-date').value);
+            d.setDate(d.getDate() + days);
+            $('query-date').value = d.toISOString().slice(0, 10);
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle('dark');
+            const isDark = document.body.classList.contains('dark');
+            localStorage.setItem('dilaeit_theme', isDark ? 'dark' : 'light');
+        }
+
+        function switchSource(s) {
+            state.currentSource = s;
+            const vrr = $('source-vrr');
+            const db  = $('source-db');
+            if (s === 'vrr') {
+                vrr.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
+                db.className  = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
+                $('station-search').placeholder = 'Haltestelle suchen (VRR)...';
+            } else {
+                db.className  = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm';
+                vrr.className = 'px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300';
+                $('station-search').placeholder = 'Bahnhof suchen (DB)...';
+            }
         }
 
         // ─── Suche ───────────────────────────────────────────────────────────────────
-        let searchSessionId = 0;
-        let currentTripDetail = null;
-        let checkinDep = null; // Wenn gesetzt: Fahrtverlauf ist im Check-In Modus
-        let routeStations = { start: null, via: null, dest: null };
+        async function onStationSearch() {
+            const query = $('station-search').value.trim();
+            if (query.length < 2) { $('search-results').classList.add('hidden'); return; }
 
-        function createRouteSearchHandler(fieldId) {
-            return async function(val) {
-                const query = val.trim();
-                const resultsContainer = $(`${fieldId}-results`);
-                if (query.length < 2) { resultsContainer.classList.add('hidden'); return; }
-                resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
-                resultsContainer.classList.remove('hidden');
-                try {
-                    const res = await fetch(`https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=10`);
-                    if (!res.ok) { resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-red-500">Fehler bei der Suche</div>'; return; }
-                    const data = await res.json();
-                    let results = Array.isArray(data) ? data : (data.results || data.locations || []);
-                    results = results
-                        .filter(r => r && (r.name || r.stop?.name) && (r.id || r.extId || r.stop?.id))
-                        .map(r => ({ name: r.name || r.stop?.name, id: r.id || r.extId || r.stop?.id, type: r.type || 'station' }))
-                        .slice(0, 8);
-                    if (results.length === 0) { resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-gray-500">Keine Stationen gefunden</div>'; return; }
-                    resultsContainer.innerHTML = '';
-                    results.forEach(res => {
-                        const item = document.createElement('div');
-                        item.className = 'px-3 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors';
-                        item.innerHTML = `<div class="text-sm font-semibold">${res.name}</div>`;
-                        item.onclick = () => {
-                            $(fieldId).value = res.name;
-                            routeStations[fieldId.replace('route-', '')] = res;
-                            resultsContainer.classList.add('hidden');
-                        };
-                        resultsContainer.appendChild(item);
-                    });
-                } catch (e) {
-                    resultsContainer.innerHTML = '<div class="px-3 py-2 text-sm text-red-500">Suche fehlgeschlagen</div>';
-                }
-            };
-        }
-
-        const routeStartHandler = createRouteSearchHandler('route-start');
-        const routeViaHandler   = createRouteSearchHandler('route-via');
-        const routeDestHandler  = createRouteSearchHandler('route-dest');
-
-        $('route-start').addEventListener('focus', () => routeStartHandler($('route-start').value));
-        $('route-start').addEventListener('input', e => routeStartHandler(e.target.value));
-        $('route-via').addEventListener('focus',   () => routeViaHandler($('route-via').value));
-        $('route-via').addEventListener('input',   e => routeViaHandler(e.target.value));
-        $('route-dest').addEventListener('focus',  () => routeDestHandler($('route-dest').value));
-        $('route-dest').addEventListener('input',  e => routeDestHandler(e.target.value));
-
-        document.addEventListener('click', e => {
-            if (!e.target.closest('.route-input-container')) {
-                $('route-start-results').classList.add('hidden');
-                $('route-via-results').classList.add('hidden');
-                $('route-dest-results').classList.add('hidden');
-            }
-        });
-
-        // Stationssuche (Abfahrtstafel): VRR Stopfinder via Backend
-        let activeSearchController = null; // laufenden Fetch abbrechen wenn neue Eingabe kommt
-
-        async function handleSearchInput(val) {
-            const query = val.trim();
-            if (query.length < 2) {
-                state.lastSearchQuery = '';
-                $('search-results').classList.add('hidden');
-                return;
-            }
-
-            // Cache-Hit: sofort anzeigen, kein Netzwerk, kein Debounce
-            const cacheKey = query.toLowerCase();
-            if (state.searchCache.has(cacheKey)) {
-                state.lastSearchQuery = query;
-                renderSearchResults(state.searchCache.get(cacheKey));
-                return;
-            }
-
-            // Vorherigen laufenden Fetch abbrechen – verhindert veraltete Ergebnisse
-            if (activeSearchController) activeSearchController.abort();
-
-            clearTimeout(state.searchTimer);
-            state.searchTimer = setTimeout(async () => {
-                // BUG 1 FIX: lastSearchQuery erst nach erfolgreichem Fetch setzen,
-                // nicht vorher – sonst blockiert ein Fehler alle Retry-Versuche
-                // für denselben Suchbegriff.
-                searchSessionId += 1;
-                const thisSearchId = searchSessionId;
-
-                const container = $('search-results');
-                container.innerHTML = '<div class="px-5 py-4 text-sm text-gray-500 italic"><i class="fas fa-spinner fa-spin mr-2"></i>Suche...</div>';
-                container.classList.remove('hidden');
-
-                // BUG 2 FIX: eigener AbortController pro Fetch-Aufruf, nicht ein
-                // globaler Timeout – so wird der laufende Request sofort gecancelt
-                // sobald der User weitertippt, statt auf Timeout zu warten.
-                let abortedByTimeout = false;
-                activeSearchController = new AbortController();
-                const timeoutId = setTimeout(() => {
-                    abortedByTimeout = true;
-                    activeSearchController?.abort();
-                }, 8000);
-                let didRetry = false;
-
-                try {
-                    const apiPath = state.source === 'DB' ? '/api/db/locations' : '/api/locations';
-                    const res = await fetch(`${API_BASE}${apiPath}?query=${encodeURIComponent(query)}`, { signal: activeSearchController.signal });
-                    clearTimeout(timeoutId);
-
-                    // BUG 3 FIX: Session-Check VOR dem JSON-Parse, nicht danach –
-                    // verhindert dass ein langsamer Fetch die Ergebnisse eines
-                    // schnelleren neueren Fetches überschreibt.
-                    if (searchSessionId !== thisSearchId) return;
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-                    const data = await res.json();
-                    if (searchSessionId !== thisSearchId) return;
-
-                    let results = data?.locations || [];
-                    results = results
-                        .filter(r => r && r.name && r.id)
-                        .map(r => {
-                            const name = r.name;
-                            const id   = r.id;
-                            return { ...r, name, id,
-                                sourceRegion: r.source || 'NRW',
-                                score: calculateSimilarity(query, name) * 100
-                            };
-                        })
-                        .sort((a, b) => {
-                            const aExact = a.name.toLowerCase() === cacheKey;
-                            const bExact = b.name.toLowerCase() === cacheKey;
-                            if (aExact !== bExact) return bExact ? 1 : -1;
-                            return b.score - a.score;
-                        })
-                        .slice(0, 12);
-
-                    if (results.length === 0) throw new Error('No results');
-
-                    // Erst jetzt lastSearchQuery setzen – nur bei Erfolg
-                    state.lastSearchQuery = query;
-                    state.searchCache.set(cacheKey, results);
-                    renderSearchResults(results);
-                } catch (err) {
-                    clearTimeout(timeoutId);
-                    // Abgebrochene Requests (durch neue Eingabe) still ignorieren.
-                    // Timeout-Abort zeigen wir aber als Meldung, sonst wirkt die Suche "hängen geblieben".
-                    if (err.name === 'AbortError') {
-                        if (abortedByTimeout && searchSessionId === thisSearchId) {
-                            $('search-results').innerHTML =
-                                `<div class="px-5 py-4 text-sm text-red-500 italic">
-                                    Suche ist zeitüberschritten. ${didRetry ? 'Bitte manuell erneut versuchen.' : 'Retry läuft…'}
-                                </div>`;
-                            if (!didRetry) {
-                                didRetry = true;
-                                setTimeout(() => {
-                                    // Nur retryen, wenn User den gleichen Suchbegriff noch im Feld hat.
-                                    const current = $('station-search').value.trim().toLowerCase();
-                                    if (current === cacheKey && searchSessionId === thisSearchId) {
-                                        handleSearchInput(query);
-                                    }
-                                }, 1200);
-                            }
-                        }
-                        return;
-                    }
-                    if (searchSessionId !== thisSearchId) return;
-                    // lastSearchQuery NICHT setzen bei Fehler → nächster Versuch
-                    // mit gleichem Begriff wird nicht blockiert
-                    state.lastSearchQuery = '';
-                    $('search-results').innerHTML =
-                        `<div class="px-5 py-4 text-sm text-red-500 italic">
-                            Suche fehlgeschlagen. Bitte kurz warten und erneut versuchen.
-                        </div>`;
-                }
-            }, 200);
+            const endpoint = state.currentSource === 'db' ? '/api/db/locations' : '/api/locations';
+            try {
+                const res = await fetch(`${API_BASE}${endpoint}?query=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                renderSearchResults(data.locations || []);
+            } catch (e) { console.error('Search failed', e); }
         }
 
         function renderSearchResults(results) {
             const container = $('search-results');
             container.innerHTML = '';
-            if (results.length === 0) {
-                container.innerHTML = `<div class="px-5 py-4 text-sm text-red-500 italic">Keine Station gefunden.</div>`;
-                return;
-            }
+            if (results.length === 0) { container.classList.add('hidden'); return; }
+            container.classList.remove('hidden');
+
             results.forEach(res => {
                 const item = document.createElement('div');
                 item.className = 'px-5 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center gap-3';
@@ -823,11 +569,12 @@
                     <i class="fas ${icon} text-gray-400 w-5"></i>
                     <div class="flex-1 min-w-0">
                         <div class="text-sm font-semibold truncate">${res.name}</div>
-                        <div class="text-[10px] text-gray-500 uppercase tracking-wider">${res.sourceRegion || 'DEUTSCHLAND'}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-wider">${res.sourceRegion || res.source || 'DEUTSCHLAND'}</div>
                     </div>`;
                 item.onclick = () => {
-                    state.currentStation = res;
+                    state.currentStation = { ...res, source: state.currentSource };
                     state.currentRegion  = detectRegion(res.name);
+                    state.disruptionsLoaded = false;
                     activeLineFilter = null;   // Filter bei neuer Station zurücksetzen
                     $('station-search').value = res.name;
                     container.classList.add('hidden');
@@ -842,83 +589,39 @@
         }
 
         // ─── Abfahrtstafel ───────────────────────────────────────────────────────────
-        // Aktive Linien – null = alle, Set = nur ausgewählte
         let activeLineFilter = null;
 
-        // Baut den Linienfilter aus state.departures und rendert die Chips
         function buildLineFilter() {
             const bar = $('line-filter-bar');
             if (!bar) return;
-
-            // Alle eindeutigen Linien aus den Abfahrten sammeln, Reihenfolge beibehalten
             const seen = new Map();
             state.departures.forEach(d => {
                 const name = d.line?.name;
                 if (name && !seen.has(name)) seen.set(name, d.line);
             });
-
-            // Wenn nur eine Linie, Filter ausblenden – nicht nötig
-            if (seen.size <= 1) {
-                bar.classList.add('hidden');
-                activeLineFilter = null;
-                return;
-            }
-
-            // Beim ersten Aufbau: alle Linien aktiv
-            if (activeLineFilter === null) {
-                activeLineFilter = new Set(seen.keys());
-            } else {
-                // Neue Linien, die noch nicht im Filter sind, automatisch aktivieren
-                seen.forEach((_, name) => {
-                    if (!activeLineFilter.has(name) && activeLineFilter !== null) {
-                        // Nur hinzufügen wenn vorher alle aktiv waren (kein gezielter Filter)
-                    }
-                });
-            }
-
+            if (seen.size <= 1) { bar.classList.add('hidden'); activeLineFilter = null; return; }
+            if (activeLineFilter === null) activeLineFilter = new Set(seen.keys());
             bar.innerHTML = '';
             bar.classList.remove('hidden');
-
-            // "Alle"-Toggle
             const allActive = activeLineFilter.size === seen.size;
             const allBtn = document.createElement('button');
-            allBtn.className = `px-3 py-1 rounded-xl text-[11px] font-bold border transition-colors ${
-                allActive
-                    ? 'bg-gray-600 border-gray-500 text-white'
-                    : 'bg-transparent border-gray-600 text-gray-400 hover:border-gray-400'
-            }`;
+            allBtn.className = `px-3 py-1 rounded-xl text-[11px] font-bold border transition-colors ${allActive ? 'bg-gray-600 border-gray-500 text-white' : 'bg-transparent border-gray-600 text-gray-400 hover:border-gray-400'}`;
             allBtn.textContent = 'Alle';
             allBtn.onclick = () => {
-                if (allActive) {
-                    // Alle abwählen → nur erste Linie aktiv lassen
-                    activeLineFilter = new Set([seen.keys().next().value]);
-                } else {
-                    activeLineFilter = new Set(seen.keys());
-                }
-                buildLineFilter();
-                renderDepartures();
+                if (allActive) activeLineFilter = new Set([seen.keys().next().value]);
+                else activeLineFilter = new Set(seen.keys());
+                buildLineFilter(); renderDepartures();
             };
             bar.appendChild(allBtn);
-
-            // Ein Chip pro Linie
             seen.forEach((lineObj, name) => {
                 const isActive = activeLineFilter.has(name);
                 const chip = document.createElement('button');
-                chip.className = `px-3 py-1 rounded-xl text-[11px] font-black italic border transition-colors ${
-                    isActive
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'bg-transparent border-gray-600 text-gray-400 hover:border-red-400 hover:text-red-400'
-                }`;
+                chip.className = `px-3 py-1 rounded-xl text-[11px] font-black italic border transition-colors ${isActive ? 'bg-red-600 border-red-600 text-white' : 'bg-transparent border-gray-600 text-gray-400 hover:border-red-400'}`;
                 chip.textContent = name;
                 chip.onclick = () => {
-                    if (activeLineFilter.has(name)) {
-                        // Abwählen – mindestens eine Linie muss aktiv bleiben
-                        if (activeLineFilter.size > 1) activeLineFilter.delete(name);
-                    } else {
-                        activeLineFilter.add(name);
-                    }
-                    buildLineFilter();
-                    renderDepartures();
+                    if (activeLineFilter.has(name)) { if (activeLineFilter.size > 1) activeLineFilter.delete(name); }
+                    else activeLineFilter.add(name);
+                    buildLineFilter(); renderDepartures();
                 };
                 bar.appendChild(chip);
             });
@@ -927,12 +630,7 @@
         function renderDepartures() {
             const list = $('departures-list');
             list.innerHTML = '';
-
-            // Linienfilter anwenden
-            const filtered = activeLineFilter
-                ? state.departures.filter(d => activeLineFilter.has(d.line?.name))
-                : state.departures;
-
+            const filtered = activeLineFilter ? state.departures.filter(d => activeLineFilter.has(d.line?.name)) : state.departures;
             if (filtered.length === 0) {
                 list.innerHTML = `<div class="py-20 text-center text-gray-500">Keine aktuellen Abfahrten gefunden.</div>`;
                 return;
@@ -943,40 +641,25 @@
                 const lineName    = dep.line?.name || dep.line?.id || '???';
                 const isCancelled = dep.cancelled;
                 const schedTime   = new Date(dep.plannedWhen || dep.when);
-                const actualTime  = dep.when ? new Date(dep.when) : null;
 
-                // delay kommt in Sekunden vom Server (null = kein Signal, negativ = Verfrühung)
                 let roundedDelay = null;
-                let showSeconds = false;
                 if (dep.delay !== null && dep.delay !== undefined) {
                     const secs = dep.delay;
-                    // Wenn die Quelle Deutsche Bahn oder Transitous ist, zeigen wir Sekunden an
-                    if (dep._source && (dep._source.includes('Deutsche Bahn') || dep._source.includes('Transitous'))) {
-                        showSeconds = true;
-                        roundedDelay = secs;
-                    } else if (Math.abs(secs) >= 60) {
-                        roundedDelay = secs >= 0 ? Math.floor(secs / 60) : Math.ceil(secs / 60);
-                    } else if (secs !== 0) {
-                        // Für präzise Anzeige unter 1 Min zeigen wir Sekunden
-                        roundedDelay = secs;
-                        showSeconds = true;
-                    } else {
-                        roundedDelay = 0;
-                    }
+                    // FIX: Im Abfahrtmonitor: erst ab +1 (60s) zeigen, sonst ±0
+                    if (Math.abs(secs) >= 60) roundedDelay = secs >= 0 ? Math.floor(secs / 60) : Math.ceil(secs / 60);
+                    else roundedDelay = 0;
                 }
 
-                // Verfrühung: grün + Minuszeichen; Verspätung: rot + Plus; pünktlich: grün
-                const delayColor = roundedDelay === null ? ''
-                    : roundedDelay > 0  ? 'text-red-500'
-                    : 'text-green-500';
-                const delaySign  = roundedDelay !== null ? (roundedDelay > 0 ? '+' : (roundedDelay < 0 ? '-' : '')) : '';
-                const showDelay  = !isCancelled && roundedDelay !== null && (roundedDelay !== 0 || showSeconds);
+                const delayColor = roundedDelay === null ? '' : (dep.delay >= 60) ? 'text-red-500' : 'text-green-500';
+                const delaySign  = (roundedDelay !== null && roundedDelay !== 0) ? (roundedDelay > 0 ? '+' : '-') : '±';
+                const showDelay  = !isCancelled && dep.delay !== null && dep.delay !== undefined;
+                const delayVal   = roundedDelay !== null ? (roundedDelay === 0 ? '0' : Math.abs(roundedDelay)) : '';
 
                 item.innerHTML = `
                     <div class="flex items-center gap-4">
                         <div class="w-16 flex flex-col items-center">
                             <span class="text-xs font-medium ${isCancelled ? 'line-through text-gray-500' : ''}">${schedTime.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${Math.abs(roundedDelay)}${showSeconds ? 's' : "'"}</span>` : ''}
+                            ${showDelay ? `<span class="text-[10px] font-bold ${delayColor}">${delaySign}${delayVal}${roundedDelay === 0 ? '' : "'"}</span>` : ''}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
@@ -984,9 +667,7 @@
                                 <span class="text-sm font-bold truncate ${isCancelled ? 'line-through text-gray-500' : ''}">${dep.direction}</span>
                             </div>
                             <div class="flex items-center gap-3 text-[10px] mono text-gray-500">
-                                <span class="${dep.prognosis?.platform && dep.prognosis.platform !== dep.plannedPlatform ? 'platform-changed' : ''}">
-                                    ${dep.platform || '---'}
-                                </span>
+                                <span class="${dep.prognosis?.platform && dep.prognosis.platform !== dep.plannedPlatform ? 'platform-changed' : ''}">${dep.platform || '---'}</span>
                                 ${isCancelled ? '<span class="text-red-500 font-bold uppercase">[Fällt aus]</span>' : ''}
                             </div>
                         </div>
@@ -1001,515 +682,128 @@
             });
         }
 
-        // Schnellster API-Endpunkt pro Region merken (nicht global)
-        const fastestApiByRegion = {};
-
         async function refreshDepartures(force = false) {
             if (!state.currentStation) return;
-            if (!state.currentStation.id) {
-                $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehlende Station-ID.</div>`;
-                return;
-            }
             const now = Date.now();
             if (!force && now - state.lastRequestTime < REQUEST_COOLDOWN_MS) return;
             state.lastRequestTime = now;
-
             const dateVal = $('query-date').value;
             const timeVal = $('query-time').value;
-            if (!dateVal || !timeVal) return;
+            
+            // Timezone offset berechnen
+            const offset = -new Date().getTimezoneOffset();
+            const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
 
-            // Lokale Zeit → ISO mit korrektem UTC-Offset (verhindert 2h-Versatz auf UTC-Servern)
-            const localDate = new Date(`${dateVal}T${timeVal}:00`);
-            if (isNaN(localDate.getTime())) return;
-            const timestamp = localDate.toISOString();
-
-            const cacheKey = `${state.currentStation.id}|${timestamp.slice(0, 16)}|${state.source}`;
-            if (!force && state.departureCache.has(cacheKey)) {
-                state.departures = state.departureCache.get(cacheKey);
-                renderDepartures();
-                return;
-            }
             try {
-                const apiPath = state.source === 'DB' 
-                    ? `/api/db/stops/${encodeURIComponent(state.currentStation.id)}/departures`
-                    : `/api/stops/${encodeURIComponent(state.currentStation.id)}/departures`;
-
-                const url = `${API_BASE}${apiPath}?when=${encodeURIComponent(timestamp)}&duration=120&results=40`;
-                const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const apiPath = state.currentStation.source === 'db' ? '/api/db/stops' : '/api/stops';
+                const url = `${API_BASE}${apiPath}/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
+                const res = await fetch(url);
                 const data = await res.json();
-                state.isRateLimited = false;
-                state.departures = (data?.departures || []).map(d => ({ ...d, sourceApi: state.source === 'DB' ? 'Deutsche Bahn' : 'VRR OpenService' }));
-                state.departureCache.set(cacheKey, state.departures);
-                setTimeout(() => state.departureCache.delete(cacheKey), 60000);
+                state.departures = data.departures || [];
                 buildLineFilter();
                 renderDepartures();
-                autoSaveDepartures(state.departures);
-            } catch (err) {
-                console.error('Departures fetch failed', err, { stationId: state.currentStation.id });
-                $('departures-list').innerHTML = `<div class="py-20 text-center text-red-500 font-bold">Fehler beim Laden der Abfahrtsdaten.</div>`;
-            }
+                if (!state.disruptionsLoaded) loadDisruptions();
+            } catch (e) { console.error('Refresh failed', e); }
         }
 
-        // ─── Archiv ──────────────────────────────────────────────────────────────────
-        function addTripToArchive(dep, tripData, usedApi) {
-            try {
-                const archiveKey = 'dilaeit_trip_archive';
-                const existing   = JSON.parse(localStorage.getItem(archiveKey) || '[]');
-                const record = {
-                    timestamp: Date.now(),
-                    station:   state.currentStation?.name || '',
-                    stationId: state.currentStation?.id || '',
-                    line:      dep.line?.name || dep.line?.id || '???',
-                    direction: dep.direction || '',
-                    tripId:    dep.tripId || dep.prognosis?.tripId || '',
-                    api:       usedApi || dep.sourceApi || 'unknown',
-                    data:      tripData
-                };
-                const next = [record, ...existing]
-                    .filter(r => r?.timestamp && (!r.data || r.data.stopovers))
-                    .filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000)
-                    .slice(0, 80);
-                localStorage.setItem(archiveKey, JSON.stringify(next));
-                if (archiveOpen) renderArchive();
-            } catch (e) { console.error('Archive error', e); }
-        }
+        // ─── Fahrtverlauf Details ───────────────────────────────────────────────────
+        let currentTripDep = null;
+        let currentDetailStopovers = null;
+        let checkinDep = null;
 
-        let archiveOpen = false;
-
-        function toggleArchive() {
-            archiveOpen = !archiveOpen;
-            $('archive-list').classList.toggle('hidden', !archiveOpen);
-            $('archive-chevron').style.transform = archiveOpen ? 'rotate(90deg)' : '';
-            if (archiveOpen) renderArchive();
-        }
-
-        function clearArchive() {
-            localStorage.removeItem('dilaeit_trip_archive');
-            renderArchive();
-        }
-
-        function renderArchive(showAll = false) {
-            const listEl = $('archive-list');
-            listEl.innerHTML = '';
-            let items;
-            try { items = JSON.parse(localStorage.getItem('dilaeit_trip_archive') || '[]'); } catch { items = []; }
-            items = items.filter(r => Date.now() - r.timestamp <= 48 * 3600 * 1000);
-            if (items.length === 0) {
-                listEl.innerHTML = '<div class="text-gray-500 dark:text-gray-400 text-xs py-1">Noch keine Fahrten im Archiv.</div>';
-                return;
-            }
-            const PAGE = 5;
-            const visible = showAll ? items : items.slice(0, PAGE);
-            visible.forEach(r => {
-                const item = document.createElement('div');
-                item.className = 'px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 cursor-pointer hover:border-red-400 transition-colors';
-                const time = new Date(r.timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-                item.innerHTML = `
-                    <div class="font-semibold text-xs">${r.station} • ${r.line}</div>
-                    <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.direction} • ${time}</div>`;
-                item.onclick = () => {
-                    state.currentStation = { id: r.stationId || r.data?.stop?.id || state.currentStation?.id, name: r.station };
-                    state.currentRegion  = detectRegion(r.station);
-                    $('station-search').value = r.station;
-                    refreshDepartures();
-                };
-                listEl.appendChild(item);
-            });
-            if (!showAll && items.length > PAGE) {
-                const btn = document.createElement('button');
-                btn.className = 'w-full text-center text-[11px] text-gray-400 hover:text-red-500 py-2 transition-colors';
-                btn.innerHTML = `<i class="fas fa-chevron-down mr-1"></i>+${items.length - PAGE} weitere`;
-                btn.onclick = () => renderArchive(true);
-                listEl.appendChild(btn);
-            }
-        }
-
-        // ─── Verbindungssuche ────────────────────────────────────────────────────────
-        function extractTripIdFromJourney(journey) {
-            // DB journeys liefern je nach Produkt/Quelle teils tripId an verschiedenen Stellen.
-            if (!journey) return null;
-            const legs = journey.legs || [];
-            return (
-                journey.tripId ||
-                journey.trip?.tripId ||
-                journey.trip?.id ||
-                legs.find(l => l?.tripId || l?.prognosis?.tripId)?.tripId ||
-                legs.find(l => l?.tripId || l?.prognosis?.tripId)?.prognosis?.tripId ||
-                legs[0]?.tripId ||
-                null
-            );
-        }
-
-        function extractLineForJourney(journey) {
-            const legs = journey?.legs || [];
-            const firstLineLeg = legs.find(l => l?.line);
-            return firstLineLeg || null;
-        }
-
-        function showJourneyTripDetailsFromEncodedPayload(encodedPayload) {
-            if (!encodedPayload) return;
-            let payload = null;
-            try { payload = JSON.parse(decodeURIComponent(encodedPayload)); } catch { payload = null; }
-            if (!payload?.tripId) return;
-
-            const dep = {
-                tripId: payload.tripId,
-                dbTripId: payload.tripId, // Da aus Verbindungssuche (DB), setzen wir es als dbTripId
-                prognosis: { tripId: payload.tripId },
-                line: payload.line || null,
-                direction: payload.direction || ''
-            };
-            return showTripDetails(dep);
-        }
-
-        async function resolveStationId(query) {
-            if (!query?.trim()) return null;
-            const res = await fetch(`https://v6.db.transport.rest/locations?query=${encodeURIComponent(query)}&results=6`);
-            if (!res.ok) throw new Error(`Stationen nicht gefunden: ${query}`);
-            const data  = await res.json();
-            const items = Array.isArray(data) ? data : (data.locations || data.results || Object.values(data).find(v => Array.isArray(v)) || []);
-            if (!items?.length) throw new Error(`Stationen nicht gefunden: ${query}`);
-            const preferred = items.find(i => i.type === 'stop' || i.type === 'station') || items[0];
-            return { id: preferred.id || preferred.extId || preferred.stop?.id, name: preferred.name || preferred.stop?.name || query };
-        }
-
-        function formatDuration(isoOrMs) {
-            // Accepts ISO 8601 duration (PT1H23M) or milliseconds
-            if (typeof isoOrMs === 'string') {
-                const h = isoOrMs.match(/(\d+)H/)?.[1] || 0;
-                const m = isoOrMs.match(/(\d+)M/)?.[1] || 0;
-                return h > 0 ? `${h}h ${m}min` : `${m} min`;
-            }
-            const totalMin = Math.round(isoOrMs / 60000);
-            const h = Math.floor(totalMin / 60);
-            const m = totalMin % 60;
-            return h > 0 ? `${h}h ${m}min` : `${m} min`;
-        }
-
-        function queryJourneys(from, to, via, when) {
-            const params = new URLSearchParams({ from, to, results: '6', stopovers: 'true', remarks: 'true' });
-            if (via)  params.set('via', via);
-            // FIX: 'when' korrekt als ISO-String übergeben, nicht als lokale Zeit
-            if (when) params.set('departure', when);
-            return fetch(`https://v6.db.transport.rest/journeys?${params}`, {
-                signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined
-            }).then(r => r.ok ? r.json() : Promise.reject(new Error('Journeys failed ' + r.status)));
-        }
-
-        // Aufgeklappte Journey-Karte: zeigt alle Legs mit Stopover-Details
-        function renderJourneyCard(journey, index) {
-            const legs     = journey.legs || [];
-            const firstLeg = legs[0];
-            const lastLeg  = legs[legs.length - 1];
-            const tripId   = extractTripIdFromJourney(journey);
-            const firstLine = extractLineForJourney(journey);
-            const directionGuess =
-                firstLine?.destination?.name ||
-                firstLine?.plannedArrival?.name ||
-                lastLeg?.destination?.name ||
-                lastLeg?.plannedArrival?.name ||
-                'Verbindung';
-
-            // Für die Modal-Quelle und die Header-Ausgabe brauchen wir eine dep-ähnliche "line"-Struktur.
-            // Bei /journeys sind die Felder je nach Provider teils anders als bei /departures,
-            // daher leiten wir "product" aus leg.mode/line.product ab.
-            const minimalLine = firstLine?.line
-                ? {
-                    name: firstLine.line?.name || firstLine.line?.id || firstLine.mode || 'Unbekannt',
-                    id: firstLine.line?.id,
-                    product: (firstLine.line?.product || firstLine.product || firstLine.mode || '').toString(),
-                    operator: firstLine.line?.operator?.name ? { name: firstLine.line.operator.name } : undefined
-                }
-                : null;
-            const journeyDetailsPayload = tripId
-                ? encodeURIComponent(JSON.stringify({ tripId, line: minimalLine, direction: directionGuess }))
-                : '';
-
-            const depTime  = new Date(firstLeg?.plannedDeparture || firstLeg?.departure || journey.departure);
-            const arrTime  = new Date(lastLeg?.plannedArrival    || lastLeg?.arrival    || journey.arrival);
-            const depActual = firstLeg?.departure ? new Date(firstLeg.departure) : null;
-            const arrActual = lastLeg?.arrival    ? new Date(lastLeg.arrival)    : null;
-
-            const depDelay  = depActual ? Math.round((depActual - depTime) / 60000) : null;
-            const arrDelay  = arrActual ? Math.round((arrActual - arrTime) / 60000) : null;
-
-            const durationMs = arrTime - depTime;
-            const changes    = legs.filter(l => l.line).length - 1;
-
-            const timeStr = (t, delay) => {
-                const base = t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                if (!delay || delay === 0) return `<span class="font-mono font-semibold">${base}</span>`;
-                const color = delay > 0 ? 'text-red-400' : 'text-blue-400';
-                const sign  = delay > 0 ? '+' : '';
-                return `<span class="font-mono font-semibold ${color}">${base} <span class="text-[10px]">${sign}${delay}'</span></span>`;
-            };
-
-            const legBadges = legs.map(l => {
-                const n = l.line?.name || l.mode || '?';
-                return `<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-red-600/80 text-white italic">${n}</span>`;
-            }).join('<span class="text-gray-600 text-[10px] mx-0.5">→</span>');
-
-            const cardId = `journey-${index}`;
-            const detailId = `journey-detail-${index}`;
-
-            // Legs rendern
-            const legsHtml = legs.map((leg, li) => {
-                const isWalk = !leg.line;
-                const legDep = leg.plannedDeparture ? new Date(leg.plannedDeparture) : null;
-                const legArr = leg.plannedArrival   ? new Date(leg.plannedArrival)   : null;
-                const legDepAct = leg.departure ? new Date(leg.departure) : null;
-                const legArrAct = leg.arrival   ? new Date(leg.arrival)   : null;
-
-                const fmtT = (sched, actual) => {
-                    if (!sched) return '–';
-                    const base = sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                    if (!actual) return `<span class="font-mono">${base}</span>`;
-                    const d = Math.round((actual - sched) / 60000);
-                    if (d === 0) return `<span class="font-mono text-green-400">${base}</span>`;
-                    const col  = d > 0 ? 'text-red-400' : 'text-blue-400';
-                    const sign = d > 0 ? '+' : '';
-                    return `<span class="font-mono text-gray-400 line-through mr-1 text-[10px]">${base}</span><span class="font-mono ${col}">${actual.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} <span class="text-[9px]">${sign}${d}'</span></span>`;
-                };
-
-                if (isWalk) {
-                    const walkMin = leg.duration ? Math.round(leg.duration / 60) : '?';
-                    return `<div class="flex items-center gap-2 py-2 px-3 text-[11px] text-gray-500">
-                        <i class="fas fa-walking w-4 text-center"></i>
-                        <span>Fußweg ~${walkMin} min</span>
-                    </div>`;
-                }
-
-                // Zwischenhalte
-                const stopovers = leg.stopovers || [];
-                const midStops  = stopovers.slice(1, -1);
-                const midHtml   = midStops.map(s => {
-                    const st = s.plannedDeparture || s.plannedArrival;
-                    const timeDisp = st ? new Date(st).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
-                    return `<div class="flex items-center gap-2 py-0.5 pl-6 text-[10px] text-gray-600 dark:text-gray-400">
-                        <span class="w-1 h-1 rounded-full bg-gray-500 shrink-0"></span>
-                        <span class="flex-1 truncate">${s.stop?.name || ''}</span>
-                        <span class="font-mono">${timeDisp}</span>
-                    </div>`;
-                }).join('');
-
-                const cancelled = leg.cancelled ? 'opacity-40' : '';
-                return `<div class="rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden mb-2 ${cancelled}">
-                    <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-zinc-800">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-red-600 text-white italic shrink-0">${leg.line?.name || '?'}</span>
-                        <span class="text-xs font-semibold truncate flex-1">${leg.direction || ''}</span>
-                        ${leg.cancelled ? '<span class="text-red-500 text-[10px] font-bold shrink-0">[Fällt aus]</span>' : ''}
-                    </div>
-                    <div class="px-3 py-2 text-[11px] space-y-1">
-                        <div class="flex justify-between">
-                            <span class="text-gray-500">Ab: <span class="font-semibold text-gray-200">${leg.origin?.name || ''}</span></span>
-                            <span>${fmtT(legDep, legDepAct)}</span>
-                        </div>
-                        ${midHtml}
-                        <div class="flex justify-between">
-                            <span class="text-gray-500">An: <span class="font-semibold text-gray-200">${leg.destination?.name || ''}</span></span>
-                            <span>${fmtT(legArr, legArrAct)}</span>
-                        </div>
-                    </div>
-                </div>`;
-            }).join('');
-
-            return `
-            <div class="rounded-2xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
-                <div id="${cardId}" class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors select-none"
-                     onclick="toggleJourney('${detailId}', '${cardId}')">
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                            ${timeStr(depTime, depDelay)}
-                            <span class="text-gray-500">→</span>
-                            ${timeStr(arrTime, arrDelay)}
-                            <span class="text-gray-500 text-[11px]">(${formatDuration(durationMs)})</span>
-                            ${changes > 0 ? `<span class="text-gray-600 text-[10px]">${changes}× Umstieg</span>` : '<span class="text-green-600 text-[10px]">Direkt</span>'}
-                        </div>
-                        <div class="flex items-center gap-1 mt-1 flex-wrap">${legBadges}</div>
-                    </div>
-                    <button
-                        class="px-3 py-1.5 rounded-xl text-[10px] font-semibold transition-colors ${tripId ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-gray-500/30 text-gray-200 cursor-not-allowed opacity-60'}"
-                        ${tripId ? '' : 'disabled'}
-                        data-journey-payload="${journeyDetailsPayload}"
-                        onclick="event.stopPropagation(); showJourneyTripDetailsFromEncodedPayload(this.dataset.journeyPayload)"
-                        type="button"
-                        title="${tripId ? 'Details ansehen' : 'Keine Trip-ID in der Journey gefunden.'}"
-                    >
-                        Details ansehen
-                    </button>
-                    <i id="${cardId}-icon" class="fas fa-chevron-down text-gray-400 text-xs transition-transform duration-200 shrink-0"></i>
-                </div>
-                <div id="${detailId}" class="hidden px-4 pb-4 pt-1 border-t border-gray-100 dark:border-zinc-800">
-                    ${legsHtml}
-                </div>
-            </div>`;
-        }
-
-        function toggleJourney(detailId, cardId) {
-            const detail = $(detailId);
-            const icon   = $(`${cardId}-icon`);
-            if (!detail) return;
-            const isOpen = !detail.classList.contains('hidden');
-            detail.classList.toggle('hidden', isOpen);
-            if (icon) icon.style.transform = isOpen ? '' : 'rotate(180deg)';
-        }
-
-        async function performRouteSearch() {
-            const start = routeStations.start || $('route-start').value.trim();
-            const via   = routeStations.via   || $('route-via').value.trim();
-            const dest  = routeStations.dest  || $('route-dest').value.trim();
-            const date  = $('route-date').value;
-            const time  = $('route-time').value;
-            const resultsContainer = $('route-results');
-            if (!start || !dest) { resultsContainer.innerHTML = '<span class="text-red-500">Start und Ziel sind erforderlich.</span>'; return; }
-
-            // FIX: Datum+Uhrzeit korrekt als lokale Zeit → ISO-String
-            let when;
-            if (date && time) {
-                const [y,mo,d] = date.split('-').map(Number);
-                const [h,mi]   = time.split(':').map(Number);
-                when = new Date(y, mo-1, d, h, mi).toISOString();
-            }
-
-            resultsContainer.innerHTML = '<span class="text-gray-500"><i class="fas fa-spinner fa-spin mr-1"></i>Verbindung wird geladen...</span>';
-            try {
-                const startStation = routeStations.start || await resolveStationId(start);
-                const destStation  = routeStations.dest  || await resolveStationId(dest);
-                const viaStation   = routeStations.via   ? routeStations.via : (via ? await resolveStationId(via) : null);
-                if (!startStation || !destStation) throw new Error('Start oder Ziel nicht gefunden.');
-
-                const journeys = await queryJourneys(
-                    startStation.id || start,
-                    destStation.id  || dest,
-                    viaStation?.id,
-                    when
-                );
-                if (!journeys?.journeys?.length) {
-                    resultsContainer.innerHTML = '<span class="text-gray-500">Keine Verbindungen gefunden.</span>';
-                    return;
-                }
-
-                resultsContainer.innerHTML = `<div class="space-y-2 mt-2">${
-                    journeys.journeys.map((j, i) => renderJourneyCard(j, i)).join('')
-                }</div>`;
-            } catch (e) {
-                console.error('Route search error:', e);
-                resultsContainer.innerHTML = '<span class="text-red-500">Fehler bei der Verbindungssuche.</span>';
-            }
-        }
-
-        // Gibt true zurück wenn die Linie ein Fernzug/Regionalzug ist (nicht ÖPNV)
-        function isTrain(line) {
-            if (!line) return false;
-            const name    = (line.name || '').toUpperCase();
-            const product = (line.product || '').toLowerCase();
-            // Explizit kein Zug
-            const nonTrain = ['bus','tram','tramway','subway','metro','light_rail','urban_rail','watercraft','taxi'];
-            if (nonTrain.some(p => product.includes(p))) return false;
-            // Explizit Zug
-            if (['national','nationalexpress','regional','regionalexpress','ferry'].includes(product)) return true;
-            const trainPrefixes = ['ICE','IC','ICD','RE','RB','IRE','EC','EN','TGV','NJ','RJ','RS'];
-            const prefixMatches = (p) => {
-                if (name === p) return true;
-                if (name.startsWith(p + ' ') || name.startsWith(p + '-')) return true;
-                // Handles patterns like "RS1" / "RE4" where there is no delimiter.
-                if (name.startsWith(p) && name.length > p.length && /\d/.test(name.slice(p.length, p.length + 1))) return true;
-                return false;
-            };
-            if (trainPrefixes.some(prefixMatches)) return true;
-            // S-Bahn in den NRW-APIs kommt oft als "S 8" oder "S8"
-            // "SB1" (Bus) wird NICHT getroffen, weil danach kein Digit folgt.
-            if (/^S\s*\d+/.test(name)) return true;
-            if (!product && /^\d+$/.test(name.trim())) return false;
-            return product !== '' && !nonTrain.some(p => product.includes(p));
-        }
-
-        // NRW-Lokal: alles was kein Fernzug ist → VRR zuständig
-        function isNrwLocalTransit(line) {
-            if (!line) return false;
-            // NRW-local bedeutet: lokale ÖPNV-Teile (Bus/Tram/Stadtbahn etc.), aber NICHT Züge.
-            // Züge (S-Bahn/RE/RB/ICE/IC/EC/IRE/RS) sollen NICHT als "local" gelten.
-            if (isTrain(line)) return false;
-
-            const product = (line.product || '').toLowerCase();
-            const name    = (line.name || '').toUpperCase();
-            const localProducts = ['bus','tram','tramway','subway','metro','light_rail','urban_rail','watercraft'];
-            if (localProducts.some(p => product.includes(p))) return true;
-            // Numerische Linienbezeichnungen → Bus/Stadtbahn
-            if (/^\d+$/.test(name.trim())) return true;
-            return false;
-        }
-
-        // ─── Trip-Details ────────────────────────────────────────────────────────────
         async function showTripDetails(dep) {
-            const vrrTripId = dep.tripId;
-            const dbTripId  = dep.dbTripId;
-
-            // Wenn im Check-In Modus: immer öffnen, auch ohne TripId
-            if (!vrrTripId && !dbTripId && !checkinDep) return;
-
-            const lineName  = dep.line?.name || dep.line?.id || '???';
-            const modal     = $('detail-view');
+            currentTripDep = dep;
+            const view = $('detail-view');
             const itinerary = $('trip-itinerary');
-            modal.classList.add('active');
-            switchDetailTab('itinerary');
-
-            const isTrainLine = isTrain(dep.line);
-            itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-red-600 text-2xl"></i><div class="text-xs mono opacity-50 mt-3">Lade Verlauf...</div></div>`;
-            $('detail-line-badge').textContent = lineName;
-            $('detail-train-direction').textContent = dep.direction || 'Unbekanntes Ziel';
-            currentTripDetail = dep;
+            view.classList.add('active');
+            itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-3xl text-red-600"></i><p class="text-xs text-gray-500 mt-4">Lade Fahrtverlauf...</p></div>`;
+            
+            $('detail-line-badge').textContent = dep.line?.name || '??';
+            $('detail-train-direction').textContent = dep.direction;
+            $('detail-operator').textContent = dep.line?.operator?.name || '---';
 
             try {
-                let url, sourceName = 'VRR OpenService';
-
-                // Transitous tripId (enthält ':' oder Feed-Prefix) → direkt an train-details
-                const isTransitousId = vrrTripId && (vrrTripId.includes(':') || vrrTripId.includes('|') || /^[a-z]{2}:/.test(vrrTripId));
-
-                if (dbTripId && !isTransitousId) {
-                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`;
-                    sourceName = 'Deutsche Bahn';
-                } else if (isTransitousId || (dbTripId && isTransitousId)) {
-                    // Transitous trip
-                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId || vrrTripId)}`;
+                const vrrTripId = dep.tripId;
+                const dbTripId  = dep.dbTripId || (dep.prognosis?.tripId);
+                const source    = dep._source || ( (dbTripId || vrrTripId || '').includes(':') ? 'Transitous' : 'VRR OpenService');
+                
+                let url = '';
+                let sourceName = source;
+                
+                // Source-Erkennung basierend auf currentSource State, nicht auf tripId-Format
+                if (state.currentSource === 'db' || source === 'Transitous') { 
+                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId || vrrTripId)}`; 
                     sourceName = 'Transitous';
-                } else if (isTrainLine) {
-                    const number = dep.line?.name || dep.line?.id || '';
-                    const date   = $('query-date').value || new Date().toISOString().slice(0, 10);
-                    try {
-                        const searchRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`,
-                            { signal: AbortSignal.timeout(6000) });
-                        if (searchRes.ok) {
-                            const sd = await searchRes.json();
-                            if (sd?.tripId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(sd.tripId)}`; sourceName = 'Deutsche Bahn'; }
-                        }
-                    } catch {}
-                }
-
-                if (!url && vrrTripId && !isTransitousId) {
+                } else {
+                    // VRR Quelle - immer VRR API nutzen
                     url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`;
-                    sourceName = isTrainLine ? 'Deutsche Bahn (Fallback)' : 'VRR OpenService';
+                    sourceName = 'VRR OpenService';
                 }
-
+                
+                // Fallback versuchen falls keine URL
+                if (!url && vrrTripId) { 
+                    url = `${API_BASE}/api/trips/${encodeURIComponent(vrrTripId)}`; 
+                    sourceName = 'VRR OpenService'; 
+                }
+                
+                if (!url && dbTripId) { 
+                    url = `${API_BASE}/api/train-details/${encodeURIComponent(dbTripId)}`; 
+                    sourceName = 'Transitous'; 
+                }
+                
+                // Letzter Fallback: DB IRIS Suche für Zugnummern
                 if (!url) {
-                    itinerary.innerHTML = `<div class="py-10 text-center text-zinc-500 text-sm">Kein Fahrtverlauf verfügbar.</div>`;
-                    return;
+                    const isTrainLine = ['ice','ic','ec','re','rb','s'].includes((dep.line?.product || '').toLowerCase());
+                    if (isTrainLine) {
+                        const number = dep.line?.name || dep.line?.id || '';
+                        const date = $('query-date').value || new Date().toLocaleDateString('en-CA');
+                        try {
+                            const searchRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(6000) });
+                            if (searchRes.ok) { const sd = await searchRes.json(); if (sd?.tripId) { url = `${API_BASE}/api/train-details/${encodeURIComponent(sd.tripId)}`; sourceName = 'Deutsche Bahn'; } }
+                        } catch {}
+                    }
                 }
+                
+                if (!url) { itinerary.innerHTML = `<div class="py-10 text-center text-zinc-500 text-sm">Kein Fahrtverlauf verfügbar.</div>`; return; }
 
-                const res  = await fetch(url, { signal: AbortSignal.timeout(9000) });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const res  = await fetch(url);
                 const data = await res.json();
-                const stops          = data?.stopovers || [];
-                const remarks        = data?.remarks   || [];
+                const stops = data?.stopovers || [];
+                const tripDetailsRemarks = data?.remarks || [];
+                const depRemarks = dep.remarks || [];
+                const mergedRemarks = [...tripDetailsRemarks];
+                
+                depRemarks.forEach(dr => {
+                    if (!mergedRemarks.some(mr => mr.text === dr.text)) mergedRemarks.push(dr);
+                });
+
                 const finalSourceName = data?.source || sourceName;
-                addTripToArchive(dep, { stopovers: stops, remarks }, finalSourceName);
+
+                if (data.operator) $('detail-operator').textContent = data.operator;
+                else if (data.line?.operator?.name) $('detail-operator').textContent = data.line.operator.name;
+
                 currentDetailStopovers = stops;
-                renderItinerary(stops, remarks, finalSourceName);
-            } catch (e) {
-                console.error('Trip details failed', e);
-                itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fahrtverlauf konnte nicht geladen werden.</div>`;
-            }
+                renderItinerary(stops, mergedRemarks, finalSourceName);
+
+                // Störungen und Hinweise IMMER vom VRR laden, unabhängig von der gewählten API-Quelle
+                // (VRR oder DB/Transitous für die Fahrtensuche)
+                const stName = state.currentStation?.name || '';
+                if (stName) {
+                    fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent(stName)}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            let finalRemarks = [...mergedRemarks];
+                            if (d?.disruptions?.length) {
+                                // VRR-Störungen zu den vorhandenen Bemerkungen hinzufügen
+                                const vrrRemarks = d.disruptions.map(dr => ({ text: dr.text, type: dr.type || 'hint', priority: dr.priority || 50 }));
+                                vrrRemarks.forEach(dr => { if (!finalRemarks.some(fr => fr.text === dr.text)) finalRemarks.push(dr); });
+                            }
+                            renderItinerary(stops, finalRemarks, finalSourceName);
+                        }).catch(()=>{});
+                } else {
+                    renderItinerary(stops, mergedRemarks, finalSourceName);
+                }
+            } catch (e) { itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden.</div>`; }
         }
 
         function renderItinerary(stopovers, tripRemarks = [], sourceName = 'API') {
@@ -1517,1012 +811,719 @@
             container.innerHTML = '';
             $('detail-trip-id').textContent = `QUELLE: ${sourceName}`;
 
-            // Sekunden + fett für DB-Echtzeitdaten UND Transitous (beide haben echte Sekunden)
-            const isDbSource = sourceName.includes('Deutsche Bahn') || sourceName.includes('Transitous');
-            console.log('[renderItinerary] sourceName:', sourceName, 'isDbSource:', isDbSource);
-            if (stopovers.length > 0) {
-                const s = stopovers[0];
-                console.log('[renderItinerary] sample stop:', s.stop?.name, 'pA:', s.plannedArrival, 'aA:', s.arrival, 'pD:', s.plannedDeparture, 'aD:', s.departure);
+            const lastActive = [...stopovers].reverse().find(s => !s.cancelled);
+            if (lastActive?.stop?.name) $('detail-train-direction').textContent = lastActive.stop.name;
+
+            const translationMap = {"technical defect on the route":"Reparatur an der Strecke","repair to the line":"Reparatur an der Strecke","repair to the track":"Reparatur an der Strecke","repair at the track":"Reparatur an der Strecke","repair on the line":"Reparatur an der Strecke","repair at the overhead line":"Reparatur an der Oberleitung","repair on the overhead line":"Reparatur an der Oberleitung","person on the track":"Personen auf der Strecke","unauthorized persons on the track":"unbefugte Personen auf der Strecke","delay of a preceding train":"Verspätung eines vorausfahrenden Zuges","delayed staff from previous journey":"verspätetes Personal aus vorheriger Fahrt","technical defect on another train":"technischer Defekt an einem anderen Zug","technical defect on the train":"technischer Defekt am Zug","operational delays":"Verzögerungen im Betriebsablauf","delay from previous trip":"Verspätung aus vorheriger Fahrt","Platform change":"Gleiswechsel.","Stop cancelled":"Halt entfällt.","Train is cancelled":"Zug fällt aus.","signal failure":"Signalstörung","external influence":"äußerer Einfluss","animals on the track":"Tiere auf der Strecke","medical emergency":"medizinischer Notfall","police investigation":"Polizeieinsatz","fire on the track":"Feuerwehreinsatz auf der Strecke.","weather conditions":"witterungsbedingte Störung","heavy snow":"starker Schneefall","storm":"Sturm","flooding":"Überflutung"};
+            const translate = t => { if (!t) return t; let o = translationMap[t]||t; return o.replace(/Continues as line (.*)/i,"Fährt weiter als Linie $1"); };
+
+            const fmt = (sched, actual, delaySec, isPast) => {
+                if (!sched) return '';
+                const p = sched.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+                if (!actual) return `<span class="text-zinc-400 text-[15px]">${p}</span>`;
+                const ds = (delaySec !== null && delaySec !== undefined) ? delaySec : Math.round((actual - sched) / 1000);
+                const a = actual.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+                const aFull = actual.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+                const fw = isPast ? '900' : '300';
+                const color = ds >= 60 ? 'text-red-400' : 'text-green-400';
+                return `<span class="text-zinc-500 text-[15px] mr-0.5" style="font-weight:400">${p}</span><span class="${color} text-[15px] cursor-help" style="font-weight:${fw}" title="${aFull}">${a}</span>`;
+            };
+
+            const sorted = [...stopovers].sort((a,b)=>new Date(a.plannedArrival||a.plannedDeparture)-new Date(b.plannedArrival||b.plannedDeparture));
+            const now = Date.now();
+            sorted.forEach((stop,idx)=>{
+                const isFirst=idx===0,isLast=idx===sorted.length-1;
+                const schedArr=stop.plannedArrival?new Date(stop.plannedArrival):null;
+                const actualArr=stop.arrival?new Date(stop.arrival):null;
+                const schedDep=stop.plannedDeparture?new Date(stop.plannedDeparture):null;
+                const actualDep=stop.departure?new Date(stop.departure):null;
+                const cancelled=stop.cancelled,additional=stop.additional;
+                const isPast=(actualDep||actualArr)?(actualDep||actualArr)<now:false;
+                const platPlan=stop.plannedPlatform||null,platReal=stop.platform||null;
+                const platChanged=platReal&&platPlan&&platReal!==platPlan,platStr=platReal||platPlan;
+                const lineColor=cancelled?'#3f3f46':isPast?'#52525b':'#ef4444';
+                const dotColor=cancelled?'#3f3f46':additional?'#22c55e':isPast?'#52525b':'#ef4444';
+                const showArr=!isFirst&&schedArr,showDep=!isLast&&schedDep;
+                const el=document.createElement('div');
+                el.className=`flex items-stretch gap-0 ${cancelled?'opacity-40':''} ${checkinDep&&!cancelled?'cursor-pointer hover:bg-green-900/20 rounded-lg transition-colors':''}`;
+                el.style.minHeight='2.4rem';
+                if(checkinDep&&!cancelled) el.onclick=()=>selectCheckinExit(stop);
+                el.innerHTML=`
+                    <div class="w-32 shrink-0 flex flex-col justify-center items-end pr-2 mono gap-px leading-tight">
+                        ${showArr?`<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AN</span>${fmt(schedArr,actualArr,stop.arrivalDelaySec,isPast)}</div>`:''}
+                        ${showDep?`<div class="flex items-center gap-1"><span class="text-zinc-600 text-[8px]">AB</span>${fmt(schedDep,actualDep,stop.departureDelaySec,isPast)}</div>`:''}
+                        ${!showArr&&!showDep&&schedDep?`<div>${fmt(schedDep,actualDep,stop.departureDelaySec,isPast)}</div>`:''}
+                    </div>
+                    <div class="flex flex-col items-center w-3 shrink-0">
+                        <div class="w-px flex-1" style="background:${isFirst?'transparent':lineColor}"></div>
+                        <div class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${dotColor};border:2px solid #09090b"></div>
+                        <div class="w-px flex-1" style="background:${isLast?'transparent':lineColor}"></div>
+                    </div>
+                    <div class="flex-1 pl-2 flex flex-col justify-center py-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-sm font-semibold leading-tight ${cancelled?'line-through text-zinc-500':additional?'text-green-400':'text-white'}">${stop.stop.name}</span>
+                            ${platStr?`<span class="text-[9px] mono ${platChanged?'text-orange-400 font-bold':'text-zinc-600'}">${platChanged?`Gl.${platPlan}→${platReal}`:`Gl.${platStr}`}</span>`:''}
+                            ${cancelled?'<span class="text-[9px] text-red-500 font-bold uppercase">Entfällt</span>':''}
+                            ${additional?'<span class="text-[9px] text-green-500 font-bold uppercase">Zusatzhalt</span>':''}
+                        </div>
+                        ${(stop.remarks||[]).map(r=>{const t=(r.type||'').toLowerCase();if(t==='timetable')return `<div class="text-[9px] text-zinc-600 flex items-center gap-1 mt-0.5"><i class="fas fa-circle text-[3px]"></i>${translate(r.text)}</div>`;return `<div class="text-[9px] text-orange-300 mt-0.5">${translate(r.text)}</div>`;}).join('')}
+                    </div>`;
+                container.appendChild(el);
+            });
+
+            const globalRemarks=[...tripRemarks];
+            stopovers.forEach(s=>(s.remarks||[]).forEach(r=>{if(r.type!=='timetable'&&!globalRemarks.find(e=>e.text===r.text))globalRemarks.push(r);}));
+            if(globalRemarks.length){
+                const remDiv=document.createElement('div');
+                remDiv.className='mt-3 pt-3 border-t border-zinc-800 space-y-1.5';
+                globalRemarks.forEach(r=>{
+                    const d=document.createElement('div');
+                    const t=(r.type||'').toLowerCase();
+                    if(t==='disruption'||t==='warning'){d.className='text-[10px] text-orange-300 bg-orange-500/10 p-2 rounded-lg border border-orange-500/30 flex items-start gap-2';d.innerHTML=`<i class='fas fa-exclamation-triangle mt-0.5 text-orange-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;}
+                    else if(t==='hint'){d.className='text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';d.innerHTML=`<i class='fas fa-info-circle mt-0.5 text-red-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${translate(r.text)}</span>`;}
+                    else if(t==='timetable'){d.className='text-[9px] text-zinc-500 flex items-center gap-1.5 py-0.5';d.innerHTML=`<i class='fas fa-circle text-[3px] text-zinc-600 shrink-0'></i><span>${translate(r.text)}</span>`;}
+                    else{d.className='text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';const content=r.url?`<a href="${r.url}" target="_blank" class="underline decoration-dotted text-blue-400">${translate(r.text)}</a>`:translate(r.text);d.innerHTML=`<i class='fas fa-info-circle mt-0.5 text-gray-400 shrink-0'></i><span class='flex-1 whitespace-pre-wrap'>${content}</span>`;}
+                    remDiv.appendChild(d);
+                });
+                container.appendChild(remDiv);
+            }
+        }
+
+        function closeTripDetails() { $('detail-view').classList.remove('active'); }
+
+        // ─── Helfer ──────────────────────────────────────────────────────────────────
+        function debounce(f, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f.apply(this, a), ms); }; }
+        function updateAll() { updateClock(); }
+        function loadLastStation() { const s = localStorage.getItem('dilaeit_last_station'); if (s) { try { state.currentStation = JSON.parse(s); $('station-search').value = state.currentStation.name; refreshDepartures(); } catch(e){} } }
+        function detectRegion(n) { return (n.includes('Düsseldorf') || n.includes('Mönchengladbach') || n.includes('Köln')) ? 'NRW' : 'DEUTSCHLAND'; }
+        function initArchive() {}
+        function switchDetailTab(t) {
+            ['itinerary','map','punctuality','zuglauf'].forEach(p => $(`panel-${p}`).classList.toggle('hidden', p !== t));
+            document.querySelectorAll('.detail-tab').forEach(b => {
+                const active = b.id === `tab-${t}`;
+                b.className = `detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'}`;
+            });
+        }
+        function toggleArchive() {}
+        function clearArchive() {}
+        function toggleDisruptions() {
+            const list = $('disruptions-list');
+            const chevron = $('disruptions-chevron');
+            const isHidden = list.classList.toggle('hidden');
+            chevron.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+
+        async function loadDisruptions() {
+            if (!state.currentStation || state.disruptionsLoaded) return;
+            const panel = $('disruptions-panel');
+            const list = $('disruptions-list');
+            const count = $('disruptions-count');
+            
+            try {
+                // Lade Störungen von DB Timetables API (falls verfügbar) und VRR API (falls VRR Quelle)
+                const items = [];
+                const seenTexts = new Set();
+                
+                // 1. DB Timetables API für aktuelle Verkehrslage (z.B. Strecke beeinträchtigt)
+                if (state.currentSource === 'db') {
+                    try {
+                        // EVA-Nummer aus Station ermitteln (wenn vorhanden)
+                        const evaNo = state.currentStation.id || '';
+                        if (evaNo) {
+                            const res = await fetch(`${API_BASE}/api/db/timetable-changes/${encodeURIComponent(evaNo)}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                (data.messages || []).forEach(m => {
+                                    const text = m.int || m.ext || '';
+                                    if (text && !seenTexts.has(text)) {
+                                        seenTexts.add(text);
+                                        // Prüfe ob es eine Störung oder Info ist
+                                        const isDisruption = m.type === 'r' || m.type === 'd' || 
+                                            text.toLowerCase().includes('beeinträchtigt') ||
+                                            text.toLowerCase().includes('strecke') ||
+                                            text.toLowerCase().includes('sperrung') ||
+                                            text.toLowerCase().includes('störung') ||
+                                            text.toLowerCase().includes('ausfall');
+                                        
+                                        items.push({
+                                            text: text,
+                                            type: isDisruption ? 'disruption' : 'info',
+                                            line: m.cat || null,
+                                            source: 'db'
+                                        });
+                                    }
+                                });
+                            }
+                        }
+                    } catch(e) {}
+                }
+                
+                // 2. VRR Störungen laden (wenn VRR Quelle ausgewählt)
+                if (state.currentSource === 'vrr') {
+                    try {
+                        // Nutze die Abfahrtsdaten um hints/Störungen zu extrahieren
+                        const dateVal = $('query-date').value;
+                        const timeVal = $('query-time').value;
+                        const offset = -new Date().getTimezoneOffset();
+                        const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
+                        
+                        const url = `${API_BASE}/api/stops/${encodeURIComponent(state.currentStation.id)}/departures?when=${dateVal}T${timeVal}:00${encodeURIComponent(tz)}&duration=120`;
+                        const res = await fetch(url);
+                        if (res.ok) {
+                            const data = await res.json();
+                            const departures = data.departures || [];
+                            
+                            // Sammle alle hints und infos von den Abfahrten
+                            departures.forEach(dep => {
+                                // Hinweise von der Abfahrt selbst
+                                (dep.remarks || []).forEach(r => {
+                                    const text = r.text || '';
+                                    if (text && !seenTexts.has(text)) {
+                                        seenTexts.add(text);
+                                        // Prüfe ob es eine Störung oder Info ist
+                                        const isDisruption = r.type === 'hint' || 
+                                            text.toLowerCase().includes('verspätung') ||
+                                            text.toLowerCase().includes('störung') ||
+                                            text.toLowerCase().includes('ausfall') ||
+                                            text.toLowerCase().includes('entfällt') ||
+                                            text.toLowerCase().includes('umleitung') ||
+                                            text.toLowerCase().includes('sperrung') ||
+                                            text.toLowerCase().includes('beeinträchtigt') ||
+                                            text.toLowerCase().includes('verzögerung') ||
+                                            text.toLowerCase().includes('seV') ||
+                                            text.toLowerCase().includes('ersatzverkehr');
+                                        
+                                        items.push({
+                                            text: text,
+                                            type: isDisruption ? 'disruption' : 'info',
+                                            line: dep.line?.name || null,
+                                            source: 'vrr'
+                                        });
+                                    }
+                                });
+                            });
+                        }
+                    } catch(e) {}
+                }
+                
+                state.disruptionsLoaded = true;
+                if (items.length === 0) {
+                    panel.classList.add('hidden');
+                    return;
+                }
+                
+                panel.classList.remove('hidden');
+                count.textContent = `(${items.length})`;
+                list.innerHTML = '';
+                
+                items.forEach(d => {
+                    const div = document.createElement('div');
+                    const isDisruption = d.type === 'disruption' || d.type === 'warning';
+                    
+                    if (isDisruption) {
+                        // Rote Störungsmeldung
+                        div.className = 'p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-300 leading-relaxed';
+                        div.innerHTML = `
+                            <div class="font-bold mb-1 flex items-center gap-2 text-red-400">
+                                <i class="fas fa-exclamation-triangle text-red-500 text-[10px]"></i>
+                                ${d.type === 'disruption' ? 'Störung' : d.type || 'Meldung'}${d.line ? ` · ${d.line}` : ''}
+                            </div>
+                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
+                        `;
+                    } else {
+                        // Weiße Info-Meldung
+                        div.className = 'p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-[11px] text-gray-300 leading-relaxed';
+                        div.innerHTML = `
+                            <div class="font-bold mb-1 flex items-center gap-2 text-gray-400">
+                                <i class="fas fa-info-circle text-gray-500 text-[10px]"></i>
+                                Info${d.line ? ` · ${d.line}` : ''}
+                            </div>
+                            <div class="whitespace-pre-wrap opacity-90">${d.text}</div>
+                        `;
+                    }
+                    list.appendChild(div);
+                });
+            } catch (e) { 
+                console.error('Disruptions load failed:', e);
+                panel.classList.add('hidden'); 
+            }
+        }
+        // ─── Zugnummernsuche ───────────────────────────────────────────────────────────
+        const TRANSITOUS_HUBS = [
+            'de:05116:8000250',  // Mönchengladbach Hbf
+            'de:05315:8000207',  // Köln Hbf
+            'de:05111:8000085',  // Düsseldorf Hbf
+            'de:05913:8000096',  // Dortmund Hbf
+            'de:05113:8000105',  // Duisburg Hbf
+            'de:05124:8000191',  // Essen Hbf
+            'de:05314:8000044',  // Bonn Hbf
+            'de:07135:8000206',  // Koblenz Hbf
+            'de:02000:8600282',  // Hamburg Hbf
+            'de:11000:900003201', // Berlin Hbf
+        ];
+
+        function toggleTripSearch() {
+            const panel = $('trip-search-panel');
+            const isHidden = panel.classList.toggle('hidden');
+            if (!isHidden) {
+                // Set default date
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                $('trip-date-input').value = `${y}-${m}-${d}`;
+                
+                // Setup event listeners
+                setupTripSearchListeners();
+            }
+        }
+
+        let tripSearchListenersSetup = false;
+
+        function setupTripSearchListeners() {
+            if (tripSearchListenersSetup) return;
+            tripSearchListenersSetup = true;
+
+            const input = $('trip-number-input');
+            const dropdown = $('trip-dropdown');
+
+            input.addEventListener('input', debounce((e) => handleTripInput(e.target.value), 300));
+            input.addEventListener('focus', () => {
+                if (dropdown.children.length > 0) dropdown.classList.remove('hidden');
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('#trip-number-input')) dropdown.classList.add('hidden');
+            });
+
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    dropdown.classList.add('hidden');
+                    handleTripSearch();
+                }
+            });
+        }
+
+        async function handleTripInput(val) {
+            const query = val.trim();
+            const dropdown = $('trip-dropdown');
+            const date = $('trip-date-input').value;
+            
+            if (query.length < 2) {
+                dropdown.classList.add('hidden');
+                return;
             }
 
-            // Offizielle DB RIS-Kundengründe (Stand 2021/24, Langtext neu)
-            const translationMap = {
-                // ── Betrieb & Verspätungsgründe (Typ R) ─────────────────────────────
-                "no delay reason":                                   "keine Verspätungsbegründung",
-                "further information shortly":                       "nähere Informationen in Kürze",
-                "Delay due to a police operation":                   "Polizeieinsatz",
-                "fire brigade operation":                            "Feuerwehreinsatz auf der Strecke",
-                "Delay due to a medical emergency":                  "ärztliche Versorgung eines Fahrgastes",
-                "emergency brake activated":                         "unbefugtes Ziehen der Notbremse",
-                "persons on the track":                              "unbefugte Personen auf der Strecke",
-                "emergency doctor on track":                         "Notarzteinsatz auf der Strecke",
-                "Delay due to a strike":                             "Streikauswirkungen",
-                "animals on the track":                              "Tiere auf der Strecke",
-                "Delay due to storm damage":                         "Unwetter",
-                "waiting for a delayed ferry":                       "Warten auf ein verspätetes Schiff",
-                "passport and customs control":                      "Pass- und Zollkontrolle",
-                "technical defect at the station":                   "technischer Defekt am Bahnhof",
-                "Delay caused by vandalism":                         "Beeinträchtigung durch Vandalismus",
-                "bomb disposal":                                     "Entschärfung einer Fliegerbombe",
-                "bridge damage":                                     "Beschädigung einer Brücke",
-                "fallen tree on the track":                          "umgestürzter Baum auf der Strecke",
-                "level crossing accident":                           "Unfall an einem Bahnübergang",
-                "Delay due to waiting for connecting passengers":    "Warten auf Anschlussreisende",
-                "weather-related disruption":                        "Witterungsbedingte Beeinträchtigungen",
-                "delay abroad":                                      "Verspätung im Ausland",
-                "waiting for additional coaches":                    "Bereitstellung weiterer Wagen",
-                "decoupling of coaches":                             "Abhängen von Wagen",
-                "objects on the track":                              "Gegenstände auf der Strecke",
-                "Replacement service":                               "Ersatzverkehr mit Bus ist eingerichtet",
-                "Delay due to construction work":                    "Bauarbeiten",
-                "boarding assistance":                               "Unterstützung beim Ein- und Ausstieg",
-                "overhead line fault":                               "Reparatur an der Oberleitung",
-                "Delay due to a track obstruction":                  "Streckensperrung",
-                "signal fault":                                      "Reparatur an einem Signal",
-                "Delay due to a technical defect":                   "Reparatur am Zug",
-                "technical defect on the route":                     "Reparatur an der Strecke",
-                "points failure":                                    "defektes Stellwerk",
-                "level crossing fault":                              "technischer Defekt an einem Bahnübergang",
-                "temporary speed restriction":                       "vorübergehend verminderte Geschwindigkeit auf der Strecke",
-                "Delay due to a broken down train":                  "Verspätung eines vorausfahrenden Zuges",
-                "Delay of previous train":                           "Verspätung eines vorausfahrenden Zuges",
-                "waiting for an oncoming train":                     "Warten auf einen entgegenkommenden Zug",
-                "train overtaken":                                   "Vorfahrt eines anderen Zuges",
-                "waiting for free entry":                            "Vorfahrt eines anderen Zuges",
-                "delayed provision of the train":                    "verspätete Bereitstellung des Zuges",
-                "Delay from previous journey":                       "Verspätung aus vorheriger Fahrt",
-                "short-term staff shortage":                         "kurzfristiger Personalausfall",
-                "short-term illness of staff":                       "kurzfristige Erkrankung von Personal",
-                "delayed staff from previous journey":               "verspätetes Personal aus vorheriger Fahrt",
-                "strike":                                            "Streik",
-                "storm effects":                                     "Unwetterauswirkungen",
-                "track availability currently restricted":           "Verfügbarkeit der Gleise derzeit eingeschränkt",
-                "technical defect on another train":                 "technischer Defekt an einem anderen Zug",
-                "additional stop for boarding and alighting":        "zusätzlicher Halt zum Ein- und Ausstieg",
-                "Train is diverted":                                 "Umleitung des Zuges",
-                "Train is diverted. Stops are omitted.":             "Umleitung des Zuges. Einige Halte entfallen.",
-                "snow and ice":                                      "Schnee und Eis",
-                "weather-related reduced speed":                     "witterungsbedingt verminderte Geschwindigkeit",
-                "defective door":                                    "defekte Tür",
-                "technical defect resolved":                         "behobener technischer Defekt am Zug",
-                "technical inspection of the train":                 "technische Untersuchung am Zug",
-                "switch failure":                                    "Reparatur an der Weiche",
-                "landslide":                                         "Erdrutsch",
-                "flooding":                                          "Hochwasser",
-                "official measure":                                  "behördliche Maßnahme",
-                "high passenger volume":                             "hohes Fahrgastaufkommen verlängert Ein- und Ausstieg",
-                "train running at reduced speed":                    "Zug verkehrt mit verminderter Geschwindigkeit",
-                "Stops are omitted":                                 "Einige Halte entfallen.",
-                "Enter only, no exiting allowed" : "Hält nur zum Einsteigen.",
-                "Platform change":                                   "Gleiswechsel.",
-                "Change of platform":                                "Gleiswechsel.",
-                "Track change":                                      "Gleiswechsel.",
-                "Stop cancelled":                                    "Halt entfällt.",
-                "Additional stop":                                   "Zusatzhalt.",
-                "Special service":                                   "Sonderfahrt.",
-                "Train is cancelled":                                "Zug fällt aus.",
-                "Unfortunately, the train is cancelled.":            "Zug fällt aus.",
-                "The train is cancelled due to a technical defect.": "Reparatur am Zug.",
-                "The train is cancelled due to construction work.":  "Bauarbeiten.",
-                "The train is cancelled due to a staff shortage.":   "kurzfristiger Personalausfall.",
-                // ── Qualitätsmeldungen (Typ Q) ────────────────────────────────────────
-                "WiFi available":                                    "WLAN verfügbar.",
-                "WLAN not available":                                "WLAN nicht verfügbar",
-                "WiFi not available in one or more coaches":         "WLAN in einem/mehreren Wagen nicht verfügbar",
-                "info/entertainment not available":                  "Info-/Entertainment nicht verfügbar",
-                "today: multi-purpose compartment at the front":     "Heute: Mehrzweckabteil vorne",
-                "today: multi-purpose compartment at the rear":      "Heute: Mehrzweckabteil hinten",
-                "today: 1st class at the front":                    "Heute: 1. Klasse vorne",
-                "today: 1st class at the rear":                     "Heute: 1. Klasse hinten",
-                "no 1st class":                                      "1. Klasse fehlt",
-                "no multi-purpose compartment":                      "Mehrzweckabteil fehlt",
-                "different coach order":                             "andere Reihenfolge der Wagen",
-                "several coaches missing":                           "mehrere Wagen fehlen",
-                "Vehicle-bound boarding aid available":              "fahrzeuggebundene Einstiegshilfe vorhanden.",
-                "defective vehicle-bound boarding aid":              "defekte fahrzeuggebundene Einstiegshilfe",
-                "train running in correct formation":                "Zug verkehrt richtig gereiht",
-                "one coach missing":                                 "ein Wagen fehlt",
-                "entire train without reservation":                  "gesamter Zug ohne Reservierung",
-                "individual coaches without reservation":            "einzelne Wagen ohne Reservierung",
-                "no quality defects":                                "keine Qualitätsmängel",
-                "reservations available again":                      "Reservierungen sind wieder vorhanden",
-                "no catering":                                       "kein gastronomisches Angebot",
-                "On-board restaurant":                               "Bordrestaurant.",
-                "Bicycles conveyed - not possible":                  "Fahrradmitnahme nicht möglich.",
-                "Number of bicycles conveyed limited":               "Eingeschränkte Fahrradbeförderung.",
-                "Bicycles conveyed":                                 "Fahrradmitnahme möglich.",
-                "Bicycles conveyed - subject to reservation":        "Fahrradmitnahme – Reservierung erforderlich.",
-                "Bicycles conveyed - subject to availability":       "Fahrradmitnahme – je nach Verfügbarkeit.",
-                "no accessible facilities":                          "behindertengerechte Einrichtung fehlt",
-                "replacement catering":                              "Ersatzbewirtschaftung",
-                "WC accessible for wheelchair users":                "Rollstuhlgerechtes WC vorhanden.",
-                "no accessible toilet":                              "Universal-WC fehlt",
-                "overcrowded with compensation":                     "Überbesetzung mit Kulanzleistungen",
-                "overcrowded without compensation":                  "Überbesetzung ohne Kulanzleistungen",
-                "other quality defects":                             "sonstige Qualitätsmängel",
-                "operational delays":                                "Verzögerungen im Betriebsablauf",
-                "Step-free access":                                  "Stufenfreier Zugang.",
-                "Power sockets available":                           "Steckdosen verfügbar.",
-                "Quiet zone":                                        "Ruhebereich.",
-                "Air conditioning":                                  "Klimaanlage vorhanden.",
-                "Area for people with reduced mobility":             "Bereich für mobilitätseingeschränkte Personen.",
-            };
+            dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-gray-500 italic flex items-center gap-3"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche nach Fahrten...</div>';
+            dropdown.classList.remove('hidden');
 
-            // Regex-Muster für dynamische Meldungen mit eingebetteten Liniennamen.
-            // Die API liefert z.B. "Bus 605 heading towards Büdeshm.-Kempten from here"
-            // oder "Throughbinding from line X" – der Linienname ist variabel.
-            const regexTranslations = [
-                // "Bus 605 heading towards Büdeshm.-Kempten from here"
-                // → Fahrzeug kommt von woanders und fährt ab hier als diese Linie
-                {
-                    pattern: /^(.+?)\s+heading towards\s+(.+?)\s+from here\.?$/i,
-                    replace: (_, line, dest) =>
-                        `Durchbindung: Kommt als Linie ${line.trim()} aus Richtung ${dest.trim()}.`
-                },
-                // "Bus 605 heading towards Kempten - Bingen Stadtbf"
-                // → Fahrzeug fährt ab hier als andere Linie weiter
-                {
-                    pattern: /^(.+?)\s+heading towards\s+(.+?)\.?$/i,
-                    replace: (_, line, dest) =>
-                        `Durchbindung: Fährt weiter als Linie ${line.trim()} Richtung ${dest.trim()}.`
-                },
-                // Generische Throughbinding-Varianten der DB/VRR API
-                {
-                    pattern: /^throughbinding\s+from\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Durchbindung von Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^throughbinding\s+(?:on|as|to)\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Durchbindung auf Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^continues?\s+as\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Fährt weiter als Linie ${line.trim()}.`
-                },
-                {
-                    pattern: /^coming\s+from\s+(?:line\s+)?(.+)$/i,
-                    replace: (_, line) => `Kommt als Linie ${line.trim()}.`
-                },
-                // "Delay of approx. 5 minutes"
-                {
-                    pattern: /^delay\s+of\s+approx\.?\s+(\d+)\s+minutes?\.?$/i,
-                    replace: (_, min) => `Verspätung von ca. ${min} Minuten.`
-                },
-                // "Cancelled due to …"
-                {
-                    pattern: /^cancelled\s+due\s+to\s+(.+)$/i,
-                    replace: (_, reason) => `Fällt aus wegen ${reason.trim()}.`
-                },
-                // "Stop X is not served"
-                {
-                    pattern: /^stop\s+(.+?)\s+is\s+not\s+served\.?$/i,
-                    replace: (_, stop) => `Halt ${stop.trim()} entfällt.`
-                },
-            ];
+            try {
+                // Transitous: mehrere Hubs parallel durchsuchen
+                const tResults = await Promise.all(
+                    TRANSITOUS_HUBS.map(async stopId => {
+                        try {
+                            const r = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${stopId}&time=${encodeURIComponent(date ? date + 'T12:00:00' : new Date().toISOString())}&n=500`,
+                                { headers: { 'Referer': 'https://dilaeit.onrender.com' }, signal: AbortSignal.timeout(6000) });
+                            if (!r.ok) return [];
+                            const d = await r.json();
+                            return d.departures || d.stopTimes || (Array.isArray(d) ? d : []);
+                        } catch { return []; }
+                    })
+                );
+                
+                const q = query.toUpperCase().replace(/\s+/g, '');
+                const seen = new Set();
+                const trips = [];
 
-            // Übersetzt einen API-Hinweistext: erst statische Map, dann Regex-Muster
-            const translate = (text) => {
-                if (!text) return '';
-                // 1. Exakter Treffer in der statischen Map
-                if (translationMap[text]) return translationMap[text];
-                // 2. Regex-Muster durchprobieren
-                for (const { pattern, replace } of regexTranslations) {
-                    const m = text.match(pattern);
-                    if (m) return text.replace(pattern, replace);
-                }
-                // 3. Unbekannt: Originaltext zurückgeben
-                return text;
-            };
-
-            const sortedStopovers = [...stopovers].sort((a, b) => {
-                return new Date(a.plannedDeparture || a.plannedArrival) - new Date(b.plannedDeparture || b.plannedArrival);
-            });
-            // Für Check-In Ausstieg-Lookup merken
-            currentDetailStopovers = sortedStopovers;
-
-            sortedStopovers.forEach((stop, idx) => {
-                const isCancelled  = stop.cancelled;
-                const isAdditional = stop.additional;
-
-                const schedArr  = stop.plannedArrival   ? new Date(stop.plannedArrival)   : null;
-                const actualArr = stop.arrival          ? new Date(stop.arrival)           : null;
-                const schedDep  = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
-                const actualDep = stop.departure        ? new Date(stop.departure)         : null;
-
-                const hasLiveArr = actualArr && schedArr && Math.abs(actualArr - schedArr) > 1000;
-                const hasLiveDep = actualDep && schedDep && Math.abs(actualDep - schedDep) > 1000;
-
-                const formatTime = (sched, actual, hasLive, delaySec) => {
-                    if (!sched) return '';
-                    const isPast  = actual && actual.getTime() < Date.now();
+                tResults.flat().forEach(d => {
+                    const display    = d.displayName    || '';
+                    const tripShort  = d.tripShortName  || '';
+                    const routeShort = d.routeShortName || '';
+                    const showName   = (display && tripShort && display !== tripShort) ? `${display} (${tripShort})` : (display || tripShort || routeShort);
+                    if (!showName) return;
                     
-                    // Delay-Anzeige mit Sekunden-Präzision
-                    let delayStr = '';
-                    if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                        const dc = delaySec > 0 ? 'text-red-500' : 'text-green-500';
-                        const sign = delaySec > 0 ? '+' : ''; // Minus kommt automatisch bei negativen Zahlen
-                        const absDelay = Math.abs(delaySec);
-                        
-                        if (absDelay >= 60) {
-                            // Bei >= 60 Sekunden: Minuten anzeigen (abgerundet für +1 erst ab 60s)
-                            const mins = delaySec >= 0 ? Math.floor(delaySec / 60) : Math.ceil(delaySec / 60);
-                            if (mins !== 0) {
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${mins > 0 ? '+' : ''}${mins}'</span>`;
-                            } else {
-                                // Wenn mins 0 ist (z.B. 59s), zeigen wir Sekunden
-                                delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
-                            }
-                        } else {
-                            // Bei < 60 Sekunden: Sekunden anzeigen
-                            delayStr = `<span class="text-[9px] font-bold ${dc} ml-1">${sign}${delaySec}s</span>`;
+                    const nameUp = showName.toUpperCase().replace(/\s+/g, '');
+                    const tripUp = tripShort.toUpperCase().replace(/\s+/g, '');
+                    const displayUp = display.toUpperCase().replace(/\s+/g, '');
+                    const routeUp = routeShort.toUpperCase().replace(/\s+/g, '');
+                    
+                    const matches = q.length >= 3 && (
+                                tripUp === q || tripUp.endsWith(q) || tripUp.includes(q)
+                             || displayUp === q || displayUp.includes("(" + q + ")") || displayUp.includes(q)
+                             || routeUp === q || routeUp.includes(q)
+                             || nameUp.includes(q)
+                             || nameUp.includes("(" + q + ")")
+                             );
+
+                    if (matches && !seen.has(showName)) {
+                        seen.add(showName);
+                        trips.push({
+                            id: d.tripId || d.trip?.tripId,
+                            name: showName,
+                            direction: d.headsign || '',
+                            plannedDeparture: d.scheduledDeparture || d.departure || null
+                        });
+                    }
+                });
+
+                // Auch DB IRIS checken als Fallback
+                try {
+                    const dbRes = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`, { signal: AbortSignal.timeout(5000) }).then(r=>r.json());
+                    if (dbRes?.tripId && !seen.has(dbRes.line?.name)) {
+                        trips.unshift({
+                            id: dbRes.tripId,
+                            name: dbRes.line?.name || query,
+                            direction: dbRes.stopovers?.[dbRes.stopovers.length-1]?.stop?.name || '',
+                            plannedDeparture: dbRes.stopovers?.[0]?.plannedDeparture || null
+                        });
+                    }
+                } catch {}
+
+                renderTripDropdown(trips);
+            } catch (e) {
+                dropdown.innerHTML = '<div class="px-4 py-4 text-sm text-red-500 font-medium">Netzwerkfehler.</div>';
+            }
+        }
+
+        function renderTripDropdown(trips) {
+            const dropdown = $('trip-dropdown');
+            dropdown.innerHTML = '';
+            if (trips.length === 0) {
+                dropdown.innerHTML = '<div class="px-4 py-3 text-sm text-gray-500 italic">Keine Fahrten gefunden.</div>';
+                return;
+            }
+            trips.forEach(trip => {
+                const item = document.createElement('div');
+                item.className = 'px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer border-b border-gray-100 dark:border-zinc-800 last:border-0 transition-colors flex items-center justify-between group/item';
+                const time = trip.plannedDeparture ? new Date(trip.plannedDeparture).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                item.innerHTML = `
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-bold text-gray-900 dark:text-white truncate group-hover/item:text-red-500 transition-colors">${trip.name}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-widest truncate">${trip.direction || 'Unbekanntes Ziel'}</div>
+                    </div>
+                    <div class="text-xs font-mono text-gray-400 bg-gray-100 dark:bg-zinc-800 px-2 py-1 rounded-lg ml-3">${time}</div>`;
+                item.onclick = () => {
+                    $('trip-number-input').value = trip.name;
+                    dropdown.classList.add('hidden');
+                    loadTripDetails(trip.id, $('trip-date-input').value);
+                };
+                dropdown.appendChild(item);
+            });
+        }
+
+        async function handleTripSearch() {
+            const number = $('trip-number-input').value.trim();
+            const date = $('trip-date-input').value;
+            if (!number) return;
+            loadTripDetails(number, date);
+        }
+
+        async function loadTripDetails(idOrNumber, date) {
+            const results = $('trip-search-results');
+            const container = $('trip-itinerary-container');
+            const itinerary = $('trip-itinerary-search');
+            
+            results.innerHTML = `<div class="flex items-center gap-3 py-4"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Fahrtverlauf...</div>`;
+            container.classList.remove('hidden');
+            itinerary.innerHTML = '<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-2xl text-red-600"></i></div>';
+
+            try {
+                let data = null;
+                // Wenn es eine Transitous ID ist (enthält ":")
+                if (idOrNumber.includes(':')) {
+                    const res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(idOrNumber)}`);
+                    if (res.ok) data = await res.json();
+                } else {
+                    // Erst DB IRIS probieren
+                    try {
+                        const res = await fetch(`${API_BASE}/api/iris/trip-search?number=${encodeURIComponent(idOrNumber)}&date=${encodeURIComponent(date)}`).then(r=>r.json());
+                        if (res?.stopovers?.length) data = res;
+                    } catch {}
+                    // Falls nicht gefunden, Transitous probieren
+                    if (!data) {
+                        const match = await searchTransitousTrip(idOrNumber, date);
+                        if (match) {
+                            const res = await fetch(`${API_BASE}/api/train-details/${encodeURIComponent(match.tripId)}`);
+                            if (res.ok) data = await res.json();
                         }
                     }
+                }
 
-                    // Keine Echtzeitdaten: nur Soll-Zeit
-                    if (!hasLive && !actual) {
-                        return `<span class="text-gray-300 dark:text-gray-200 font-mono font-medium">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    }
+                if (!data || !data.stopovers) {
+                    results.innerHTML = '<span class="text-red-500 font-bold">Keine Fahrt gefunden.</span>';
+                    itinerary.innerHTML = '<div class="py-10 text-center text-zinc-500">Kein Verlauf verfügbar.</div>';
+                    return;
+                }
 
-                    // Bestimme Farbe basierend auf Verspätung/Verfrühung
-                    const rtColor = delaySec !== null && delaySec !== undefined
-                        ? (delaySec >= 60 ? 'text-red-400' : (delaySec <= -60 ? 'text-green-400' : 'text-green-400'))
-                        : (actual && sched ? (Math.round((actual - sched) / 60000) >= 1 ? 'text-red-400' : 'text-green-400') : 'text-green-400');
+                results.innerHTML = `<span class="text-green-500 font-bold">Fahrt gefunden!</span>`;
+                $('trip-source-display').textContent = `QUELLE: ${data.source || 'API'}`;
+                $('trip-operator-display').textContent = data.operator || data.line?.operator?.name || '---';
+                
+                const finalRemarks = [...(data.remarks || [])];
+                
+                // Dynamisch Störungen nachladen
+                const lineName = data.line?.name || '';
+                if (lineName) {
+                    fetch(`${API_BASE}/api/disruptions?name=${encodeURIComponent('Düsseldorf Hbf')}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(d => {
+                            if (d?.disruptions?.length) {
+                                d.disruptions.forEach(dis => {
+                                    if (!dis.line || dis.line.includes(lineName) || lineName.includes(dis.line)) {
+                                        if (!finalRemarks.some(fr => fr.text === dis.text)) {
+                                            finalRemarks.push({ text: dis.text, type: 'info', priority: 60 });
+                                        }
+                                    }
+                                });
+                                renderTripItinerary(data.stopovers, finalRemarks);
+                            }
+                        }).catch(()=>{});
+                }
+                
+                renderTripItinerary(data.stopovers, finalRemarks);
+            } catch (e) {
+                results.innerHTML = '<span class="text-red-500">Fehler beim Laden.</span>';
+                itinerary.innerHTML = '<div class="py-10 text-center text-red-500">Ein Fehler ist aufgetreten.</div>';
+            }
+        }
 
-                    const planStr = `<span class="text-gray-400 dark:text-gray-500 text-[10px] font-mono mr-1.5">${sched.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
+        async function searchTransitousTrip(number, date) {
+            const when = date ? `${date}T12:00:00` : new Date().toISOString();
+            const q = number.toUpperCase().replace(/\s+/g, '');
+            for (const hub of TRANSITOUS_HUBS) {
+                try {
+                    const res = await fetch(`https://api.transitous.org/api/v1/stoptimes?stopId=${hub}&time=${encodeURIComponent(when)}&n=200`, { headers: { 'Referer': 'https://dilaeit.onrender.com' } }).then(r=>r.json());
+                    const match = (res.departures || res.stopTimes || []).find(d => {
+                        const ts = (d.tripShortName || '').toUpperCase().replace(/\s+/g, '');
+                        const dn = (d.displayName || '').toUpperCase().replace(/\s+/g, '');
+                        const rn = (d.routeShortName || '').toUpperCase().replace(/\s+/g, '');
+                        return ts === q || ts.endsWith(q) || ts.includes(q)
+                            || dn === q || dn.includes("(" + q + ")") || dn.includes(q)
+                            || rn === q || rn.includes(q);
+                    });
+                    if (match) return match;
+                } catch {}
+            }
+            return null;
+        }
 
-                    // Fett + Sekunden: Halt liegt in der Vergangenheit UND hat RT-Signal
-                    // = Bus ist wirklich abgefahren/angekommen, bestätigt
-                    // Vergangener Halt mit RT-Daten = bestätigt
-                    const hasRT = delaySec !== null && delaySec !== undefined;
-                    const isConfirmedPast = isPast && actual;
+        function renderTripItinerary(stopovers, tripRemarks = []) {
+            const container = $('trip-itinerary-search');
+            container.innerHTML = '';
+            
+            const now = Date.now();
+            const sorted = [...stopovers].sort((a,b) => new Date(a.plannedArrival || a.plannedDeparture) - new Date(b.plannedArrival || b.plannedDeparture));
+            
+            sorted.forEach(stop => {
+                const schedArr = stop.plannedArrival ? new Date(stop.plannedArrival) : null;
+                const actualArr = stop.arrival ? new Date(stop.arrival) : null;
+                const schedDep = stop.plannedDeparture ? new Date(stop.plannedDeparture) : null;
+                const actualDep = stop.departure ? new Date(stop.departure) : null;
+                const isCancelled = stop.cancelled;
 
-                    if (isConfirmedPast && isDbSource) {
-                        // Sekunden NUR wenn nicht :00 (echte RT-Sekundengenauigkeit)
-                        const hasRealSeconds = actual.getSeconds() !== 0;
-                        const timeStr = hasRealSeconds
-                            ? actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                            : actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-                        // Immer fett für vergangene Halte mit RT-Quelle
-                        return `${planStr}<span class="precision-time ${rtColor}">${timeStr}</span>`;
-                    } else if (isConfirmedPast) {
-                        // VRR: fett aber keine Sekunden (VRR hat keine echten Sekunden)
-                        return `${planStr}<span class="font-bold font-mono text-[11px] ${rtColor}">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    } else {
-                        // Zukunft/Prognose: immer dünn + kursiv
-                        return `${planStr}<span class="thin-prognosis ${rtColor} italic text-[11px]">${actual.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>`;
-                    }
+                const formatTime = (sched, actual, hasDeparted) => {
+                    if (!sched) return '';
+                    const planStr = `<span class="text-gray-500 text-[9px] mr-1">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                    if (!actual) return `<span class="text-gray-300 font-mono">${sched.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>`;
+                    
+                    const timeStr = actual.toLocaleTimeString('de-DE', { 
+                        hour: '2-digit', 
+                        minute: '2-digit', 
+                        second: hasDeparted ? '2-digit' : undefined 
+                    });
+                    
+                    const diffSec = Math.round((actual - sched) / 1000);
+                    const isDelayed = diffSec >= 60;
+                    const color = isDelayed ? 'text-red-400' : 'text-green-400';
+                    const delayText = (Math.abs(diffSec) < 60) ? ' ±0' : (diffSec > 0 ? ` +${Math.floor(diffSec/60)}'` : ` ${Math.ceil(diffSec/60)}'`);
+                    
+                    return `${planStr}<span class="${color} ${hasDeparted ? 'font-bold' : ''} mono">${timeStr}${delayText}</span>`;
                 };
 
+                const isPast = (actualDep && actualDep < now) || (actualArr && actualArr < now);
+                const hasDeparted = (actualDep && actualDep < now);
                 const stopItem = document.createElement('div');
-                stopItem.className = `relative flex items-stretch gap-0 ${isCancelled ? 'opacity-40' : ''} py-1 min-h-[2.5rem]`;
-
-                // Zeitblock links – mit sichtbarer Verspätungs-Badge
-                const timeBlock = (() => {
-                    const fmtRow = (label, sched, actual, hasLive, delaySec) => {
-                        if (!sched) return '';
-                        const timeHtml = formatTime(sched, actual, hasLive, delaySec);
-
-                        // Verspätungs-Badge separat und größer darstellen
-                        let delayBadge = '';
-                        if (delaySec !== null && delaySec !== undefined && delaySec !== 0) {
-                            const absMin = Math.abs(delaySec) >= 60
-                                ? (delaySec > 0 ? Math.floor(delaySec/60) : Math.ceil(delaySec/60))
-                                : null;
-                            const absSec = Math.abs(delaySec) < 60 ? Math.abs(delaySec) : null;
-                            const sign   = delaySec > 0 ? '+' : '−';
-                            const color  = delaySec >= 60 ? 'text-red-400' : delaySec <= -60 ? 'text-blue-400' : 'text-gray-400';
-                            const val    = absMin !== null ? `${sign}${Math.abs(absMin)}'` : `${sign}${absSec}s`;
-                            // Nur ab 1 Min anzeigen (unter 60s = pünktlich genug)
-                            if (absMin !== null && Math.abs(absMin) >= 1) {
-                                delayBadge = `<span class="text-[10px] font-bold ${color} ml-1">${val}</span>`;
-                            }
-                        }
-
-                        return `<div class="flex items-center justify-end gap-0.5 leading-tight">
-                            <span class="text-gray-600 text-[8px] w-3">${label}</span>
-                            <span class="mono text-[11px]">${timeHtml}</span>${delayBadge}
-                        </div>`;
-                    };
-
-                    const arrHtml = fmtRow('AN', schedArr, actualArr, hasLiveArr, stop.arrivalDelaySec);
-                    const depHtml = fmtRow('AB', schedDep, actualDep, hasLiveDep, stop.departureDelaySec);
-                    return arrHtml + depHtml || `<div class="mono text-[11px] text-gray-500">--:--</div>`;
-                })();
-
-                // Gleis
-                const platformHtml = (() => {
-                    const planned = stop.plannedPlatform || null;
-                    const actual  = stop.platform || null;
-                    const changed = planned && actual && actual !== planned;
-                    if (!planned && !actual) return '';
-                    if (changed) return `<span class="platform-changed text-[10px]">Bussteig <span class="line-through opacity-50">${planned}</span>→${actual}</span>`;
-                    return `<span class="text-gray-500 text-[10px]">Bussteig ${actual || planned}</span>`;
-                })();
-
-                // Dot-Farbe
-                const dotColor = isCancelled ? 'bg-gray-600' : isAdditional ? 'bg-blue-500' : 'bg-red-600';
-
+                stopItem.className = `relative flex items-stretch py-1 ${isCancelled ? 'opacity-40' : ''}`;
                 stopItem.innerHTML = `
-                    <!-- Zeiten links -->
-                    <div class="w-28 shrink-0 flex flex-col justify-center pr-2 text-right">
-                        ${timeBlock}
+                    <div class="w-24 text-right pr-2 text-[10px]">
+                        ${schedArr ? `<div><span class="text-gray-600 mr-1">AN</span>${formatTime(schedArr, actualArr, isPast)}</div>` : ''}
+                        ${schedDep ? `<div><span class="text-gray-600 mr-1">AB</span>${formatTime(schedDep, actualDep, hasDeparted)}</div>` : ''}
                     </div>
-                    <!-- Trennlinie mit Punkt -->
-                    <div class="relative flex flex-col items-center w-5 shrink-0">
-                        <div class="w-[2px] flex-1 bg-gray-700"></div>
-                        <div class="w-2.5 h-2.5 rounded-full ${dotColor} border border-zinc-950 z-10 shrink-0 my-0.5"></div>
-                        <div class="w-[2px] flex-1 bg-gray-700"></div>
+                    <div class="w-4 flex flex-col items-center">
+                        <div class="w-0.5 flex-1 bg-gray-700"></div>
+                        <div class="w-2.5 h-2.5 rounded-full ${isCancelled ? 'bg-gray-600' : 'bg-red-600'} border border-zinc-950 z-10 shrink-0 my-0.5"></div>
+                        <div class="w-0.5 flex-1 bg-gray-700"></div>
                     </div>
-                    <!-- Name + Info rechts -->
-                    <div class="flex-1 min-w-0 flex flex-col justify-center pl-2">
-                        <span class="text-sm font-semibold ${isCancelled ? 'line-through text-gray-500' : ''} ${isAdditional ? 'text-blue-400' : ''}">
-                            ${stop.stop.name}${isAdditional ? ' <span class="text-[9px]">[+]</span>' : ''}
-                        </span>
-                        <div class="flex flex-wrap gap-x-2 items-center mt-0.5">
-                            ${platformHtml}
-                            ${isCancelled ? '<span class="text-red-500 text-[10px] font-bold">ENTFÄLLT</span>' : ''}
-                            ${stop.remarks?.length > 0 ? `<span class="text-red-400 text-[10px]"><i class="fas fa-exclamation-triangle mr-0.5"></i>${translate(stop.remarks[0].text)}</span>` : ''}
-                        </div>
-                    </div>
-                    <!-- Check-In Button (sichtbar wenn checkinDep gesetzt) -->
-                    <div class="checkin-stop-btn ${checkinDep ? '' : 'hidden'} shrink-0 flex items-center pr-1">
-                        <button onclick="doCheckinAtStop(${idx})"
-                            class="bg-green-600 hover:bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg transition-colors flex items-center gap-1">
-                            <i class="fas fa-sign-out-alt"></i> Hier
-                        </button>
+                    <div class="flex-1 pl-2">
+                        <div class="text-sm font-semibold ${isCancelled ? 'line-through' : ''}">${stop.stop.name}</div>
+                        <div class="text-[10px] text-gray-500">${stop.platform || '---'}</div>
                     </div>`;
                 container.appendChild(stopItem);
             });
 
             if (tripRemarks.length > 0) {
-                const remarksContainer = document.createElement('div');
-                remarksContainer.className = 'mt-4 pt-4 border-t border-gray-100 dark:border-zinc-900 space-y-1';
-                tripRemarks.forEach(rem => {
-                    const rDiv = document.createElement('div');
-                    rDiv.className = 'text-[10px] text-red-500 font-medium flex items-start gap-2';
-                    rDiv.innerHTML = `<i class="fas fa-info-circle mt-0.5"></i> <span>${translate(rem.text)}</span>`;
-                    remarksContainer.appendChild(rDiv);
-                });
-                container.appendChild(remarksContainer);
-            }
-        }
-
-        // ─── Live-Karte (Transitous/MOTIS) ───────────────────────────────────────────
-        const MOTIS_BASE   = 'https://api.transitous.org/api/v1';
-        const MOTIS_AGENT  = 'dilaeit/1.0 (https://dilaeit.onrender.com)';
-
-        let liveMap         = null;
-        let vehicleMarkers  = new Map(); // tripId → marker
-        let mapRefreshTimer = null;
-        let mapVisible      = false;
-
-        function toggleMap() {
-            mapVisible = !mapVisible;
-            const section = $('map-section');
-            const btn     = $('map-toggle-btn');
-            section.classList.toggle('hidden', !mapVisible);
-            if (btn) btn.classList.toggle('text-orange-400', mapVisible);
-            if (btn) btn.classList.toggle('border-orange-500', mapVisible);
-
-            if (mapVisible) {
-                if (!liveMap) initLiveMap();
-                else setTimeout(() => liveMap.invalidateSize(), 100);
-                loadVehicles();
-                mapRefreshTimer = setInterval(loadVehicles, 60000);
-                // Click-outside schließt die Karte
-                setTimeout(() => {
-                    document.addEventListener('click', closeMapOnOutsideClick, { once: false });
-                }, 100);
-            } else {
-                if (mapRefreshTimer) { clearInterval(mapRefreshTimer); mapRefreshTimer = null; }
-                document.removeEventListener('click', closeMapOnOutsideClick);
-            }
-        }
-
-        function closeMapOnOutsideClick(e) {
-            const section = $('map-section');
-            const btn     = $('map-toggle-btn');
-            if (!mapVisible) { document.removeEventListener('click', closeMapOnOutsideClick); return; }
-            // Klick außerhalb der Karte und nicht auf den Toggle-Button
-            if (section && !section.contains(e.target) && btn && !btn.contains(e.target)) {
-                toggleMap();
-            }
-        }
-
-        function initLiveMap() {
-            liveMap = L.map('live-map', { zoomControl: true, attributionControl: true });
-
-            // OSM Dark-Tiles (CartoDB Dark Matter)
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> · <a href="https://carto.com">CARTO</a> · <a href="https://transitous.org">Transitous</a>',
-                maxZoom: 18, subdomains: 'abcd'
-            }).addTo(liveMap);
-
-            // Auf aktuelle Station zentrieren, falls vorhanden
-            if (state.currentStation?.lat && state.currentStation?.lon) {
-                liveMap.setView([state.currentStation.lat, state.currentStation.lon], 13);
-            } else {
-                // Standard: NRW-Mitte
-                liveMap.setView([51.4, 6.9], 11);
-            }
-
-            setTimeout(() => liveMap.invalidateSize(), 200);
-        }
-
-        async function loadVehicles() {
-            if (!liveMap) return;
-            const zoom = Math.round(liveMap.getZoom());
-
-            // Mindest-Zoom 10 um "too many trips" zu vermeiden
-            if (zoom < 10) {
-                $('map-vehicle-count').textContent = 'Bitte weiter reinzoomen (min. Zoom 10)';
-                return;
-            }
-
-            const b         = liveMap.getBounds();
-            const precision = zoom >= 11 ? 5 : zoom >= 8 ? 4 : 3;
-            const min       = `${b.getSouth().toFixed(6)},${b.getWest().toFixed(6)}`;
-            const max       = `${b.getNorth().toFixed(6)},${b.getEast().toFixed(6)}`;
-            const now       = new Date();
-            const startTime = new Date(now.getTime() - 2 * 60000).toISOString();  // 2 Min zurück
-            const endTime   = new Date(now.getTime() + 30 * 60000).toISOString(); // 30 Min voraus
-
-            const params = new URLSearchParams({ min, max, startTime, endTime, zoom: String(zoom), precision: String(precision) });
-            const url = `https://api.transitous.org/api/v5/map/trips?${params}`;
-
-            console.log('[MOTIS] →', url);
-
-            try {
-                const res = await fetch(url, {
-                    headers: { 'Referer': 'https://dilaeit.onrender.com' }
-                });
-                const text = await res.text();
-                if (!res.ok) throw new Error(`MOTIS ${res.status}: ${text}`);
-                const data = JSON.parse(text);
-
-                const trips = Array.isArray(data) ? data : (data.trips || data.features || []);
-                renderVehicles(trips, zoom);
-
-                $('map-vehicle-count').textContent = `${trips.length} Fahrzeuge`;
-                $('map-last-update').textContent   = new Date().toLocaleTimeString('de-DE', {
-                    hour: '2-digit', minute: '2-digit', second: '2-digit'
-                });
-
-            } catch (e) {
-                console.warn('[MOTIS] Fehler:', e.message);
-                $('map-vehicle-count').textContent = `Fehler: ${e.message}`;
-            }
-        }
-
-        // Google Polyline Decoder (precision 5)
-        function decodePolyline(encoded) {
-            const points = [];
-            let idx = 0, lat = 0, lng = 0;
-            while (idx < encoded.length) {
-                let b, shift = 0, result = 0;
-                do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-                lat += (result & 1) ? ~(result >> 1) : (result >> 1);
-                shift = 0; result = 0;
-                do { b = encoded.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-                lng += (result & 1) ? ~(result >> 1) : (result >> 1);
-                points.push([lat / 1e5, lng / 1e5]);
-            }
-            return points;
-        }
-
-        function renderVehicles(segments, zoom) {
-            if (!liveMap) return;
-            const seen = new Set();
-            const now  = Date.now();
-
-            segments.forEach(seg => {
-                const trip    = seg.trips?.[0];
-                if (!trip) return;
-                const tripId  = trip.tripId;
-                if (!tripId || seen.has(tripId)) return;
-                seen.add(tripId);
-
-                // Linienname: displayName (v4+) oder routeShortName
-                const lineName = trip.displayName || trip.routeShortName || '?';
-                const mode     = (seg.mode || '').toString().toUpperCase();
-
-                // Farbe: GTFS routeColor hat Vorrang, sonst nach Modus
-                const color = seg.routeColor ? `#${seg.routeColor.replace('#','')}` :
-                    mode === 'BUS'     ? '#f97316' :
-                    mode === 'TRAM'    ? '#a855f7' :
-                    mode === 'SUBWAY'  || mode === 'METRO' || mode === 'SUBURBAN' ? '#3b82f6' :
-                    mode === 'RAIL'    || mode === 'HIGHSPEED_RAIL' || mode === 'LONG_DISTANCE' ? '#ef4444' :
-                    '#f97316';
-
-                // Polyline dekodieren und aktuelle Position interpolieren
-                let lat, lng;
-                if (seg.polyline) {
-                    const pts = decodePolyline(seg.polyline);
-                    if (pts.length >= 2) {
-                        // Position anhand Abfahrts-/Ankunftszeit interpolieren
-                        const depMs  = new Date(seg.departure || seg.scheduledDeparture).getTime();
-                        const arrMs  = new Date(seg.arrival   || seg.scheduledArrival).getTime();
-                        const segLen = arrMs - depMs;
-                        const t      = segLen > 0 ? Math.min(1, Math.max(0, (now - depMs) / segLen)) : 0.5;
-                        const ptIdx  = Math.floor(t * (pts.length - 1));
-                        const next   = Math.min(ptIdx + 1, pts.length - 1);
-                        const frac   = (t * (pts.length - 1)) - ptIdx;
-                        lat = pts[ptIdx][0] + (pts[next][0] - pts[ptIdx][0]) * frac;
-                        lng = pts[ptIdx][1] + (pts[next][1] - pts[ptIdx][1]) * frac;
-                    } else if (pts.length === 1) {
-                        [lat, lng] = pts[0];
+                const remDiv = document.createElement('div');
+                remDiv.className = 'mt-4 pt-4 border-t border-zinc-800 space-y-2';
+                tripRemarks.forEach(r => {
+                    const d = document.createElement('div');
+                    const isDisruption = (r.type === 'disruption' || r.type === 'warning' || 
+                        (r.text && r.text.toLowerCase().includes('verspätung')));
+                    
+                    if (isDisruption) {
+                        d.className = 'text-[10px] text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/30 flex items-start gap-2';
+                        d.innerHTML = `<i class='fas fa-exclamation-triangle mt-0.5 text-red-500'></i> <div class='flex-1 whitespace-pre-wrap'>${r.text}</div>`;
+                    } else {
+                        d.className = 'text-[10px] text-gray-300 bg-zinc-800/50 p-2 rounded-lg border border-zinc-700/50 flex items-start gap-2';
+                        d.innerHTML = `<i class='fas fa-info-circle mt-0.5 text-gray-400'></i> <div class='flex-1 whitespace-pre-wrap'>${r.text}</div>`;
                     }
-                }
-
-                // Fallback: from/to Mitte
-                if (!lat && seg.from && seg.to) {
-                    lat = (seg.from.lat + seg.to.lat) / 2;
-                    lng = (seg.from.lon + seg.to.lon) / 2;
-                }
-                if (!lat) return;
-
-                // Verspätung berechnen
-                let delayStr = '';
-                if (seg.realTime && seg.departure && seg.scheduledDeparture) {
-                    const delayMs  = new Date(seg.departure).getTime() - new Date(seg.scheduledDeparture).getTime();
-                    const delayMin = Math.round(delayMs / 60000);
-                    if (delayMin > 0)       delayStr = `<span style="color:#ef4444;font-weight:bold">+${delayMin}'</span>`;
-                    else if (delayMin < 0)  delayStr = `<span style="color:#22c55e;font-weight:bold">${delayMin}'</span>`;
-                    else                    delayStr = `<span style="color:#22c55e">✓</span>`;
-                }
-                const rtBadge = seg.realTime ? '⚡' : '';
-
-                const iconHtml = `<div class="vehicle-marker" style="background:${color};color:white;width:28px;height:28px;font-size:9px;font-weight:900;">${lineName}</div>`;
-                const icon     = L.divIcon({ html: iconHtml, className: '', iconSize: [28,28], iconAnchor: [14,14] });
-                const from     = seg.from?.name || '';
-                const to       = seg.to?.name   || '';
-                const popup    = `<div style="font-family:monospace;min-width:130px">
-                    <b style="font-size:13px;color:${color}">${lineName}</b> ${rtBadge}<br>
-                    <span style="font-size:11px;color:#9ca3af">${from}</span><br>
-                    <span style="font-size:11px">→ ${to}</span><br>
-                    ${delayStr}
-                </div>`;
-
-                if (vehicleMarkers.has(tripId)) {
-                    vehicleMarkers.get(tripId).setLatLng([lat, lng]);
-                } else {
-                    const m = L.marker([lat, lng], { icon }).bindPopup(popup).addTo(liveMap);
-                    vehicleMarkers.set(tripId, m);
-                }
-            });
-
-            // Alte Marker entfernen
-            vehicleMarkers.forEach((m, id) => {
-                if (!seen.has(id)) { liveMap.removeLayer(m); vehicleMarkers.delete(id); }
-            });
-        }
-
-        // Karte auf aktuelle Station zentrieren wenn Station gewechselt wird
-        function centerMapOnStation(station) {
-            if (!liveMap || !mapVisible) return;
-            // Transitous Stationssuche für Koordinaten
-            fetch(`${MOTIS_BASE}/geocode?text=${encodeURIComponent(station.name)}&language=de`, {
-                headers: { 'Referer': 'https://dilaeit.onrender.com' }
-            })
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-                const stop = data?.features?.[0];
-                if (stop?.geometry?.coordinates) {
-                    const [lng, lat] = stop.geometry.coordinates;
-                    liveMap.setView([lat, lng], 14);
-                    loadVehicles();
-                }
-            })
-            .catch(() => {});
-        }
-
-        // ─── Detail-Tabs ─────────────────────────────────────────────────────────────
-        let tripMap = null, tripMapMarker = null, tripMapPolyline = null, tripMapTimer = null;
-        let currentDetailStopovers = null;
-
-        function switchDetailTab(tab) {
-            ['itinerary','map','punctuality','zuglauf'].forEach(t => {
-                const panel = $(`panel-${t}`);
-                const btn   = $(`tab-${t}`);
-                if (!panel || !btn) return;
-                const active = t === tab;
-                panel.classList.toggle('hidden', !active);
-                btn.className = `detail-tab px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    active ? 'bg-red-600 text-white' : 'bg-zinc-800 text-gray-400 hover:text-white'
-                }`;
-            });
-            if (tab === 'map'         && currentTripDetail) initTripMap(currentTripDetail);
-            if (tab === 'punctuality' && currentTripDetail) renderPunctualityHistory(currentTripDetail);
-            if (tab === 'zuglauf'     && currentTripDetail) renderZuglauf(currentTripDetail);
-            if (tab !== 'map' && tripMapTimer) { clearInterval(tripMapTimer); tripMapTimer = null; }
-        }
-
-        // ─── Fahrtkarte (Leaflet, Transitous-Interpolation) ──────────────────────────
-        async function initTripMap(dep) {
-            const mapEl = $('trip-map');
-            if (!mapEl) return;
-            $('trip-map-status').textContent = 'Lade Karte...';
-
-            if (!tripMap) {
-                tripMap = L.map('trip-map', { zoomControl: true, attributionControl: false });
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 18, subdomains: 'abcd'
-                }).addTo(tripMap);
+                    remDiv.appendChild(d);
+                });
+                container.appendChild(remDiv);
             }
-            if (tripMapPolyline) { tripMap.removeLayer(tripMapPolyline); tripMapPolyline = null; }
-            if (tripMapMarker)   { tripMap.removeLayer(tripMapMarker);   tripMapMarker   = null; }
-
-            await updateTripMapPosition(dep);
-            if (tripMapTimer) clearInterval(tripMapTimer);
-            tripMapTimer = setInterval(() => {
-                if (!$('panel-map').classList.contains('hidden')) updateTripMapPosition(dep);
-            }, 60000);
         }
 
-        async function updateTripMapPosition(dep) {
-            let stops = currentDetailStopovers;
+        // ─── Verbindungssuche ────────────────────────────────────────────────────────
+        let routeSelected = { start: null, via: null, dest: null };
+        let routeMode = 'all';
 
-            // Fallback: DB REST für Koordinaten
-            if ((!stops?.length || !stops[0]?.stop?.location) && (dep.dbTripId || dep.tripId)) {
+        function setupRouteAutocomplete(inputId, resultsId, key) {
+            const input = $(inputId), results = $(resultsId);
+            input.addEventListener('input', debounce(async () => {
+                const q = input.value.trim();
+                if (q.length < 2) { results.classList.add('hidden'); return; }
                 try {
-                    const id = dep.dbTripId || dep.tripId;
-                    const r  = await fetch(`https://v6.db.transport.rest/trips/${encodeURIComponent(id)}?stopovers=true&remarks=false`,
-                        { signal: AbortSignal.timeout(8000) });
-                    if (r.ok) {
-                        const d = await r.json();
-                        stops = (d.trip ?? d).stopovers || [];
-                    }
-                } catch {}
-            }
+                    const r = await fetch(`${API_BASE}/api/db/locations?query=${encodeURIComponent(q)}`);
+                    const d = await r.json();
+                    const locs = d.locations || [];
+                    results.innerHTML = '';
+                    if (!locs.length) { results.classList.add('hidden'); return; }
+                    locs.forEach(loc => {
+                        const item = document.createElement('div');
+                        item.className = 'px-3 py-2 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer text-sm border-b border-gray-100 dark:border-zinc-800 last:border-0';
+                        item.textContent = loc.name;
+                        item.onclick = () => {
+                            routeSelected[key] = loc;
+                            input.value = loc.name;
+                            results.classList.add('hidden');
+                        };
+                        results.appendChild(item);
+                    });
+                    results.classList.remove('hidden');
+                } catch(e) { results.classList.add('hidden'); }
+            }, 300));
+            document.addEventListener('click', e => {
+                if (!input.contains(e.target) && !results.contains(e.target)) results.classList.add('hidden');
+            });
+        }
 
-            if (!stops?.length) {
-                $('trip-map-status').textContent = 'Keine Koordinaten verfügbar.';
+        function setupRouteModeButtons() {
+            document.querySelectorAll('.route-mode-btn').forEach(btn => {
+                btn.onclick = () => {
+                    routeMode = btn.dataset.mode;
+                    document.querySelectorAll('.route-mode-btn').forEach(b => {
+                        const active = b === btn;
+                        b.className = `route-mode-btn px-3 py-1.5 rounded-xl text-xs font-bold border ${active ? 'bg-red-600 border-red-600 text-white' : 'bg-transparent border-gray-600 text-gray-400 hover:border-red-400'}`;
+                    });
+                };
+            });
+        }
+
+        async function startRouteSearch() {
+            const results = $('route-results');
+            if (!routeSelected.start || !routeSelected.dest) {
+                results.innerHTML = '<span class="text-red-500 font-semibold">Bitte Start und Ziel aus der Liste wählen.</span>';
                 return;
             }
+            results.innerHTML = '<div class="flex items-center gap-2 py-3"><i class="fas fa-circle-notch fa-spin text-red-500"></i> Suche Verbindungen...</div>';
 
-            const pts = stops.filter(s => s.stop?.location?.latitude).map(s => ({
-                lat:    s.stop.location.latitude,
-                lng:    s.stop.location.longitude,
-                name:   s.stop.name,
-                planned: new Date(s.plannedDeparture || s.plannedArrival || 0).getTime(),
-                actual:  s.departure || s.arrival ? new Date(s.departure || s.arrival).getTime() : null
-            }));
+            const date = $('route-date').value || $('query-date').value;
+            const time = $('route-time').value || $('query-time').value;
+            const offset = -new Date().getTimezoneOffset();
+            const tz = (offset >= 0 ? '+' : '-') + String(Math.floor(Math.abs(offset)/60)).padStart(2,'0') + ':' + String(Math.abs(offset)%60).padStart(2,'0');
+            const datetime = `${date}T${time}:00${tz}`;
 
-            if (!pts.length) { $('trip-map-status').textContent = 'Keine Koordinaten in Streckendaten.'; return; }
-
-            const now = Date.now();
-            if (tripMapPolyline) tripMap.removeLayer(tripMapPolyline);
-            tripMapPolyline = L.polyline(pts.map(p => [p.lat, p.lng]), {
-                color: '#ef4444', weight: 3, opacity: 0.7, dashArray: '6,4'
-            }).addTo(tripMap);
-
-            pts.forEach((p, i) => {
-                const t     = p.actual || p.planned;
-                const isPast = t < now;
-                const isNext = !isPast && (i === 0 || (pts[i-1].actual || pts[i-1].planned) < now);
-                L.circleMarker([p.lat, p.lng], {
-                    radius: isNext ? 7 : 5,
-                    color:  isPast ? '#374151' : isNext ? '#f97316' : '#6b7280',
-                    fillColor: isPast ? '#374151' : isNext ? '#f97316' : '#6b7280',
-                    fillOpacity: 1, weight: isNext ? 2 : 1
-                }).bindTooltip(p.name, { direction: 'top', offset: [0,-6] }).addTo(tripMap);
-            });
-
-            // Position interpolieren
-            const past   = pts.filter(p => (p.actual || p.planned) <= now);
-            const future = pts.filter(p => (p.actual || p.planned) >  now);
-            let posLat, posLng, label;
-            if (!past.length)   { posLat = pts[0].lat; posLng = pts[0].lng; label = `Vor ${pts[0].name}`; }
-            else if (!future.length) { posLat = pts[pts.length-1].lat; posLng = pts[pts.length-1].lng; label = `Nach ${pts[pts.length-1].name}`; }
-            else {
-                const from = past[past.length-1], to = future[0];
-                const t = Math.min(1, Math.max(0, (now - (from.actual||from.planned)) / ((to.actual||to.planned) - (from.actual||from.planned))));
-                posLat = from.lat + (to.lat - from.lat) * t;
-                posLng = from.lng + (to.lng - from.lng) * t;
-                const min = Math.round(((to.actual||to.planned) - now) / 60000);
-                label = min <= 0 ? `Ankunft in ${to.name}` : `→ ${to.name} in ~${min} Min`;
-            }
-
-            if (tripMapMarker) tripMap.removeLayer(tripMapMarker);
-            const icon = L.divIcon({
-                html: '<div style="background:#ef4444;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.5)"><i class="fas fa-train" style="font-size:12px"></i></div>',
-                className: '', iconSize: [28,28], iconAnchor: [14,14]
-            });
-            tripMapMarker = L.marker([posLat, posLng], { icon })
-                .bindPopup(`<b>${dep.line?.name||''}</b><br>${dep.direction||''}<br><span style="font-size:11px;color:#9ca3af">${label}</span>`)
-                .addTo(tripMap);
-
-            tripMap.setView([posLat, posLng], tripMap.getZoom() < 8 ? 11 : tripMap.getZoom());
-            setTimeout(() => tripMap.invalidateSize(), 100);
-            $('trip-map-status').innerHTML = `<i class="fas fa-circle text-green-500 text-[8px] mr-1"></i>${label} · ${new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
-        }
-
-        // ─── Historische Pünktlichkeit (IndexedDB) ───────────────────────────────────
-        function openIDB() {
-            return new Promise((res, rej) => {
-                const req = indexedDB.open('dilaeit_rt', 1);
-                req.onupgradeneeded = e => {
-                    const db = e.target.result;
-                    if (!db.objectStoreNames.contains('departures')) {
-                        const s = db.createObjectStore('departures', { keyPath: 'key' });
-                        s.createIndex('ts', 'ts', { unique: false });
-                    }
-                };
-                req.onsuccess = e => res(e.target.result);
-                req.onerror   = e => rej(e.target.error);
-            });
-        }
-
-        async function saveRtDeparture(dep) {
-            if (dep.delay === null || dep.delay === undefined) return;
             try {
-                const db  = await openIDB();
-                const key = `${dep.line?.name}|${dep.plannedWhen}|${dep.direction}`;
-                const tx  = db.transaction('departures', 'readwrite');
-                tx.objectStore('departures').put({
-                    key, lineName: dep.line?.name || '?', direction: dep.direction || '',
-                    dateStr: new Date().toISOString().slice(0,10),
-                    delaySec: dep.delay, cancelled: dep.cancelled || false, ts: Date.now()
+                const params = new URLSearchParams({
+                    fromId: routeSelected.start.id,
+                    toId:   routeSelected.dest.id,
+                    datetime, mode: routeMode,
                 });
-                const cutoff = Date.now() - 60*86400000;
-                tx.objectStore('departures').index('ts').openCursor(IDBKeyRange.upperBound(cutoff)).onsuccess = e => {
-                    const c = e.target.result; if (c) { c.delete(); c.continue(); }
-                };
-            } catch {}
-        }
+                if (routeSelected.via) params.set('viaId', routeSelected.via.id);
 
-        async function autoSaveDepartures(departures) {
-            for (const dep of departures) {
-                if (dep.delay !== null && dep.delay !== undefined) await saveRtDeparture(dep);
+                const r = await fetch(`${API_BASE}/api/plan?${params}`);
+                const data = await r.json();
+                renderRouteResults(data.itineraries || []);
+            } catch (e) {
+                results.innerHTML = `<span class="text-red-500">Fehler: ${e.message}</span>`;
             }
         }
 
-        async function renderPunctualityHistory(dep) {
-            const el = $('punctuality-content');
-            if (!el) return;
-            el.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade...';
-            try {
-                const db       = await openIDB();
-                const lineName = dep.line?.name || '?';
-                const records  = await new Promise((res, rej) => {
-                    const results = [];
-                    const req = db.transaction('departures','readonly').objectStore('departures').openCursor();
-                    req.onsuccess = e => {
-                        const c = e.target.result;
-                        if (c) { if (c.value.lineName === lineName) results.push(c.value); c.continue(); }
-                        else res(results);
-                    };
-                    req.onerror = rej;
-                });
-
-                if (!records.length) {
-                    el.innerHTML = `<div class="text-center py-6 text-gray-500">
-                        <i class="fas fa-chart-bar text-2xl block opacity-30 mb-2"></i>
-                        Noch keine Daten für <b class="text-white">${lineName}</b>.<br>
-                        <span class="text-[10px]">Werden automatisch gesammelt.</span>
+        function renderRouteResults(itineraries) {
+            const results = $('route-results');
+            if (!itineraries.length) { results.innerHTML = '<span class="text-gray-500">Keine Verbindungen gefunden.</span>'; return; }
+            results.innerHTML = '';
+            itineraries.forEach(it => {
+                const start = new Date(it.startTime), end = new Date(it.endTime);
+                const durMin = Math.round(it.duration / 60);
+                const card = document.createElement('div');
+                card.className = 'p-3 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 mb-2';
+                const legsHtml = it.legs.filter(l => l.mode !== 'WALK').map(leg => {
+                    const t1 = new Date(leg.from.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                    const t2 = new Date(leg.to.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+                    return `<div class="flex items-center gap-2 text-xs py-1">
+                        <span class="px-1.5 py-0.5 rounded bg-red-600 text-white font-black italic text-[10px]">${leg.routeShortName || leg.mode}</span>
+                        <span class="text-gray-500 mono">${t1}</span>
+                        <span class="font-medium">${leg.from.name}</span>
+                        <i class="fas fa-arrow-right text-[8px] text-gray-400"></i>
+                        <span class="text-gray-500 mono">${t2}</span>
+                        <span class="font-medium">${leg.to.name}</span>
                     </div>`;
-                    return;
-                }
-
-                const total     = records.length;
-                const cancelled = records.filter(r => r.cancelled).length;
-                const withDelay = records.filter(r => !r.cancelled && r.delaySec !== null);
-                const onTime    = withDelay.filter(r => r.delaySec < 60).length;
-                const avgDelay  = withDelay.length ? Math.round(withDelay.reduce((s,r) => s + Math.max(0,r.delaySec),0) / withDelay.length) : 0;
-                const maxDelay  = withDelay.length ? Math.max(...withDelay.map(r => r.delaySec)) : 0;
-                const pct       = total > 0 ? Math.round((onTime/total)*100) : 0;
-                const pctColor  = pct >= 80 ? 'text-green-400' : pct >= 60 ? 'text-yellow-400' : 'text-red-400';
-
-                const byDay = {};
-                withDelay.forEach(r => { const d = new Date(r.ts).getDay(); if (!byDay[d]) byDay[d]=[]; byDay[d].push(r.delaySec); });
-                const dayNames = ['So','Mo','Di','Mi','Do','Fr','Sa'];
-                const dayBars  = [1,2,3,4,5,6,0].map(d => {
-                    const vals = byDay[d] || [];
-                    return { name: dayNames[d], avg: vals.length ? Math.round(vals.reduce((s,v)=>s+Math.max(0,v),0)/vals.length/60) : 0, count: vals.length };
-                });
-                const maxBar = Math.max(...dayBars.map(b=>b.avg), 1);
-
-                el.innerHTML = `<div class="space-y-3">
-                    <div class="flex items-center justify-between">
-                        <div><div class="text-3xl font-black ${pctColor}">${pct}%</div><div class="text-[10px] text-gray-500">pünktlich (&lt;1 Min)</div></div>
-                        <div class="text-right text-[10px] text-gray-400 space-y-0.5">
-                            <div><span class="text-white font-bold">${total}</span> Fahrten</div>
-                            <div><span class="text-red-400 font-bold">${cancelled}</span> ausgefallen</div>
-                            <div>Ø <span class="text-red-400 font-bold">${Math.round(avgDelay/60)}'</span></div>
-                            <div>Max <span class="text-red-500 font-bold">+${Math.round(maxDelay/60)}'</span></div>
-                        </div>
+                }).join('');
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold">${start.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} → ${end.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
+                        <span class="text-xs text-gray-500">${durMin} min · ${Math.max(0,it.transfers)} Umstieg${it.transfers===1?'':'e'}</span>
                     </div>
-                    <div class="h-2 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full rounded-full bg-green-500" style="width:${pct}%"></div></div>
-                    <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Ø Verspätung nach Wochentag</div>
-                    <div class="flex items-end gap-1 h-14">
-                        ${dayBars.map(b => {
-                            const h = Math.max(4, Math.round((b.avg/maxBar)*100));
-                            const c = b.avg===0?'bg-green-600':b.avg<=2?'bg-yellow-500':'bg-red-500';
-                            return `<div class="flex-1 flex flex-col items-center gap-0.5">
-                                <div class="text-[8px] text-gray-500">${b.avg>0?'+'+b.avg+"'":''}  </div>
-                                <div class="w-full ${c} rounded-t" style="height:${h}%"></div>
-                                <div class="text-[9px] text-gray-500">${b.name}</div>
-                            </div>`;
-                        }).join('')}
-                    </div>
-                </div>`;
-            } catch (e) {
-                el.innerHTML = `<span class="text-red-500">Fehler: ${e.message}</span>`;
-            }
+                    ${legsHtml}`;
+                results.appendChild(card);
+            });
         }
+        function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
-        // ─── Zuglauf-Übersicht ────────────────────────────────────────────────────────
-        async function renderZuglauf(dep) {
-            const el = $('zuglauf-content');
-            if (!el) return;
-            el.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Lade Zuglauf...';
-
-            const dbTripId = dep.dbTripId || dep.tripId;
-            if (!dbTripId) { el.innerHTML = '<div class="text-gray-500 text-xs text-center py-4">Nur für DB-Züge verfügbar.</div>'; return; }
-
-            try {
-                const r = await fetch(`https://v6.db.transport.rest/trips/${encodeURIComponent(dbTripId)}?stopovers=true&remarks=false`,
-                    { signal: AbortSignal.timeout(10000) });
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                const data  = await r.json();
-                const trip  = data.trip ?? data;
-                const stops = trip.stopovers || [];
-                if (!stops.length) throw new Error('Keine Halte');
-
-                const now = Date.now();
-                let curIdx = -1;
-                stops.forEach((s,i) => { if (new Date(s.departure||s.arrival||s.plannedDeparture||s.plannedArrival||0).getTime() <= now) curIdx = i; });
-
-                el.innerHTML = `<div class="space-y-2">
-                    <div class="text-xs text-gray-400">${stops[0].stop?.name||'?'} → ${stops[stops.length-1].stop?.name||'?'} · ${stops.length} Halte</div>
-                    <div class="max-h-64 overflow-y-auto rounded-xl border border-zinc-800">
-                        ${stops.map((s,i) => {
-                            const isCur  = i === curIdx;
-                            const isPast = i < curIdx;
-                            const t      = s.plannedDeparture || s.plannedArrival;
-                            const time   = t ? new Date(t).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
-                            const d      = (() => { const a=s.departure||s.arrival,p=s.plannedDeparture||s.plannedArrival; if(!a||!p) return ''; const m=Math.round((new Date(a)-new Date(p))/60000); return m>0?`<span class="text-red-400 text-[9px] ml-1">+${m}'</span>`:''; })();
-                            const bg     = isCur ? 'bg-red-600/20 border-l-2 border-red-500' : isPast ? 'opacity-40' : '';
-                            const dot    = isCur ? '🔴' : isPast ? '·' : '○';
-                            return `<div class="flex items-center gap-2 px-3 py-1.5 text-xs ${bg} ${i===0||i===stops.length-1?'font-bold':''}">
-                                <span class="text-[10px] w-3">${dot}</span>
-                                <span class="flex-1 truncate ${s.cancelled?'line-through text-gray-500':''}">${s.stop?.name||''}</span>
-                                <span class="font-mono text-gray-400 shrink-0">${time}${d}</span>
-                            </div>`;
-                        }).join('')}
-                    </div>
-                </div>`;
-            } catch (e) {
-                el.innerHTML = `<div class="text-red-500 text-xs">Fehler: ${e.message}</div>`;
-            }
-        }
-
-        // ─── Quick Check-In aus Abfahrtstafel ─────────────────────────────────────
-        async function quickCheckin(depIdx) {
-            try {
-                const dep = state.departures[depIdx];
-                if (!dep) { console.error('quickCheckin: dep not found at index', depIdx); return; }
-                console.log('[quickCheckin] dep:', dep.line?.name, 'tripId:', dep.tripId, 'dbTripId:', dep.dbTripId);
-                const btn = event?.target?.closest('button');
-                if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin text-green-400 text-xs"></i>';
-
-                // Check-In Modus setzen und Fahrtverlauf öffnen
-                checkinDep = dep;
-                await showTripDetails(dep);
-
-                // Banner anzeigen – Buttons werden direkt in renderItinerary gesetzt
+        // ─── Check-In ─────────────────────────────────────────────────────────────────
+        function quickCheckin(idx) {
+            const dep = state.departures[idx];
+            if (!dep) return;
+            checkinDep = dep;
+            showTripDetails(dep);
+            setTimeout(() => {
                 $('checkin-mode-banner').classList.remove('hidden');
-
-                if (btn) btn.innerHTML = '<i class="fas fa-check-circle text-green-400 text-xs"></i>';
-                setTimeout(() => { if (btn) btn.innerHTML = '<i class="fas fa-check-circle text-xs"></i>'; }, 3000);
-            } catch (e) { console.error('Check-In failed', e); }
+                if (currentDetailStopovers) renderItinerary(currentDetailStopovers, [], '');
+            }, 900);
         }
 
         function cancelCheckinMode() {
             checkinDep = null;
             $('checkin-mode-banner').classList.add('hidden');
-            document.querySelectorAll('.checkin-stop-btn').forEach(b => b.classList.add('hidden'));
+            if (currentDetailStopovers) renderItinerary(currentDetailStopovers, [], '');
         }
 
-        function doCheckinAtStop(stopIdx) {
-            try {
-                const stop = currentDetailStopovers?.[stopIdx];
-                if (!stop) { console.error('doCheckinAtStop: stop not found at index', stopIdx); return; }
-                const dep  = checkinDep;
-                if (!dep) return;
-
-                const date      = (dep.plannedWhen || dep.when || new Date().toISOString()).slice(0, 10);
-                const time      = new Date(dep.plannedWhen || dep.when || new Date()).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
-                const line      = dep.line?.name || dep.line?.id || '?';
-                const from      = state.currentStation?.name || '?';
-                const to        = stop.stop?.name || '?';
-                const mode      = (() => {
-                    const p = (dep.line?.product || dep.line?.mode || '').toLowerCase();
-                    if (p.includes('train')||p.includes('rail')||['re','rb','ic','ice','s'].some(x=>line.toLowerCase().startsWith(x))) return 'train';
-                    if (p.includes('bus')) return 'bus';
-                    if (p.includes('subway')||p.includes('u-bahn')) return 'subway';
-                    if (p.includes('tram')) return 'tram';
-                    return 'other';
-                })();
-
-                // Zeiten
-                const depReal  = dep.when       ? new Date(dep.when).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})             : null;
-                const arrPlanned = stop.plannedArrival  ? new Date(stop.plannedArrival).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : null;
-                const arrReal  = stop.arrival   ? new Date(stop.arrival).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})          : arrPlanned;
-                const depDelaySec = dep.delay;
-                const depDelayMin = depDelaySec != null ? Math.round(depDelaySec / 60) : null;
-                const arrDelaySec = stop.arrivalDelaySec;
-                const arrDelayMin = arrDelaySec != null ? Math.round(arrDelaySec / 60) : null;
-
-                // Koordinaten
-                const fromCoords = null; // keine Koordinaten für Einstiegsstation verfügbar
-                const toCoords   = stop.stop?.location ? [stop.stop.location.latitude, stop.stop.location.longitude] : null;
-
-                const journey = {
-                    id:       `${date}T${time}-${Math.random().toString(36).slice(2,8)}`,
-                    date, time, line, from, to,
-                    fromCoords, toCoords, mode,
-                    depDelay:   depDelayMin,
-                    delay:      arrDelayMin,
-                    depReal,
-                    arrReal,
-                    arrivePlanned: arrPlanned,
-                    depManual:  false,
-                    arrManual:  false,
-                    km:   null,
-                    note: null,
-                    tripId: dep.dbTripId || dep.tripId || null,
-                };
-
-                // In localStorage für stats.html speichern
-                const pending = JSON.parse(localStorage.getItem('dilaeit_checkin_pending') || '[]');
-                pending.push(journey);
-                localStorage.setItem('dilaeit_checkin_pending', JSON.stringify(pending));
-
-                // Server-seitiges Tracking + Sync direkt registrieren
-                const clientId = localStorage.getItem('dilaeit_client_id');
-                const syncCode = localStorage.getItem('dilaeit_sync_code');
-                if (journey.tripId && journey.arrivePlanned && clientId) {
-                    fetch('/api/checkin/track', {
-                        method: 'POST', headers: {'Content-Type':'application/json'},
-                        body: JSON.stringify({
-                            clientId, tripId: journey.tripId,
-                            to: journey.to, line: journey.line,
-                            date: journey.date, arrivePlanned: journey.arrivePlanned,
-                        })
-                    }).catch(()=>{});
-                }
-                if (syncCode) {
-                    // Auch in Server-Sync pushen
-                    fetch(`/api/sync/${encodeURIComponent(syncCode)}`, {
-                        method: 'POST', headers: {'Content-Type':'application/json'},
-                        body: JSON.stringify({ journeys: pending })
-                    }).catch(()=>{});
-                }
-
-                // Check-In Modus beenden + Modal schließen
-                cancelCheckinMode();
-                $('detail-view').classList.remove('active');
-
-                // Kurze Bestätigung
-                const toast = document.createElement('div');
-                toast.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-600 text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-xl z-50 flex items-center gap-2 animate-bounce';
-                toast.innerHTML = `<i class="fas fa-check-circle"></i> Check-In gespeichert: ${line} → ${to}`;
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 3000);
-
-            } catch (e) { console.error('doCheckinAtStop failed', e); }
+        function selectCheckinExit(stop) {
+            if (!checkinDep) return;
+            const dep = checkinDep;
+            checkinDep = null;
+            $('checkin-mode-banner').classList.add('hidden');
+            closeTripDetails();
+            const from = state.currentStation?.name || '';
+            const to   = stop.stop?.name || '';
+            const line = dep.line?.name || '';
+            const date = dep.plannedWhen ? new Date(dep.plannedWhen).toISOString().slice(0,10) : $('query-date').value;
+            const time = dep.plannedWhen ? new Date(dep.plannedWhen).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+            const params = new URLSearchParams({ from, to, line, date, time, mode: 'checkin' });
+            window.location.href = `/stats.html?${params.toString()}`;
         }
 
         init();
-    </script>
-    <script>
-    // ─── Service Worker + Push ────────────────────────────────────────────────
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').then(reg => {
-            console.log('[SW] registriert');
-        }).catch(e => console.warn('[SW] Fehler:', e));
-    }
     </script>
 </body>
 </html>
