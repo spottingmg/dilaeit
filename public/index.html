@@ -889,7 +889,7 @@
             }
         }
 
-        function closeTripDetails() { $('detail-view').classList.remove('active'); }
+        function closeTripDetails() { $('detail-view').classList.remove('active'); $('route-back-btn')?.remove(); }
 
         // ─── Helfer ──────────────────────────────────────────────────────────────────
         function debounce(f, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f.apply(this, a), ms); }; }
@@ -1462,6 +1462,19 @@
         let lastRouteSearchDate = null;
         let lastItineraries = [];
 
+        let lastRouteSearchDate = null;
+        let lastItineraries = [];
+        let routeResultsHtmlCache = '';
+
+        function fmtPair(planTime, realTime) {
+            const p = new Date(planTime).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+            if (!realTime) return `<span class="text-zinc-400">${p}</span>`;
+            const r = new Date(realTime).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+            const diffMin = Math.round((new Date(realTime) - new Date(planTime)) / 60000);
+            const color = diffMin >= 1 ? 'text-red-400' : 'text-green-400';
+            return `<span class="text-zinc-500 mr-1">${p}</span><span class="${color} font-semibold">${r}</span>`;
+        }
+
         function renderRouteResults(itineraries) {
             const results = $('route-results');
             lastItineraries = itineraries;
@@ -1477,9 +1490,12 @@
                 const hasRT = realLegs.some(l => l.realTime === true);
                 const allRT = realLegs.length > 0 && realLegs.every(l => l.realTime === true);
 
-                const card = document.createElement('div');
-                card.className = 'p-3 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 mb-2';
-                const legsHtml = realLegs.map(leg => {
+                const rtBadge = realLegs.length === 0 ? ''
+                    : allRT ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 text-green-400 font-semibold flex items-center gap-1"><i class="fas fa-satellite-dish text-[9px]"></i>Echtzeit</span>'
+                    : hasRT ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-yellow-600/20 text-yellow-400 font-semibold flex items-center gap-1"><i class="fas fa-satellite-dish text-[9px]"></i>Teilweise Echtzeit</span>'
+                    : '<span class="text-[10px] px-2 py-0.5 rounded-full bg-zinc-600/20 text-zinc-400 font-semibold flex items-center gap-1"><i class="fas fa-clock text-[9px]"></i>Nur Soll-Zeit</span>';
+
+                const legsShortHtml = realLegs.map(leg => {
                     const t1 = new Date(leg.from.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
                     const t2 = new Date(leg.to.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
                     const rtDot = leg.realTime
@@ -1496,68 +1512,103 @@
                     </div>`;
                 }).join('');
 
-                const rtBadge = realLegs.length === 0 ? ''
-                    : allRT ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 text-green-400 font-semibold flex items-center gap-1"><i class="fas fa-satellite-dish text-[9px]"></i>Echtzeit</span>'
-                    : hasRT ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-yellow-600/20 text-yellow-400 font-semibold flex items-center gap-1"><i class="fas fa-satellite-dish text-[9px]"></i>Teilweise Echtzeit</span>'
-                    : '<span class="text-[10px] px-2 py-0.5 rounded-full bg-zinc-600/20 text-zinc-400 font-semibold flex items-center gap-1"><i class="fas fa-clock text-[9px]"></i>Nur Soll-Zeit</span>';
-
+                const card = document.createElement('div');
+                card.className = 'rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 mb-2 overflow-hidden';
                 card.innerHTML = `
-                    <div class="flex items-center justify-between mb-2">
-                        <div class="flex items-center gap-2">
-                            <span class="font-bold">${start.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} → ${end.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
-                            ${isOtherDay ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-orange-600/20 text-orange-400 font-semibold">📅 ${startDateStr} (anderer Tag)</span>` : ''}
+                    <div class="p-3 cursor-pointer" onclick="toggleRouteDetail(${idx})">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold">${start.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} → ${end.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
+                                ${isOtherDay ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-orange-600/20 text-orange-400 font-semibold">📅 ${startDateStr} (anderer Tag)</span>` : ''}
+                            </div>
+                            <span class="text-xs text-gray-500">${durMin} min · ${Math.max(0,it.transfers)} Umstieg${it.transfers===1?'':'e'}</span>
                         </div>
-                        <span class="text-xs text-gray-500">${durMin} min · ${Math.max(0,it.transfers)} Umstieg${it.transfers===1?'':'e'}</span>
+                        <div class="flex items-center justify-between mb-2">
+                            ${rtBadge}
+                            <span class="text-[11px] font-semibold text-red-500 flex items-center gap-1">
+                                Details <i id="route-chevron-${idx}" class="fas fa-chevron-down text-[9px] transition-transform"></i>
+                            </span>
+                        </div>
+                        ${legsShortHtml}
                     </div>
-                    <div class="flex items-center justify-between mb-2">
-                        ${rtBadge}
-                        <button onclick="openRouteDetails(${idx})" class="text-[11px] font-semibold text-red-500 hover:text-red-400 flex items-center gap-1">
-                            Details <i class="fas fa-chevron-right text-[9px]"></i>
-                        </button>
-                    </div>
-                    ${legsHtml}`;
+                    <div id="route-detail-${idx}" class="hidden border-t border-gray-200 dark:border-zinc-700 px-3 py-3 space-y-3 bg-gray-50 dark:bg-zinc-900/50"></div>`;
                 results.appendChild(card);
             });
         }
 
-        function openRouteDetails(idx) {
-            const it = lastItineraries[idx];
-            if (!it) return;
-            const realLegs = it.legs.filter(l => l.mode !== 'WALK');
+        function toggleRouteDetail(idx) {
+            const detailEl  = $(`route-detail-${idx}`);
+            const chevronEl = $(`route-chevron-${idx}`);
+            const isHidden = detailEl.classList.contains('hidden');
+            if (!isHidden) { detailEl.classList.add('hidden'); chevronEl.style.transform = ''; return; }
 
-            const modalHtml = `
-            <div id="route-detail-modal" class="fixed inset-0 z-[1300] bg-black/85 backdrop-blur flex items-center justify-center p-4">
-                <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto">
-                    <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-900 sticky top-0 bg-zinc-950">
-                        <div class="font-black text-white text-sm">Verbindungsdetails</div>
-                        <button onclick="document.getElementById('route-detail-modal').remove()" class="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-900"><i class="fas fa-times"></i></button>
+            chevronEl.style.transform = 'rotate(180deg)';
+            const it = lastItineraries[idx];
+            const realLegs = it.legs.filter(l => l.mode !== 'WALK');
+            detailEl.innerHTML = realLegs.map(leg => {
+                const durMin = Math.round(leg.duration / 60);
+                return `
+                <div class="bg-white dark:bg-zinc-800 rounded-xl p-3 cursor-pointer hover:ring-2 hover:ring-red-500/40 transition-all" onclick="event.stopPropagation(); openLegItinerary(${idx}, '${leg.tripId ? leg.tripId.replace(/'/g,"\\'") : ''}')">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="px-2 py-1 rounded bg-red-600 text-white font-black italic text-xs">${leg.routeShortName || leg.mode}</span>
+                        ${leg.realTime
+                            ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 text-green-400 font-semibold"><i class="fas fa-satellite-dish text-[9px] mr-1"></i>Echtzeit</span>'
+                            : '<span class="text-[10px] px-2 py-0.5 rounded-full bg-zinc-600/20 text-zinc-400 font-semibold"><i class="fas fa-clock text-[9px] mr-1"></i>Nur Soll-Zeit</span>'}
                     </div>
-                    <div class="px-5 py-4 space-y-3">
-                        ${realLegs.map((leg, i) => {
-                            const t1 = new Date(leg.from.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
-                            const t2 = new Date(leg.to.time).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
-                            const durMin = Math.round(leg.duration / 60);
-                            return `
-                            <div class="bg-zinc-900 rounded-xl p-3">
-                                <div class="flex items-center justify-between mb-2">
-                                    <span class="px-2 py-1 rounded bg-red-600 text-white font-black italic text-xs">${leg.routeShortName || leg.mode}</span>
-                                    ${leg.realTime
-                                        ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 text-green-400 font-semibold"><i class="fas fa-satellite-dish text-[9px] mr-1"></i>Echtzeit</span>'
-                                        : '<span class="text-[10px] px-2 py-0.5 rounded-full bg-zinc-600/20 text-zinc-400 font-semibold"><i class="fas fa-clock text-[9px] mr-1"></i>Nur Soll-Zeit</span>'}
-                                </div>
-                                <div class="text-sm text-white font-semibold">${leg.from.name}</div>
-                                <div class="text-xs text-zinc-500 mono">ab ${t1}${leg.from.track ? ` · Gl. ${leg.from.track}` : ''}</div>
-                                <div class="text-[10px] text-zinc-600 my-1">↓ ${durMin} min</div>
-                                <div class="text-sm text-white font-semibold">${leg.to.name}</div>
-                                <div class="text-xs text-zinc-500 mono">an ${t2}${leg.to.track ? ` · Gl. ${leg.to.track}` : ''}</div>
-                                ${leg.headsign ? `<div class="text-[10px] text-zinc-600 mt-1">Richtung: ${leg.headsign}</div>` : ''}
-                                ${leg.agencyName ? `<div class="text-[10px] text-zinc-600">${leg.agencyName}</div>` : ''}
-                            </div>`;
-                        }).join('<div class="text-center text-[10px] text-zinc-600">↓ Umstieg ↓</div>')}
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <div class="text-zinc-500 text-[9px] uppercase">Abfahrt</div>
+                            <div class="font-semibold text-white">${leg.from.name}</div>
+                            <div class="mono mt-0.5">${fmtPair(leg.from.time, leg.realTime ? leg.from.time : null)}${leg.from.track ? ` <span class="text-zinc-600">· Gl.${leg.from.track}</span>` : ''}</div>
+                        </div>
+                        <div>
+                            <div class="text-zinc-500 text-[9px] uppercase">Ankunft</div>
+                            <div class="font-semibold text-white">${leg.to.name}</div>
+                            <div class="mono mt-0.5">${fmtPair(leg.to.time, leg.realTime ? leg.to.time : null)}${leg.to.track ? ` <span class="text-zinc-600">· Gl.${leg.to.track}</span>` : ''}</div>
+                        </div>
                     </div>
-                </div>
-            </div>`;
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
+                    <div class="text-[10px] text-zinc-600 mt-2">${durMin} min${leg.headsign ? ` · Richtung ${leg.headsign}` : ''}${leg.agencyName ? ` · ${leg.agencyName}` : ''}</div>
+                    <div class="text-[10px] text-red-500 font-semibold mt-1 flex items-center gap-1"><i class="fas fa-route text-[9px]"></i>Fahrtverlauf ansehen</div>
+                </div>`;
+            }).join('<div class="text-center text-[10px] text-zinc-600">↓ Umstieg ↓</div>');
+        }
+
+        // ─── Fahrtverlauf für einen Verbindungssuche-Leg öffnen ────────────────────────
+        function openLegItinerary(itinIdx, tripId) {
+            if (!tripId) { alert('Kein Fahrtverlauf verfügbar.'); return; }
+            // Versteckter "Zurück zur Verbindungssuche" Banner merken
+            window._routeReturnIdx = itinIdx;
+            const view = $('detail-view');
+            const itinerary = $('trip-itinerary');
+            view.classList.add('active');
+            itinerary.innerHTML = `<div class="py-20 text-center"><i class="fas fa-circle-notch fa-spin text-3xl text-red-600"></i></div>`;
+            $('detail-line-badge').textContent = '...';
+            $('detail-train-direction').textContent = 'Lade...';
+            $('detail-operator').textContent = '';
+
+            // Zurück-Button einblenden
+            let backBtn = $('route-back-btn');
+            if (!backBtn) {
+                backBtn = document.createElement('button');
+                backBtn.id = 'route-back-btn';
+                backBtn.className = 'px-3 py-2 rounded-xl bg-zinc-700 text-white text-xs font-semibold hover:bg-zinc-600 transition mr-2';
+                backBtn.innerHTML = '<i class="fas fa-arrow-left mr-1"></i>Zur Verbindungssuche';
+                backBtn.onclick = () => { closeTripDetails(); $('route-back-btn')?.remove(); };
+                $('reload-trip').insertAdjacentElement('beforebegin', backBtn);
+            }
+            backBtn.classList.remove('hidden');
+
+            fetch(`${API_BASE}/api/train-details/${encodeURIComponent(tripId)}`)
+                .then(r => r.json())
+                .then(data => {
+                    const stops = data?.stopovers || [];
+                    currentDetailStopovers = stops;
+                    if (data.line?.name) $('detail-line-badge').textContent = data.line.name;
+                    if (data.operator) $('detail-operator').textContent = data.operator;
+                    renderItinerary(stops, data?.remarks || [], data?.source || 'Transitous');
+                })
+                .catch(() => { itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden.</div>`; });
+        }
         }
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
@@ -1598,3 +1649,4 @@
     </script>
 </body>
 </html>
+                        
