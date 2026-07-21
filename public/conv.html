@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>dilaeit · Konverter</title>
+    <title>dilaeit · Transit Konverter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0a0a0a">
     <link rel="manifest" href="/manifest.json">
@@ -139,37 +139,23 @@
         return data.map(entry => {
             const s = entry.status;
             const ci = s.checkin;
-            const depISO     = ci.manualDeparture || ci.origin.departurePlanned;
-            const depRealISO = ci.origin.departureReal || null;
-            const arrISO     = ci.manualArrival   || ci.destination.arrivalPlanned;
-            const arrRealISO = ci.destination.arrivalReal || null;
-
-            const toTime = iso => iso ? new Date(iso).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : null;
-            const delay  = arrRealISO && arrISO ? Math.round((new Date(arrRealISO) - new Date(arrISO)) / 60000) : 0;
-
-            const originLat = ci.origin.latitude      || ci.origin.lat      || ci.origin.coords?.[0]      || null;
-            const originLng = ci.origin.longitude     || ci.origin.lng      || ci.origin.coords?.[1]      || null;
-            const destLat   = ci.destination.latitude || ci.destination.lat || ci.destination.coords?.[0] || null;
-            const destLng   = ci.destination.longitude|| ci.destination.lng || ci.destination.coords?.[1] || null;
+            const depISO = ci.manualDeparture || ci.origin.departurePlanned;
+            const arrISO = ci.manualArrival   || ci.destination.arrivalPlanned;
+            const arrRealISO = ci.destination.arrivalReal  || arrISO;
 
             return {
-                id:         'trw-' + s.id,
-                date:       new Date(depISO).toISOString().slice(0,10),
-                time:       toTime(depISO),
-                depReal:    toTime(depRealISO),
-                arrPlanned: toTime(arrISO),
-                arrReal:    toTime(arrRealISO),
-                depManual:  false,
-                arrManual:  false,
-                line:       ci.lineName || ci.number || '?',
-                from:       ci.origin.name,
-                to:         ci.destination.name,
-                mode:       (ci.category || 'train').toLowerCase(),
-                km:         ci.distance ? Math.round(ci.distance / 100) / 10 : null,
-                delay:      delay,
-                note:       s.body || null,
-                fromCoords: (originLat && originLng) ? [parseFloat(originLat), parseFloat(originLng)] : null,
-                toCoords:   (destLat   && destLng)   ? [parseFloat(destLat),   parseFloat(destLng)]   : null,
+                id: 'trw-' + s.id,
+                date: new Date(depISO).toISOString().slice(0,10),
+                time: new Date(depISO).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}),
+                line: ci.lineName || ci.number || '?',
+                from: ci.origin.name,
+                to: ci.destination.name,
+                mode: (ci.category || 'train').toLowerCase(),
+                km: ci.distance ? Math.round(ci.distance / 100) / 10 : null,
+                delay: Math.round((new Date(arrRealISO) - new Date(arrISO)) / 60000),
+                note: s.body || null,
+                fromCoords: ci.origin.latitude ? [ci.origin.latitude, ci.origin.longitude] : null,
+                toCoords: ci.destination.latitude ? [ci.destination.latitude, ci.destination.longitude] : null
             };
         });
     }
@@ -181,33 +167,25 @@
         return data.map(j => {
             const schedDep = parseFloat(j.sched_dep_ts) * 1000;
             const schedArr = parseFloat(j.sched_arr_ts) * 1000;
-            const rtDep    = j.rt_dep_ts ? parseFloat(j.rt_dep_ts) * 1000 : null;
-            const rtArr    = j.rt_arr_ts ? parseFloat(j.rt_arr_ts) * 1000 : null;
-
+            const rtArr    = parseFloat(j.rt_arr_ts)    * 1000;
+            
             let delay = 0;
             if (j.delay_arr != null) delay = Math.round(parseFloat(j.delay_arr) / 60);
             else if (rtArr && schedArr) delay = Math.round((rtArr - schedArr) / 60000);
 
-            const toTime = ms => ms ? new Date(ms).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : null;
-
             return {
-                id:         'tlx-' + j.id,
-                date:       new Date(schedDep).toISOString().slice(0,10),
-                time:       toTime(schedDep),
-                depReal:    rtDep ? toTime(rtDep) : null,
-                arrPlanned: toTime(schedArr),
-                arrReal:    rtArr ? toTime(rtArr) : null,
-                depManual:  false,
-                arrManual:  false,
-                line:       (j.type + ' ' + (j.line || j.no || '')).trim(),
-                from:       j.from_name,
-                to:         j.to_name,
-                mode:       j.type?.toLowerCase().includes('bus') ? 'bus' : 'train',
-                km:         j.km ? parseFloat(j.km) : null,
-                delay:      delay,
-                fromCoords: j.from_latlon || null,
-                toCoords:   j.to_latlon   || null,
-                note:       j.user_data?.comment || null
+                id: 'tlx-' + j.id,
+                date: new Date(schedDep).toISOString().slice(0,10),
+                time: new Date(schedDep).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}),
+                line: (j.type + ' ' + (j.line || j.no || '')).trim(),
+                from: j.from_name,
+                to: j.to_name,
+                mode: j.type?.toLowerCase().includes('bus') ? 'bus' : 'train',
+                km: j.km ? parseFloat(j.km) : null,
+                delay: delay,
+                fromCoords: j.from_latlon,
+                toCoords: j.to_latlon,
+                note: j.user_data?.comment || null
             };
         });
     }
@@ -215,15 +193,119 @@
     function render(data) {
         let totalKm = 0;
         data.forEach(j => { if(j.km) totalKm += j.km; });
-        
+
+        // ─── Statistiken berechnen ────────────────────────────────────────────
+        // Kategorisierung nach Modus
+        const catMap = {
+            local:       { label: 'Nahverkehr (Bus/Bahn)', modes: ['bus','tram','subway','metro','ferry','regional'], color: 'text-blue-400' },
+            regional:    { label: 'Regionalzug',            modes: ['regional-train','regio','rail'],                  color: 'text-green-400' },
+            longdist:    { label: 'Fernverkehr',            modes: ['national','national-express','high-speed','ic','ice','longdistance','long-distance'], color: 'text-red-400' },
+        };
+        const classify = m => {
+            const ml = (m||'').toLowerCase();
+            if (catMap.longdist.modes.some(x => ml.includes(x))) return 'longdist';
+            if (catMap.regional.modes.some(x => ml.includes(x))) return 'regional';
+            return 'local';
+        };
+
+        // Pünktlichkeit je Kategorie
+        const stats = { local: [], regional: [], longdist: [] };
+        data.forEach(j => { if (j.delay !== null && j.delay !== undefined) stats[classify(j.mode)].push(j.delay); });
+
+        const punctuality = cat => {
+            const arr = stats[cat]; if (!arr.length) return null;
+            const onTime = arr.filter(d => d <= 5).length;
+            const avg = arr.reduce((a,b)=>a+b,0)/arr.length;
+            return { total: arr.length, onTime, pct: Math.round(onTime/arr.length*100), avg: avg.toFixed(1) };
+        };
+
+        // Weiteste / kürzeste Strecke
+        const withKm = data.filter(j => j.km > 0);
+        const farthest = withKm.length ? withKm.reduce((a,b) => a.km>b.km?a:b) : null;
+        const shortest = withKm.length ? withKm.reduce((a,b) => a.km<b.km?a:b) : null;
+
+        // Meist gefahrene Linie
+        const lineCounts = {};
+        data.forEach(j => { lineCounts[j.line] = (lineCounts[j.line]||0)+1; });
+        const topLines = Object.entries(lineCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+        // Meist gefahrene Strecke
+        const routeCounts = {};
+        data.forEach(j => { const k=`${j.from}→${j.to}`; routeCounts[k]=(routeCounts[k]||0)+1; });
+        const topRoutes = Object.entries(routeCounts).sort((a,b)=>b[1]-a[1]).slice(0,3);
+
+        // Längster Streak (aufeinanderfolgende pünktliche Tage)
+        let maxStreak=0, curStreak=0;
+        [...data].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(j=>{
+            if((j.delay||0)<=5){curStreak++;maxStreak=Math.max(maxStreak,curStreak);}else curStreak=0;
+        });
+
+        // Durchschnittliche Verspätung gesamt
+        const allDelays = data.filter(j=>j.delay!==null&&j.delay!==undefined).map(j=>j.delay);
+        const avgDelay = allDelays.length ? (allDelays.reduce((a,b)=>a+b,0)/allDelays.length).toFixed(1) : '—';
+        const onTimePct = allDelays.length ? Math.round(allDelays.filter(d=>d<=5).length/allDelays.length*100) : '—';
+
+        // Pünktlichkeits-Badges
+        const pctColor = p => p>=90?'text-green-400':p>=75?'text-yellow-400':'text-red-400';
+        const catHtml = ['local','regional','longdist'].map(cat => {
+            const s = punctuality(cat); if (!s) return '';
+            const c = catMap[cat];
+            return `<div class="scard">
+                <div class="text-xs text-zinc-500 uppercase mb-2">${c.label}</div>
+                <div class="flex items-end gap-3">
+                    <div><div class="text-2xl font-black mono ${pctColor(s.pct)}">${s.pct}%</div><div class="text-[10px] text-zinc-500">pünktlich (≤5 min)</div></div>
+                    <div class="text-right ml-auto"><div class="text-sm font-bold mono text-zinc-300">∅ +${s.avg}'</div><div class="text-[10px] text-zinc-500">${s.total} Fahrten</div></div>
+                </div>
+            </div>`;
+        }).join('');
+
         document.getElementById('stat-row').innerHTML = `
-            <div class="scard">
-                <div class="text-2xl font-black text-white mono">${data.length}</div>
-                <div class="text-[10px] text-zinc-500 uppercase mt-1">Fahrten</div>
+            <div class="scard"><div class="text-2xl font-black text-white mono">${data.length}</div><div class="text-[10px] text-zinc-500 uppercase mt-1">Fahrten</div></div>
+            <div class="scard"><div class="text-2xl font-black text-blue-400 mono">${Math.round(totalKm).toLocaleString('de-DE')}</div><div class="text-[10px] text-zinc-500 uppercase mt-1">km gesamt</div></div>
+            <div class="scard"><div class="text-2xl font-black mono ${pctColor(Number(onTimePct))}">${onTimePct}%</div><div class="text-[10px] text-zinc-500 uppercase mt-1">gesamt pünktlich</div></div>
+            <div class="scard"><div class="text-2xl font-black mono text-yellow-400">∅ +${avgDelay}'</div><div class="text-[10px] text-zinc-500 uppercase mt-1">Ø Verspätung</div></div>
+        `;
+
+        // Statistik-Abschnitt einfügen
+        let statsSection = document.getElementById('stats-section');
+        if (!statsSection) {
+            statsSection = document.createElement('div');
+            statsSection.id = 'stats-section';
+            document.getElementById('result-section').insertAdjacentElement('afterbegin', statsSection);
+        }
+        statsSection.className = 'space-y-4 mb-6';
+        statsSection.innerHTML = `
+            <div class="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">Pünktlichkeit nach Kategorie</div>
+            <div class="grid grid-cols-1 gap-3">${catHtml}</div>
+
+            <div class="text-xs font-bold uppercase tracking-wider text-zinc-500 mt-4 mb-2">Highlights</div>
+            <div class="grid grid-cols-1 gap-3">
+                ${farthest ? `<div class="scard"><div class="text-xs text-zinc-500 uppercase mb-1">Weiteste Fahrt</div><div class="font-bold text-white">${farthest.line} · ${farthest.from} → ${farthest.to}</div><div class="text-sm font-black text-blue-400 mono mt-1">${farthest.km} km · ${farthest.date}</div></div>` : ''}
+                ${shortest ? `<div class="scard"><div class="text-xs text-zinc-500 uppercase mb-1">Kürzeste Fahrt</div><div class="font-bold text-white">${shortest.line} · ${shortest.from} → ${shortest.to}</div><div class="text-sm font-black text-blue-400 mono mt-1">${shortest.km} km · ${shortest.date}</div></div>` : ''}
+                <div class="scard"><div class="text-xs text-zinc-500 uppercase mb-1">Längster Pünktlichkeits-Streak</div><div class="text-2xl font-black text-green-400 mono">${maxStreak}</div><div class="text-[10px] text-zinc-500">aufeinanderfolgende pünktliche Fahrten</div></div>
             </div>
-            <div class="scard">
-                <div class="text-2xl font-black text-blue-400 mono">${Math.round(totalKm)}</div>
-                <div class="text-[10px] text-zinc-500 uppercase mt-1">km gesamt</div>
+
+            <div class="text-xs font-bold uppercase tracking-wider text-zinc-500 mt-4 mb-2">Top 5 Linien</div>
+            <div class="scard space-y-2">
+                ${topLines.map(([line, cnt], i) => `
+                    <div class="flex items-center gap-3">
+                        <span class="text-zinc-600 mono text-sm w-5">${i+1}.</span>
+                        <span class="px-2 py-0.5 rounded bg-red-600 text-white font-black italic text-xs">${line}</span>
+                        <div class="flex-1 bg-zinc-800 rounded-full h-1.5">
+                            <div class="bg-red-500 h-1.5 rounded-full" style="width:${Math.round(cnt/topLines[0][1]*100)}%"></div>
+                        </div>
+                        <span class="text-zinc-400 text-xs mono">${cnt}×</span>
+                    </div>`).join('')}
+            </div>
+
+            <div class="text-xs font-bold uppercase tracking-wider text-zinc-500 mt-4 mb-2">Top 3 Strecken</div>
+            <div class="scard space-y-2">
+                ${topRoutes.map(([route, cnt], i) => `
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-zinc-600 mono text-sm shrink-0">${i+1}.</span>
+                        <span class="text-xs text-white flex-1">${route}</span>
+                        <span class="text-zinc-400 text-xs mono shrink-0">${cnt}×</span>
+                    </div>`).join('')}
             </div>
         `;
 
@@ -238,7 +320,7 @@
                 <td class="${j.delay > 0 ? 'text-red-400' : 'text-green-400'} font-bold mono">${j.delay > 0 ? '+' : ''}${j.delay}'</td>
             </tr>
         `).join('');
-        
+
         document.getElementById('preview-hint').textContent = data.length > 100 ? `Vorschau: Erste 100 von ${data.length} Fahrten` : `${data.length} Fahrten bereit zum Download.`;
         document.getElementById('result-section').classList.remove('hidden');
     }
