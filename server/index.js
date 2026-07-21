@@ -1638,11 +1638,14 @@ const port = Number(process.env.PORT || 8787);
 app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 dilaeit läuft auf Port ${port}`);
 
-    // Self-Ping: hält Render Free Tier wach (alle 14 Min)
+    // Self-Ping: hält Render Free Tier wach (alle 14 Min, < 15 Min Sleep-Grenze)
     const appUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL;
     if (appUrl) {
         setInterval(() => {
-            fetch(`${appUrl}/api/health`).catch(() => {});
+            const mod = appUrl.startsWith('https') ? 'https' : 'http';
+            import(mod).then(m => {
+                m.get(`${appUrl}/api/health`, r => r.resume()).on('error', () => {});
+            }).catch(() => {});
         }, 14 * 60 * 1000);
         console.log(`🏓 Self-Ping aktiv: ${appUrl}`);
     }
