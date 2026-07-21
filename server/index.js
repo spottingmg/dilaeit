@@ -374,61 +374,6 @@ app.get('/api/db/locations', async (req, res) => {
 
 
 
-// ─── Verbindungssuche Transitous ──────────────────────────────────────────────
-
-app.get('/api/plan', async (req, res) => {
-    try {
-        const { fromId, toId, viaId, datetime, mode } = req.query;
-        if (!fromId || !toId) return res.status(400).json({ error: 'fromId und toId erforderlich' });
-
-        // Transitmodi je nach Filter (MOTIS/Transitous Standard-Modi)
-        // mode: 'all' | 'local' | 'longdistance' | 'bus' | 'tram'
-        let transitModes = null;
-        if (mode === 'local') transitModes = ['REGIONAL_RAIL', 'REGIONAL_FAST_RAIL', 'BUS', 'TRAM', 'SUBWAY'];
-        else if (mode === 'longdistance') transitModes = ['HIGHSPEED_RAIL', 'LONG_DISTANCE', 'NIGHT_RAIL'];
-        else if (mode === 'bus') transitModes = ['BUS'];
-        else if (mode === 'tram') transitModes = ['TRAM'];
-
-        const params = new URLSearchParams({
-            fromPlace: fromId,
-            toPlace:   toId,
-            time:      datetime || new Date().toISOString(),
-            arriveBy:  'false',
-            numItineraries: '6',
-        });
-        if (viaId) params.set('via', viaId);
-        if (transitModes) params.set('transitModes', transitModes.join(','));
-
-        const r = await fetch(`${TRANSITOUS}/plan?${params}`, {
-            signal: AbortSignal.timeout(15000), headers: TR_HEADERS
-        });
-        if (!r.ok) throw new Error(`Transitous plan ${r.status}: ${await r.text().catch(()=>'')}`);
-        const data = await r.json();
-
-        const itineraries = (data.itineraries || []).map(it => ({
-            startTime: it.startTime, endTime: it.endTime,
-            duration:  it.duration,
-            transfers: (it.legs || []).filter(l => l.mode !== 'WALK').length - 1,
-            legs: (it.legs || []).map(leg => ({
-                mode:        leg.mode,
-                tripId:      leg.tripId || null,
-                routeShortName: leg.routeShortName || leg.displayName || leg.tripShortName || '',
-                headsign:    leg.headsign || '',
-                from:        { name: leg.from?.name || '', time: leg.startTime, track: leg.from?.track || null },
-                to:          { name: leg.to?.name   || '', time: leg.endTime,   track: leg.to?.track   || null },
-                realTime:    leg.realTime === true,
-                duration:    leg.duration,
-                agencyName:  leg.agencyName || null,
-            })),
-        }));
-
-        res.json({ itineraries });
-    } catch (e) {
-        console.error('[Plan]', e.message);
-        res.status(502).json({ error: e.message });
-    }
-});
-
 // ─── Abfahrten VRR ───────────────────────────────────────────────────────────
 
 app.get('/api/stops/:stopId/departures', async (req, res) => {
@@ -1690,4 +1635,15 @@ setInterval(async () => {
 
 const port = Number(process.env.PORT || 8787);
 
-app.listen(port, '0.0.0.0', () => console.log(`🚀 dilaeit läuft auf Port ${port}`));
+app.listen(port, '0.0.0.0', () => {
+    console.log(`🚀 dilaeit läuft auf Port ${port}`);
+
+    // Self-Ping: hält Render Free Tier wach (alle 14 Min)
+    const appUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL;
+    if (appUrl) {
+        setInterval(() => {
+            fetch(`${appUrl}/api/health`).catch(() => {});
+        }, 14 * 60 * 1000);
+        console.log(`🏓 Self-Ping aktiv: ${appUrl}`);
+    }
+});
