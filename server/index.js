@@ -374,6 +374,62 @@ app.get('/api/db/locations', async (req, res) => {
 
 
 
+// ─── Verbindungssuche Transitous ──────────────────────────────────────────────
+
+const ROUTE_MODE_FILTER = {
+    // 'all' -> kein transitModes-Filter, Transitous-Default (TRANSIT = alles)
+    local:        'REGIONAL_RAIL,SUBURBAN,SUBWAY,TRAM,BUS,FERRY',
+    longdistance: 'HIGHSPEED_RAIL,LONG_DISTANCE,NIGHT_RAIL,COACH',
+    bus:          'BUS,COACH',
+    tram:         'TRAM,SUBWAY',
+};
+
+app.get('/api/plan', async (req, res) => {
+    try {
+        const { fromId, toId, viaId, datetime, mode } = req.query;
+        if (!fromId || !toId) return res.status(400).json({ error: 'fromId und toId erforderlich' });
+
+        const params = new URLSearchParams({
+            fromPlace: fromId,
+            toPlace:   toId,
+        });
+        if (datetime) params.set('time', datetime);
+        if (viaId) params.set('via', viaId);
+        const transitModes = ROUTE_MODE_FILTER[mode];
+        if (transitModes) params.set('transitModes', transitModes);
+
+        const r = await fetch(`${TRANSITOUS}/plan?${params}`, {
+            signal: AbortSignal.timeout(15000), headers: TR_HEADERS
+        });
+        if (!r.ok) throw new Error(`Transitous plan ${r.status}`);
+        const data = await r.json();
+
+        // Transitous liefert pro Ort departure/arrival statt eines einzelnen "time"-Felds,
+        // das Frontend erwartet aber leg.from.time / leg.to.time
+        const itineraries = (data.itineraries || []).map(it => ({
+            ...it,
+            legs: (it.legs || []).map(leg => ({
+                ...leg,
+                from: {
+                    ...leg.from,
+                    time: leg.from?.departure || leg.from?.scheduledDeparture || leg.from?.arrival || null,
+                },
+                to: {
+                    ...leg.to,
+                    time: leg.to?.arrival || leg.to?.scheduledArrival || leg.to?.departure || null,
+                },
+            })),
+        }));
+
+        res.json({ itineraries });
+    } catch (e) {
+        console.error('[Transitous plan]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
+
+
+
 // ─── Abfahrten VRR ───────────────────────────────────────────────────────────
 
 app.get('/api/stops/:stopId/departures', async (req, res) => {
@@ -691,8 +747,8 @@ app.get('/api/trips/:tripId', async (req, res) => {
             const eD = toIsoStringOrNull(s.departureTimeEstimated);
 
             const hasRT = !!(eA || eD);
-            const aA = eA || pA;
-            const aD = eD || pD;
+            const aA = eA || null;
+            const aD = eD || null;
 
             const stopRemarks = [];
             // Stop-spezifische Hints und Infos
