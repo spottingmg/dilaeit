@@ -1461,9 +1461,6 @@
 
         let lastRouteSearchDate = null;
         let lastItineraries = [];
-
-        let lastRouteSearchDate = null;
-        let lastItineraries = [];
         let routeResultsHtmlCache = '';
 
         function fmtPair(planTime, realTime) {
@@ -1609,7 +1606,6 @@
                 })
                 .catch(() => { itinerary.innerHTML = `<div class="py-20 text-center text-red-500">Fehler beim Laden.</div>`; });
         }
-        }
         function toggleMap() { alert('Live-Karte aktuell deaktiviert.'); }
 
         // ─── Check-In ─────────────────────────────────────────────────────────────────
@@ -1649,4 +1645,3 @@
     </script>
 </body>
 </html>
-                        
