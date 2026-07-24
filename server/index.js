@@ -146,7 +146,7 @@ const OPEN_SERVICE_BASE = () => activeEfaBase;
 
 const TRANSITOUS = 'https://api.transitous.org/api/v5';
 
-const TR_HEADERS = { 'Referer': 'https://dilaeit.onrender.com' };
+const TR_HEADERS = { 'User-Agent': 'dilaeit/1.0 (+https://dilaeit.onrender.com)', 'Referer': 'https://dilaeit.onrender.com' };
 
 
 
