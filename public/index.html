@@ -1540,6 +1540,7 @@
             if (!isHidden) { detailEl.classList.add('hidden'); chevronEl.style.transform = ''; return; }
 
             chevronEl.style.transform = 'rotate(180deg)';
+            detailEl.classList.remove('hidden');
             const it = lastItineraries[idx];
             const realLegs = it.legs.filter(l => l.mode !== 'WALK');
             detailEl.innerHTML = realLegs.map(leg => {
