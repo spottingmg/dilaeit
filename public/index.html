@@ -1632,7 +1632,10 @@
             }
             backBtn.classList.remove('hidden');
 
-            fetch(`${API_BASE}/api/train-details/${encodeURIComponent(tripId)}`)
+            const detailsEndpoint = tripId.includes(':') ? '/api/train-details/' + encodeURIComponent(tripId)
+                : tripId.includes('|') ? '/api/hafas/train-details/' + encodeURIComponent(tripId)
+                : '/api/trips/' + encodeURIComponent(tripId);
+            fetch(`${API_BASE}${detailsEndpoint}`)
                 .then(r => r.json())
                 .then(data => {
                     const stops = data?.stopovers || [];
