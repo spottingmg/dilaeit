@@ -430,6 +430,152 @@ app.get('/api/plan', async (req, res) => {
 
 
 
+// ─── Verbindungssuche DB (hafas-client) ───────────────────────────────────────
+
+app.get('/api/hafas/locations', async (req, res) => {
+    try {
+        const query = (req.query.query || '').toString().trim();
+        if (query.length < 2) return res.json({ locations: [] });
+        const results = await hafas.locations(query, { results: 12, stops: true, addresses: false, poi: false });
+        const locs = (results || [])
+            .filter(l => l && l.id && l.name)
+            .map(l => ({ id: l.id, name: l.name, type: 'stop', source: 'DB' }));
+        res.json({ locations: locs });
+    } catch (e) {
+        console.error('[DB HAFAS locations]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
+
+const HAFAS_MODE_FILTER = {
+    local:        { nationalExpress: false, national: false, regionalExp: true,  regional: true,  suburban: true,  bus: true,  ferry: true,  subway: true,  tram: true  },
+    longdistance: { nationalExpress: true,  national: true,  regionalExp: false, regional: false, suburban: false, bus: false, ferry: false, subway: false, tram: false },
+    bus:          { nationalExpress: false, national: false, regionalExp: false, regional: false, suburban: false, bus: true,  ferry: false, subway: false, tram: false },
+    tram:         { nationalExpress: false, national: false, regionalExp: false, regional: false, suburban: false, bus: false, ferry: false, subway: true,  tram: true  },
+};
+
+app.get('/api/hafas/plan', async (req, res) => {
+    try {
+        const { fromId, toId, viaId, datetime, mode } = req.query;
+        if (!fromId || !toId) return res.status(400).json({ error: 'fromId und toId erforderlich' });
+
+        const opts = { results: 6, stopovers: false };
+        if (datetime) opts.departure = new Date(datetime);
+        if (viaId) opts.via = viaId;
+        Object.assign(opts, HAFAS_MODE_FILTER[mode] || {});
+
+        const { journeys } = await hafas.journeys(fromId, toId, opts);
+
+        const itineraries = (journeys || []).map(j => {
+            const legs = j.legs || [];
+            const realLegs = legs.filter(l => !l.walking);
+            const first = legs[0], last = legs[legs.length - 1];
+            const startTime = toIsoStringOrNull(first?.departure || first?.plannedDeparture);
+            const endTime   = toIsoStringOrNull(last?.arrival || last?.plannedArrival);
+            return {
+                startTime, endTime,
+                duration: startTime && endTime ? Math.round((new Date(endTime) - new Date(startTime)) / 1000) : null,
+                transfers: Math.max(0, realLegs.length - 1),
+                legs: legs.map(l => {
+                    const dep  = toIsoStringOrNull(l.departure || l.plannedDeparture);
+                    const arr  = toIsoStringOrNull(l.arrival || l.plannedArrival);
+                    return {
+                        mode: l.walking ? 'WALK' : (l.line?.product || l.line?.mode || 'train'),
+                        realTime: !!(l.departure || l.arrival),
+                        routeShortName: l.line?.name || '',
+                        from: { name: l.origin?.name, time: dep, track: l.departurePlatform || l.plannedDeparturePlatform || null },
+                        to:   { name: l.destination?.name, time: arr, track: l.arrivalPlatform || l.plannedArrivalPlatform || null },
+                        duration: dep && arr ? Math.round((new Date(arr) - new Date(dep)) / 1000) : null,
+                        tripId: l.tripId || null,
+                        headsign: l.direction || null,
+                        agencyName: l.line?.operator?.name || null,
+                    };
+                }),
+            };
+        });
+
+        res.json({ itineraries });
+    } catch (e) {
+        console.error('[DB HAFAS journeys]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
+
+
+
+// ─── Verbindungssuche VRR (EFA-Trip) ──────────────────────────────────────────
+
+const VRR_MODE_FILTER = {
+    // inclMOT 0-11; ohne Eintrag = alle erlaubt
+    longdistance: { 0: 1 },
+    bus:          { 5: 1, 6: 1, 7: 1 },
+    tram:         { 3: 1, 4: 1 },
+};
+
+app.get('/api/vrr/plan', async (req, res) => {
+    try {
+        const { fromId, toId, viaId, datetime, mode } = req.query;
+        if (!fromId || !toId) return res.status(400).json({ error: 'fromId und toId erforderlich' });
+
+        const params = {
+            outputFormat: 'rapidJSON', version: EFA_VERSION, language: 'de',
+            type_origin: 'any', name_origin: fromId,
+            type_destination: 'any', name_destination: toId,
+            itdTripDateTimeDepArr: 'dep',
+            calcNumberOfTrips: 6,
+            ...getLocalEfaTime(datetime ? new Date(datetime) : new Date()),
+        };
+        if (viaId) { params.type_via = 'any'; params.name_via = viaId; }
+
+        const filter = VRR_MODE_FILTER[mode];
+        for (let i = 0; i <= 11; i++) params[`inclMOT_${i}`] = filter ? (filter[i] ? 1 : 0) : 1;
+
+        const data = await efaGet('XML_TRIP_REQUEST2', params);
+        const journeys = data.journeys || [];
+
+        const itineraries = journeys.map(j => {
+            const legs = j.legs || [];
+            const isWalkLeg = l => l.transportation?.product?.name === 'Fussweg' || l.transportation?.name === 'Fussweg' || l.transportation?.product?.class === 99;
+            const realLegs = legs.filter(l => !isWalkLeg(l));
+            const first = legs[0], last = legs[legs.length - 1];
+            const startTime = toIsoStringOrNull(first?.origin?.departureTimeEstimated || first?.origin?.departureTimePlanned);
+            const endTime   = toIsoStringOrNull(last?.destination?.arrivalTimeEstimated || last?.destination?.arrivalTimePlanned);
+            return {
+                startTime, endTime,
+                duration: startTime && endTime ? Math.round((new Date(endTime) - new Date(startTime)) / 1000) : null,
+                transfers: j.interchanges ?? Math.max(0, realLegs.length - 1),
+                legs: legs.map(l => {
+                    const walk = isWalkLeg(l);
+                    const pD = toIsoStringOrNull(l.origin?.departureTimePlanned);
+                    const eD = toIsoStringOrNull(l.origin?.departureTimeEstimated);
+                    const pA = toIsoStringOrNull(l.destination?.arrivalTimePlanned);
+                    const eA = toIsoStringOrNull(l.destination?.arrivalTimeEstimated);
+                    return {
+                        mode: walk ? 'WALK' : (l.transportation?.product?.name || 'transit'),
+                        realTime: !!(eD || eA),
+                        routeShortName: l.transportation?.number || l.transportation?.disassembledName || l.transportation?.name || '',
+                        from: { name: l.origin?.name, time: eD || pD, track: l.origin?.properties?.platformName || null },
+                        to:   { name: l.destination?.name, time: eA || pA, track: l.destination?.properties?.platformName || null },
+                        duration: l.duration || null,
+                        tripId: (!walk && l.transportation?.properties?.tripCode)
+                            ? encodeTripId({ transportation: l.transportation, location: l.origin, plannedWhen: pD })
+                            : null,
+                        headsign: l.transportation?.destination?.name || null,
+                        agencyName: l.transportation?.operator?.name || null,
+                    };
+                }),
+            };
+        });
+
+        res.json({ itineraries });
+    } catch (e) {
+        console.error('[VRR EFA trip]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
+
+
+
 // ─── Abfahrten VRR ───────────────────────────────────────────────────────────
 
 app.get('/api/stops/:stopId/departures', async (req, res) => {
