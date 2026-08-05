@@ -430,19 +430,23 @@ app.get('/api/plan', async (req, res) => {
 
 
 
-// ─── Verbindungssuche DB (hafas-client) ───────────────────────────────────────
+// ─── Verbindungssuche DB (v6.db.transport.rest) ───────────────────────────────
+const DB_HAFAS_REST = 'https://v6.db.transport.rest';
 
 app.get('/api/hafas/locations', async (req, res) => {
     try {
         const query = (req.query.query || '').toString().trim();
         if (query.length < 2) return res.json({ locations: [] });
-        const results = await hafas.locations(query, { results: 12, stops: true, addresses: false, poi: false });
-        const locs = (results || [])
+        const params = new URLSearchParams({ query, results: '12', stops: 'true', addresses: 'false', poi: 'false' });
+        const r = await fetch(`${DB_HAFAS_REST}/locations?${params}`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error(`DB REST locations ${r.status}`);
+        const data = await r.json();
+        const locs = (Array.isArray(data) ? data : [])
             .filter(l => l && l.id && l.name)
             .map(l => ({ id: l.id, name: l.name, type: 'stop', source: 'DB' }));
         res.json({ locations: locs });
     } catch (e) {
-        console.error('[DB HAFAS locations]', e.message);
+        console.error('[DB REST locations]', e.message);
         res.status(502).json({ error: e.message });
     }
 });
@@ -459,14 +463,18 @@ app.get('/api/hafas/plan', async (req, res) => {
         const { fromId, toId, viaId, datetime, mode } = req.query;
         if (!fromId || !toId) return res.status(400).json({ error: 'fromId und toId erforderlich' });
 
-        const opts = { results: 6, stopovers: false };
-        if (datetime) opts.departure = new Date(datetime);
-        if (viaId) opts.via = viaId;
-        Object.assign(opts, HAFAS_MODE_FILTER[mode] || {});
+        const params = new URLSearchParams({ from: fromId, to: toId, results: '6', stopovers: 'false' });
+        if (datetime) params.set('departure', new Date(datetime).toISOString());
+        if (viaId) params.set('via', viaId);
+        const filter = HAFAS_MODE_FILTER[mode];
+        if (filter) for (const [k, v] of Object.entries(filter)) params.set(k, String(v));
 
-        const { journeys } = await hafas.journeys(fromId, toId, opts);
+        const r = await fetch(`${DB_HAFAS_REST}/journeys?${params}`, { signal: AbortSignal.timeout(12000) });
+        if (!r.ok) throw new Error(`DB REST journeys ${r.status}: ${await r.text().catch(()=>'')}`);
+        const data = await r.json();
+        const journeys = data.journeys || [];
 
-        const itineraries = (journeys || []).map(j => {
+        const itineraries = journeys.map(j => {
             const legs = j.legs || [];
             const realLegs = legs.filter(l => !l.walking);
             const first = legs[0], last = legs[legs.length - 1];
@@ -496,7 +504,46 @@ app.get('/api/hafas/plan', async (req, res) => {
 
         res.json({ itineraries });
     } catch (e) {
-        console.error('[DB HAFAS journeys]', e.message);
+        console.error('[DB REST journeys]', e.message);
+        res.status(502).json({ error: e.message });
+    }
+});
+
+
+
+app.get('/api/hafas/train-details/:tripId', async (req, res) => {
+    try {
+        const tripId = decodeURIComponent(req.params.tripId);
+        const params = new URLSearchParams({ stopovers: 'true', polyline: 'false' });
+        const r = await fetch(`${DB_HAFAS_REST}/trips/${encodeURIComponent(tripId)}?${params}`, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) throw new Error(`DB REST trip ${r.status}`);
+        const data = await r.json();
+        const trip = data.trip || data;
+        const stops = trip.stopovers || [];
+
+        const stopovers = stops.map(s => {
+            const pA = toIsoStringOrNull(s.plannedArrival);
+            const pD = toIsoStringOrNull(s.plannedDeparture);
+            const aA = toIsoStringOrNull(s.arrival);
+            const aD = toIsoStringOrNull(s.departure);
+            return {
+                stop: { name: s.stop?.name || '', id: s.stop?.id || null },
+                plannedArrival: pA, arrival: aA || pA,
+                plannedDeparture: pD, departure: aD || pD,
+                arrivalDelaySec:   (pA && aA) ? Math.round((new Date(aA) - new Date(pA)) / 1000) : null,
+                departureDelaySec: (pD && aD) ? Math.round((new Date(aD) - new Date(pD)) / 1000) : null,
+                platform: s.platform || null, plannedPlatform: s.plannedPlatform || null,
+                cancelled: s.cancelled || false, additional: false, remarks: []
+            };
+        });
+
+        res.json({
+            stopovers, remarks: [], source: 'DB',
+            operator: trip.line?.operator?.name || null,
+            line: { name: trip.line?.name || '', product: trip.line?.product || '' }
+        });
+    } catch (e) {
+        console.error('[DB REST trip]', e.message);
         res.status(502).json({ error: e.message });
     }
 });
