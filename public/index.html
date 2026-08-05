@@ -212,7 +212,14 @@
         </div>
 
         <div class="mt-6 p-4 rounded-2xl bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 space-y-3">
-            <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Verbindungssuche</h3>
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">Verbindungssuche</h3>
+                <div class="flex bg-gray-200 dark:bg-zinc-800 p-1 rounded-xl">
+                    <button data-route-source="vrr"        class="route-source-btn px-3 py-1 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300">VRR</button>
+                    <button data-route-source="db"          class="route-source-btn px-3 py-1 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-300">DB</button>
+                    <button data-route-source="transitous"  class="route-source-btn px-3 py-1 rounded-lg text-xs font-bold transition-all bg-red-600 text-white shadow-sm">Transitous</button>
+                </div>
+            </div>
             <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
                 <div class="relative">
                     <input id="route-start" type="text" placeholder="Start" class="w-full rounded-xl p-2 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700" />
@@ -471,6 +478,7 @@
             
             // Verbindungssuche
             $('route-search').onclick = startRouteSearch;
+            setupRouteSourceButtons();
             setupRouteAutocomplete('route-start', 'route-start-results', 'start');
             setupRouteAutocomplete('route-via',   'route-via-results',   'via');
             setupRouteAutocomplete('route-dest',  'route-dest-results',  'dest');
@@ -1385,6 +1393,34 @@
         // ─── Verbindungssuche ────────────────────────────────────────────────────────
         let routeSelected = { start: null, via: null, dest: null };
         let routeMode = 'all';
+        let routeSource = 'transitous'; // 'vrr' | 'db' | 'transitous'
+
+        function routeLocationsEndpoint() {
+            return routeSource === 'vrr' ? '/api/locations'
+                 : routeSource === 'db'  ? '/api/hafas/locations'
+                 : '/api/db/locations';
+        }
+        function routePlanEndpoint() {
+            return routeSource === 'vrr' ? '/api/vrr/plan'
+                 : routeSource === 'db'  ? '/api/hafas/plan'
+                 : '/api/plan';
+        }
+
+        function setupRouteSourceButtons() {
+            document.querySelectorAll('.route-source-btn').forEach(btn => {
+                btn.onclick = () => {
+                    routeSource = btn.dataset.routeSource;
+                    document.querySelectorAll('.route-source-btn').forEach(b => {
+                        const active = b === btn;
+                        b.className = `route-source-btn px-3 py-1 rounded-lg text-xs font-bold transition-all ${active ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`;
+                    });
+                    // Stations-IDs sind API-spezifisch -> bei Quellenwechsel zurücksetzen
+                    routeSelected = { start: null, via: null, dest: null };
+                    ['route-start', 'route-via', 'route-dest'].forEach(id => { $(id).value = ''; });
+                    $('route-results').innerHTML = '';
+                };
+            });
+        }
 
         function setupRouteAutocomplete(inputId, resultsId, key) {
             const input = $(inputId), results = $(resultsId);
@@ -1392,7 +1428,7 @@
                 const q = input.value.trim();
                 if (q.length < 2) { results.classList.add('hidden'); return; }
                 try {
-                    const r = await fetch(`${API_BASE}/api/db/locations?query=${encodeURIComponent(q)}`);
+                    const r = await fetch(`${API_BASE}${routeLocationsEndpoint()}?query=${encodeURIComponent(q)}`);
                     const d = await r.json();
                     const locs = d.locations || [];
                     results.innerHTML = '';
@@ -1451,7 +1487,7 @@
                 });
                 if (routeSelected.via) params.set('viaId', routeSelected.via.id);
 
-                const r = await fetch(`${API_BASE}/api/plan?${params}`);
+                const r = await fetch(`${API_BASE}${routePlanEndpoint()}?${params}`);
                 const data = await r.json();
                 renderRouteResults(data.itineraries || []);
             } catch (e) {
